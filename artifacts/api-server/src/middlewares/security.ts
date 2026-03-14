@@ -17,7 +17,7 @@ const SUSPICIOUS_HEADERS = [
 
 // ── Bot / Scanner Detection ────────────────────────────────────────────────────
 export function botDetection(req: Request, res: Response, next: NextFunction) {
-  if (req.path === "/healthz") {
+  if (req.path.endsWith("/healthz")) {
     return next();
   }
 
