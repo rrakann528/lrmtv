@@ -15,11 +15,21 @@ import { getIO } from "../lib/socket";
 const router: IRouter = Router();
 
 // ─── VAPID ────────────────────────────────────────────────────────────────────
-webpush.setVapidDetails(
-  process.env.VAPID_EMAIL!,
-  process.env.VAPID_PUBLIC_KEY!,
-  process.env.VAPID_PRIVATE_KEY!,
-);
+let vapidReady = false;
+try {
+  if (process.env.VAPID_EMAIL && process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+    webpush.setVapidDetails(
+      process.env.VAPID_EMAIL,
+      process.env.VAPID_PUBLIC_KEY,
+      process.env.VAPID_PRIVATE_KEY,
+    );
+    vapidReady = true;
+  } else {
+    console.warn("[push] VAPID env vars missing — push notifications disabled");
+  }
+} catch (err) {
+  console.warn("[push] Invalid VAPID keys — push notifications disabled:", (err as Error).message);
+}
 
 /** Send a push notification and delete stale subscription on 404/410 */
 async function sendPush(sub: { id: number; endpoint: string; p256dh: string; auth: string }, payload: string) {
