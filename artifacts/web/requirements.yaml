@@ -1,0 +1,29 @@
+packages:
+  "socket.io-client": "Real-time communication for video sync and chat"
+  "react-player": "Multi-source video player support (YouTube, Twitch, mp4)"
+  "framer-motion": "Cinematic UI animations and page transitions"
+  "emoji-picker-react": "Emoji picker for live chat"
+  "@hello-pangea/dnd": "Drag and drop sorting for the playlist"
+  "zustand": "Lightweight global state for user session and room state"
+  "clsx": "Utility for conditionally joining class names"
+  "tailwind-merge": "Utility for merging tailwind classes without style conflicts"
+  "date-fns": "Formatting timestamps in chat"
+
+images:
+  - path: "artifacts/web/public/images/hero-bg.png"
+    description: "Cinematic abstract background with deep space dark blues, glowing neon cyan and magenta light leaks, volumetric lighting, 8k resolution, glassmorphism style"
+    aspect_ratio: "16:9"
+  - path: "artifacts/web/public/images/lounge-1.png"
+    description: "Cyberpunk apartment interior at night, overlooking a neon city, cozy cinematic lighting, blurred background for text overlay"
+    aspect_ratio: "16:9"
+  - path: "artifacts/web/public/images/lounge-2.png"
+    description: "Minimalist modern luxury home theater room, dark acoustic walls, subtle ambient led lighting, cinematic atmosphere"
+    aspect_ratio: "16:9"
+  - path: "artifacts/web/public/images/lounge-3.png"
+    description: "Abstract geometric 3D shapes floating in deep dark void, glowing edge highlights in purple and teal, high-end 3D render"
+    aspect_ratio: "16:9"
+
+notes:
+  - Expects Socket.io server to be running on the same host/port as the API (available via relative path '/')
+  - WebRTC signaling relies on standard Socket.io events
+  - API uses generated Tanstack Query hooks from @workspace/api-client-react
