@@ -73,7 +73,7 @@ const frontendDist = process.env.FRONTEND_DIST
   : path.resolve(process.cwd(), "artifacts/web/dist/public");
 if (process.env.NODE_ENV === "production" && existsSync(frontendDist)) {
   app.use(express.static(frontendDist, { maxAge: "7d", etag: true }));
-  app.get("*", (_req, res) => {
+  app.use((_req, res) => {
     res.sendFile(path.join(frontendDist, "index.html"));
   });
 } else {
