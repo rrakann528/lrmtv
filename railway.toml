@@ -1,6 +1,6 @@
 [build]
 builder = "NIXPACKS"
-buildCommand = "pnpm install && BASE_PATH=/ pnpm --filter @workspace/web build && pnpm --filter @workspace/api-server build && pnpm --filter @workspace/db push"
+buildCommand = "pnpm install --no-frozen-lockfile && BASE_PATH=/ pnpm --filter @workspace/web build && pnpm --filter @workspace/api-server build"
 
 [deploy]
 startCommand = "node artifacts/api-server/dist/index.cjs"
