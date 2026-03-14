@@ -4,9 +4,8 @@ echo "[start] DATABASE_URL set: $([ -n "$DATABASE_URL" ] && echo YES || echo NO)
 
 if [ -n "$DATABASE_URL" ]; then
   echo "[start] Running database migrations..."
-  cd /app/lib/db && DATABASE_URL="$DATABASE_URL" npx drizzle-kit push --force --config ./drizzle.config.ts
+  node /app/migrate.cjs
   STATUS=$?
-  cd /app
   if [ $STATUS -eq 0 ]; then
     echo "[start] Migrations completed successfully."
   else
