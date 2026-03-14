@@ -21,10 +21,28 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
+    <!-- Global error display — shows JS errors on screen instead of black screen -->
+    <script>
+      function showErr(msg) {
+        document.body.innerHTML =
+          '<div style="color:#fff;background:#0f0f1a;padding:24px;font-family:monospace;min-height:100vh;word-break:break-all">' +
+          '<h2 style="color:#f87171;margin:0 0 12px">خطأ — JS Error</h2>' +
+          '<pre style="color:#fca5a5;white-space:pre-wrap;font-size:13px">' + msg + '</pre>' +
+          '<button onclick="location.reload()" style="margin-top:16px;padding:8px 20px;background:#06b6d4;color:#fff;border:none;border-radius:8px;cursor:pointer">إعادة المحاولة</button>' +
+          '</div>';
+      }
+      window.addEventListener('error', function(e) {
+        showErr((e.message || 'Unknown error') + '\n' + (e.filename || '') + ':' + (e.lineno || ''));
+      });
+      window.addEventListener('unhandledrejection', function(e) {
+        showErr('Unhandled rejection:\n' + String(e.reason));
+      });
+    </script>
+
     <!-- Service worker registration -->
     <script>
       if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
+        window.addEventListener('load', function() {
           navigator.serviceWorker.register('/sw.js');
         });
       }
