@@ -11,7 +11,7 @@ const BOT_UA_PATTERNS = [
 ];
 
 const SUSPICIOUS_HEADERS = [
-  "x-scan-memo", "x-forwarded-host", "x-originating-ip",
+  "x-scan-memo", "x-originating-ip",
   "x-remote-ip", "x-remote-addr",
 ];
 
