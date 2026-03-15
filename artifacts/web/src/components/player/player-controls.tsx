@@ -240,7 +240,7 @@ export default function PlayerControls({
             )}
 
             {/* Buttons row */}
-            <div className="flex items-center justify-between gap-1">
+            <div className="flex flex-row-reverse items-center justify-between gap-1">
               {/* Left group */}
               <div className="flex items-center">
                 {/* Lock badge */}

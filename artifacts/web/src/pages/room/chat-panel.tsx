@@ -102,8 +102,8 @@ export default function ChatPanel({ slug, emitChatMessage, username, liveMessage
           }
 
           return (
-            <div key={msg.id || i} className={cn("flex flex-col max-w-[85%]", isMe ? "self-end items-end" : "self-start items-start")}>
-              <div className="flex items-end gap-2">
+            <div key={msg.id || i} className={cn("flex flex-col max-w-[85%]", isMe ? "self-start items-start" : "self-end items-end")}>
+              <div className={cn("flex items-end gap-2", !isMe && "flex-row-reverse")}>
                 {!isMe && (
                   <div 
                     className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 shadow-lg"
@@ -115,7 +115,7 @@ export default function ChatPanel({ slug, emitChatMessage, username, liveMessage
                 
                 <div className={cn(
                   "px-4 py-2 rounded-2xl text-sm shadow-md",
-                  isMe ? "bg-primary text-primary-foreground rounded-br-sm" : "bg-white/10 text-white rounded-bl-sm border border-white/5"
+                  isMe ? "bg-primary text-primary-foreground rounded-bl-sm" : "bg-white/10 text-white rounded-br-sm border border-white/5"
                 )}>
                   {!isMe && <div className="text-[10px] font-bold text-white/50 mb-1">{msg.username}</div>}
                   {msg.content}

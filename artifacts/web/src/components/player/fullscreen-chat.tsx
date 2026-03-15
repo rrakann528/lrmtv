@@ -99,10 +99,10 @@ export default function FullscreenChat({
                   key={msg.id || i}
                   className={cn(
                     'flex flex-col max-w-[85%]',
-                    isMe ? 'self-end items-end' : 'self-start items-start',
+                    isMe ? 'self-start items-start' : 'self-end items-end',
                   )}
                 >
-                  <div className="flex items-end gap-1.5">
+                  <div className={cn("flex items-end gap-1.5", !isMe && "flex-row-reverse")}>
                     {!isMe && (
                       <div
                         className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white shrink-0"
@@ -115,8 +115,8 @@ export default function FullscreenChat({
                       className={cn(
                         'px-3 py-1.5 rounded-2xl text-[13px] shadow-md',
                         isMe
-                          ? 'bg-primary text-primary-foreground rounded-br-sm'
-                          : 'bg-white/10 text-white rounded-bl-sm border border-white/5',
+                          ? 'bg-primary text-primary-foreground rounded-bl-sm'
+                          : 'bg-white/10 text-white rounded-br-sm border border-white/5',
                       )}
                     >
                       {!isMe && (

@@ -283,19 +283,26 @@ export default function RoomPage() {
 
       {/* ── Header ──────────────────────────────────────────────────── */}
       <header className="relative z-10 shrink-0 h-12 md:h-14 glass-panel border-x-0 border-t-0 flex items-center justify-between px-3 md:px-6">
-        {/* Left: room name + viewer count */}
-        <div className="flex items-center gap-2 min-w-0">
-          <h1 className="text-sm md:text-lg font-display font-bold text-glow truncate max-w-[130px] sm:max-w-xs md:max-w-md">
-            {roomName || room.name}
-          </h1>
-          <span className="hidden sm:flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-white/10 text-white/70 shrink-0">
-            <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-            {users.length}
-          </span>
-        </div>
-
-        {/* Right: controls */}
+        {/* Right (first in RTL): controls */}
         <div className="flex items-center gap-1 md:gap-2 shrink-0">
+          {/* Leave */}
+          <button
+            onClick={() => window.location.href = '/'}
+            className="h-8 px-2 md:px-3 flex items-center gap-1.5 rounded-lg bg-red-500/80 hover:bg-red-500 text-white text-xs font-medium transition-colors"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span className="hidden md:inline">{t('leave')}</span>
+          </button>
+
+          {/* Share */}
+          <button
+            onClick={copyUrl}
+            className="h-8 px-2 flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 text-white/70 hover:text-white hover:bg-white/10 transition-colors text-xs"
+          >
+            {copied ? <Copy className="w-3.5 h-3.5 text-green-400" /> : <Share2 className="w-3.5 h-3.5" />}
+            <span className="hidden sm:inline">{copied ? t('copied') : t('copyLink')}</span>
+          </button>
+
           {/* Mic / Camera */}
           <div className="flex bg-white/5 rounded-lg border border-white/10 p-0.5">
             <button
@@ -319,24 +326,17 @@ export default function RoomPage() {
               {cameraOn && !cameraDisabled ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4 text-red-400" />}
             </button>
           </div>
+        </div>
 
-          {/* Share — icon-only on xs, icon+text on sm+ */}
-          <button
-            onClick={copyUrl}
-            className="h-8 px-2 flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 text-white/70 hover:text-white hover:bg-white/10 transition-colors text-xs"
-          >
-            {copied ? <Copy className="w-3.5 h-3.5 text-green-400" /> : <Share2 className="w-3.5 h-3.5" />}
-            <span className="hidden sm:inline">{copied ? t('copied') : t('copyLink')}</span>
-          </button>
-
-          {/* Leave */}
-          <button
-            onClick={() => window.location.href = '/'}
-            className="h-8 px-2 md:px-3 flex items-center gap-1.5 rounded-lg bg-red-500/80 hover:bg-red-500 text-white text-xs font-medium transition-colors"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">{t('leave')}</span>
-          </button>
+        {/* Left (second in RTL): room name + viewer count */}
+        <div className="flex items-center gap-2 min-w-0">
+          <h1 className="text-sm md:text-lg font-display font-bold text-glow truncate max-w-[130px] sm:max-w-xs md:max-w-md">
+            {roomName || room.name}
+          </h1>
+          <span className="hidden sm:flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-white/10 text-white/70 shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+            {users.length}
+          </span>
         </div>
       </header>
 
