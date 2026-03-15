@@ -5,6 +5,10 @@ interface PeerConnection {
   pc: RTCPeerConnection;
   remoteStream: MediaStream;
   makingOffer: boolean;
+  // true for the very first offer from this PC (fresh connection).
+  // Set to false after the first offer is sent so subsequent onnegotiationneeded
+  // events (track additions) are treated as re-negotiations, not fresh connections.
+  isFresh: boolean;
 }
 
 const ICE_SERVERS: RTCConfiguration = {
@@ -29,19 +33,17 @@ export function useWebRTC(socket: Socket | null, localStream: MediaStream | null
   const createPeerConnection = useCallback((targetSocketId: string, initiator: boolean) => {
     if (!socket) return null;
 
+    // Always close and replace any existing connection when actively initiating.
+    // This guarantees both sides get a fresh PC with the current tracks.
     const existing = peersRef.current.get(targetSocketId);
     if (existing) {
-      const state = existing.pc.iceConnectionState;
-      if (state === 'new' || state === 'checking' || state === 'connected' || state === 'completed') {
-        return existing.pc;
-      }
       existing.pc.close();
       peersRef.current.delete(targetSocketId);
     }
 
     const pc = new RTCPeerConnection(ICE_SERVERS);
     const remoteStream = new MediaStream();
-    const peerObj: PeerConnection = { pc, remoteStream, makingOffer: false };
+    const peerObj: PeerConnection = { pc, remoteStream, makingOffer: false, isFresh: true };
 
     if (localStream) {
       localStream.getTracks().forEach(track => {
@@ -66,17 +68,20 @@ export function useWebRTC(socket: Socket | null, localStream: MediaStream | null
       }
     };
 
-    // Re-negotiate when a new track is added to an existing connection.
-    // This fires automatically after addTrack() is called on a live connection.
+    // Fires when addTrack() is called on a live connection (re-negotiation).
+    // Also fires for the initial offer when the PC has tracks and is created as initiator.
     pc.onnegotiationneeded = async () => {
       if (peerObj.makingOffer) return;
       try {
         peerObj.makingOffer = true;
+        const fresh = peerObj.isFresh;
+        peerObj.isFresh = false; // first offer sent — subsequent ones are re-negotiations
         await pc.setLocalDescription(await pc.createOffer());
         socket.emit('webrtc-signal', {
           targetSocketId,
           signal: pc.localDescription,
           type: 'offer',
+          fresh, // tells receiver whether to create a fresh PC or re-negotiate
         });
       } catch (err) {
         console.error('onnegotiationneeded error', err);
@@ -98,24 +103,23 @@ export function useWebRTC(socket: Socket | null, localStream: MediaStream | null
 
     peersRef.current.set(targetSocketId, peerObj);
 
-    // For the initial connection the initiator creates the first offer.
-    // Subsequent re-negotiations are handled by onnegotiationneeded above.
-    if (initiator) {
-      // onnegotiationneeded fires automatically after addTrack + setLocalDescription
-      // but if there are no tracks yet we need to trigger an offer manually.
-      if (!localStream || localStream.getTracks().length === 0) {
-        pc.createOffer()
-          .then(offer => pc.setLocalDescription(offer))
-          .then(() => {
-            socket.emit('webrtc-signal', {
-              targetSocketId,
-              signal: pc.localDescription,
-              type: 'offer',
-            });
-          })
-          .catch(console.error);
-      }
-      // When tracks exist, onnegotiationneeded fires automatically.
+    // Initiator with no tracks: manually trigger an offer so the connection is established
+    // even before any media is added (e.g., camera-only → later add mic).
+    // With tracks, onnegotiationneeded fires automatically.
+    if (initiator && (!localStream || localStream.getTracks().length === 0)) {
+      pc.createOffer()
+        .then(offer => pc.setLocalDescription(offer))
+        .then(() => {
+          const fresh = peerObj.isFresh;
+          peerObj.isFresh = false;
+          socket.emit('webrtc-signal', {
+            targetSocketId,
+            signal: pc.localDescription,
+            type: 'offer',
+            fresh,
+          });
+        })
+        .catch(console.error);
     }
 
     return pc;
@@ -125,15 +129,18 @@ export function useWebRTC(socket: Socket | null, localStream: MediaStream | null
     fromSocketId: string;
     signal: RTCSessionDescriptionInit | RTCIceCandidateInit;
     type: string;
+    fresh?: boolean;
   }) => {
     const { fromSocketId, signal, type } = data;
+    // Default to true if not specified (older clients / audio-only signals)
+    const isFreshOffer = data.fresh !== false;
 
     if (type === 'offer') {
       const existingPeer = peersRef.current.get(fromSocketId);
 
-      if (existingPeer) {
-        // ── Re-negotiation on an existing connection ──────────────────────────
-        // Do NOT destroy the connection — just update the remote description.
+      if (existingPeer && !isFreshOffer) {
+        // ── Re-negotiation: peer added a new track to an existing connection ──
+        // Keep the PC alive — just update the remote description and answer.
         const { pc } = existingPeer;
         try {
           await pc.setRemoteDescription(new RTCSessionDescription(signal as RTCSessionDescriptionInit));
@@ -150,7 +157,15 @@ export function useWebRTC(socket: Socket | null, localStream: MediaStream | null
         return;
       }
 
-      // ── New connection ────────────────────────────────────────────────────
+      // ── Fresh connection: peer created a brand-new PC ─────────────────────
+      // Close our stale PC (if any) and create a matching fresh one.
+      // createPeerConnection will add our localStream tracks to the new PC,
+      // so both sides get a fully functional bidirectional connection.
+      if (existingPeer) {
+        existingPeer.pc.close();
+        peersRef.current.delete(fromSocketId);
+      }
+
       const pc = createPeerConnection(fromSocketId, false);
       if (!pc) return;
 
@@ -164,7 +179,7 @@ export function useWebRTC(socket: Socket | null, localStream: MediaStream | null
           type: 'answer',
         });
       } catch (err) {
-        console.error('new connection answer error', err);
+        console.error('fresh connection answer error', err);
       }
 
     } else if (type === 'answer') {
@@ -181,7 +196,7 @@ export function useWebRTC(socket: Socket | null, localStream: MediaStream | null
       if (peer) {
         try {
           await peer.pc.addIceCandidate(new RTCIceCandidate(signal as RTCIceCandidateInit));
-        } catch (err) {
+        } catch {
           // Non-fatal — can happen during rapid state changes
         }
       }
@@ -214,24 +229,6 @@ export function useWebRTC(socket: Socket | null, localStream: MediaStream | null
       if (sender) sender.replaceTrack(newTrack);
     });
   }, []);
-
-  // When localStream changes (mic/cam toggled), update all existing connections.
-  // addTrack triggers onnegotiationneeded automatically → re-negotiation happens.
-  useEffect(() => {
-    if (!localStream) return;
-    peersRef.current.forEach((peer) => {
-      const senders = peer.pc.getSenders();
-      localStream.getTracks().forEach(track => {
-        const existingSender = senders.find(s => s.track?.kind === track.kind);
-        if (existingSender) {
-          existingSender.replaceTrack(track);
-        } else {
-          peer.pc.addTrack(track, localStream);
-          // onnegotiationneeded fires automatically after addTrack
-        }
-      });
-    });
-  }, [localStream]);
 
   useEffect(() => {
     return () => {

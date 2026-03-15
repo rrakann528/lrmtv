@@ -575,8 +575,13 @@ export function initSocketServer(httpServer: HttpServer): Server {
     });
 
     // ── WebRTC ────────────────────────────────────────────────────────────────
-    socket.on("webrtc-signal", (data: { targetSocketId: string; signal: any; type: string }) => {
-      io.to(data.targetSocketId).emit("webrtc-signal", { fromSocketId: socket.id, signal: data.signal, type: data.type });
+    socket.on("webrtc-signal", (data: { targetSocketId: string; signal: any; type: string; fresh?: boolean }) => {
+      io.to(data.targetSocketId).emit("webrtc-signal", {
+        fromSocketId: socket.id,
+        signal: data.signal,
+        type: data.type,
+        fresh: data.fresh,
+      });
     });
 
     // ── DJ backgrounding / closing — keep room playing ───────────────────────
