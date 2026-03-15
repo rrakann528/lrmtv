@@ -6,9 +6,6 @@
     </linearGradient>
   </defs>
   <rect width='512' height='512' rx='110' fill='url(#bg)'/>
-  <g transform='translate(256,220) scale(10)' stroke='#06B6D4' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' fill='none'>
-    <rect x='-11' y='-6' width='22' height='16' rx='2'/>
-    <polyline points='-4,-9 0,-5 4,-9'/>
-  </g>
-  <text x='256' y='420' font-family='Arial Black,Arial,sans-serif' font-size='100' font-weight='900' text-anchor='middle' fill='#06B6D4'>LrmTV</text>
+  <text x='256' y='290' font-family='Arial Black,Arial,sans-serif' font-size='210' font-weight='900' text-anchor='middle' fill='#06B6D4'>Lrm</text>
+  <text x='256' y='420' font-family='Arial Black,Arial,sans-serif' font-size='130' font-weight='900' text-anchor='middle' fill='#FFFFFF'>TV</text>
 </svg>
