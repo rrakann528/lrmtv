@@ -60,7 +60,7 @@ export default function RoomPage() {
     socket, users, you, syncState, isLocked, allowGuestControl, background, roomName,
     chatMessages, isPrivate, chatDisabled, micDisabled, cameraDisabled,
     emitSync, emitSeek, emitChatMessage,
-    toggleLock, toggleAllowGuests, toggleDJ, changeBackground, renameRoom, toggleMedia, emitPlaylistUpdate, requestSync,
+    toggleLock, toggleAllowGuests, toggleDJ, renameRoom, toggleMedia, emitPlaylistUpdate, requestSync,
     kickUser, transferAdmin, togglePrivacy, toggleChat, toggleMic, toggleCamera,
     subtitleSync, emitSubtitleSync, emitStreamType,
   } = useSocket(slug);
@@ -550,7 +550,6 @@ export default function RoomPage() {
                   toggleDJ={toggleDJ}
                   kickUser={kickUser}
                   transferAdmin={transferAdmin}
-                  changeBackground={changeBackground}
                   requestSync={requestSync}
                   currentRoomName={roomName || room.name}
                   renameRoom={renameRoom}

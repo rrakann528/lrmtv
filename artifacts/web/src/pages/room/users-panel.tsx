@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Shield, Headphones, Crown, Settings2, Image as ImageIcon,
+  Shield, Headphones, Crown, Settings2,
   Users, Lock, Unlock, RefreshCw, ChevronLeft, Pencil, Check,
   MoreHorizontal, UserCircle, ShieldCheck, LogOut, X,
   Globe, EyeOff, MessageSquareOff, MessageSquare, Mic, MicOff, Video, VideoOff,
@@ -31,7 +31,6 @@ interface UsersPanelProps {
   toggleDJ: (socketId: string) => void;
   kickUser: (socketId: string) => void;
   transferAdmin: (socketId: string) => void;
-  changeBackground: (url: string) => void;
   requestSync: () => void;
   currentRoomName?: string;
   renameRoom?: (name: string) => void;
@@ -39,18 +38,12 @@ interface UsersPanelProps {
   deleteRoom?: () => void;
 }
 
-const BACKGROUNDS = [
-  { name: 'Neon City / مدينة نيون',    file: 'lounge-1.png' },
-  { name: 'Home Theater / مسرح منزلي', file: 'lounge-2.png' },
-  { name: 'Void / الفضاء',            file: 'lounge-3.png' },
-];
-
 export default function UsersPanel({
   users, you, isAdmin, isLocked, allowGuestControl,
   isPrivate, chatDisabled, micDisabled, cameraDisabled,
   toggleLock, toggleAllowGuests, togglePrivacy, toggleChat, toggleMic, toggleCamera,
   toggleDJ, kickUser, transferAdmin,
-  changeBackground, requestSync, currentRoomName = '', renameRoom, onUserClick,
+  requestSync, currentRoomName = '', renameRoom, onUserClick,
   deleteRoom,
 }: UsersPanelProps) {
   const { t, lang } = useI18n();
@@ -63,11 +56,6 @@ export default function UsersPanel({
     if (nameInput.trim() && renameRoom) renameRoom(nameInput.trim());
     setEditingName(false);
   };
-
-  const backgrounds = BACKGROUNDS.map(b => ({
-    name: b.name,
-    url: `${import.meta.env.BASE_URL}images/${b.file}`,
-  }));
 
   return (
     <motion.div
@@ -269,27 +257,6 @@ export default function UsersPanel({
                   </div>
                 </div>
                 <Switch checked={!cameraDisabled} onCheckedChange={toggleCamera} />
-              </div>
-            </div>
-
-            <div>
-              <p className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                <ImageIcon className="w-3.5 h-3.5" />
-                {(lang === 'ar') ? 'خلفية الغرفة' : 'Room background'}
-              </p>
-              <div className="grid grid-cols-3 gap-2">
-                {backgrounds.map((bg) => (
-                  <button
-                    key={bg.url}
-                    className="relative aspect-video rounded-lg overflow-hidden border-2 border-transparent hover:border-primary/60 focus:border-primary transition-all"
-                    onClick={() => changeBackground(bg.url)}
-                  >
-                    <img src={bg.url} alt={bg.name} className="w-full h-full object-cover" />
-                    <div className="absolute inset-0 bg-black/40 flex items-end p-1 opacity-0 hover:opacity-100 transition-opacity">
-                      <span className="text-[10px] text-white font-semibold leading-tight line-clamp-1">{bg.name}</span>
-                    </div>
-                  </button>
-                ))}
               </div>
             </div>
 
