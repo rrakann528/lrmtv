@@ -236,6 +236,27 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       getVideoElement: () => isHls ? (hlsPlayerRef.current?.getVideoElement() ?? null) : null,
     }));
 
+    // ── PWA / tab-switch recovery: resume ReactPlayer (YouTube/Twitch) ─────────
+    useEffect(() => {
+      if (isHls) return; // HLS handled in hls-player.tsx
+      const onVisible = () => {
+        if (document.hidden) return;
+        setTimeout(() => {
+          if (document.hidden) return;
+          if (!ready || !reactPlayerRef.current) return;
+          try {
+            const ip = reactPlayerRef.current.getInternalPlayer();
+            // YouTube: call playVideo() directly to resume after background freeze
+            if (ip?.playVideo && playing) ip.playVideo();
+            // Twitch/other HTML5: call play()
+            else if (ip?.play && playing) ip.play().catch?.(() => {});
+          } catch { /* ignore */ }
+        }, 500);
+      };
+      document.addEventListener('visibilitychange', onVisible);
+      return () => document.removeEventListener('visibilitychange', onVisible);
+    }, [isHls, ready, playing]);
+
     const handleError = useCallback((err: unknown) => {
       // YouTube IFrame API error codes (passed as numeric data)
       // 101 / 150 = video not allowed in embedded players → show "blocked" not error

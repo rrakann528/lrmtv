@@ -248,6 +248,37 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
       getVideoElement: () => videoRef.current,
     }));
 
+    // ── PWA / tab-switch recovery: resume HLS after page comes back ───────────
+    useEffect(() => {
+      const onVisible = () => {
+        if (document.hidden) return;
+        const video = videoRef.current;
+        if (!video) return;
+        // Small delay so browser finishes its own resume logic first
+        setTimeout(() => {
+          if (document.hidden) return;
+          const hls = hlsRef.current;
+          if (hls) {
+            // Kick HLS.js to resume fetching segments (browser may have frozen it)
+            try { hls.startLoad(); } catch { /* ignore if not attached */ }
+            // For live: jump to live edge if we've drifted more than 8 s behind
+            if (isLiveRef.current) {
+              const edge = hls.liveSyncPosition;
+              if (edge && isFinite(edge) && video.currentTime < edge - 8) {
+                video.currentTime = edge;
+              }
+            }
+          }
+          // If video is supposed to be playing but has no data, nudge it
+          if (!video.paused && video.readyState < 2) {
+            video.play().catch(() => {});
+          }
+        }, 400);
+      };
+      document.addEventListener('visibilitychange', onVisible);
+      return () => document.removeEventListener('visibilitychange', onVisible);
+    }, []);
+
     // ── Universal player — detect stream type then route to best engine ────────
     useEffect(() => {
       const video = videoRef.current;
