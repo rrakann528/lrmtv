@@ -139,26 +139,28 @@ router.get("/friends/search", requireAuth, async (req: AuthRequest, res): Promis
 router.get("/friends", requireAuth, async (req: AuthRequest, res): Promise<void> => {
   const uid = req.userId!;
 
-  const rows = await db
-    .select({
-      friendshipId: friendshipsTable.id,
-      status: friendshipsTable.status,
-      requesterId: friendshipsTable.requesterId,
-      id: usersTable.id,
-      username: usersTable.username,
-      displayName: usersTable.displayName,
-      avatarColor: usersTable.avatarColor,
-      avatarUrl: usersTable.avatarUrl,
-    })
-    .from(friendshipsTable)
-    .innerJoin(
-      usersTable,
-      or(
-        and(eq(friendshipsTable.requesterId, uid), eq(usersTable.id, friendshipsTable.addresseeId)),
-        and(eq(friendshipsTable.addresseeId, uid), eq(usersTable.id, friendshipsTable.requesterId)),
-      )!
-    )
-    .where(or(eq(friendshipsTable.requesterId, uid), eq(friendshipsTable.addresseeId, uid)));
+  const cols = {
+    friendshipId: friendshipsTable.id,
+    status: friendshipsTable.status,
+    requesterId: friendshipsTable.requesterId,
+    id: usersTable.id,
+    username: usersTable.username,
+    displayName: usersTable.displayName,
+    avatarColor: usersTable.avatarColor,
+    avatarUrl: usersTable.avatarUrl,
+  };
+
+  // Split into two simple joins to avoid OR in join condition bugs
+  const [asSender, asReceiver] = await Promise.all([
+    db.select(cols).from(friendshipsTable)
+      .innerJoin(usersTable, eq(usersTable.id, friendshipsTable.addresseeId))
+      .where(eq(friendshipsTable.requesterId, uid)),
+    db.select(cols).from(friendshipsTable)
+      .innerJoin(usersTable, eq(usersTable.id, friendshipsTable.requesterId))
+      .where(eq(friendshipsTable.addresseeId, uid)),
+  ]);
+
+  const rows = [...asSender, ...asReceiver];
 
   // Get muted friends for this user
   const muted = await db
@@ -189,26 +191,17 @@ router.get("/friends", requireAuth, async (req: AuthRequest, res): Promise<void>
 router.get("/friends/conversations", requireAuth, async (req: AuthRequest, res): Promise<void> => {
   const uid = req.userId!;
 
-  // Get accepted friends
-  const friendRows = await db
-    .select({
-      friendId: usersTable.id,
-      friendshipId: friendshipsTable.id,
-    })
-    .from(friendshipsTable)
-    .innerJoin(
-      usersTable,
-      or(
-        and(eq(friendshipsTable.requesterId, uid), eq(usersTable.id, friendshipsTable.addresseeId)),
-        and(eq(friendshipsTable.addresseeId, uid), eq(usersTable.id, friendshipsTable.requesterId)),
-      )!
-    )
-    .where(
-      and(
-        eq(friendshipsTable.status, "accepted"),
-        or(eq(friendshipsTable.requesterId, uid), eq(friendshipsTable.addresseeId, uid)),
-      )
-    );
+  // Get accepted friends — two simple joins instead of OR in join condition
+  const convCols = { friendId: usersTable.id, friendshipId: friendshipsTable.id };
+  const [convAsSender, convAsReceiver] = await Promise.all([
+    db.select(convCols).from(friendshipsTable)
+      .innerJoin(usersTable, eq(usersTable.id, friendshipsTable.addresseeId))
+      .where(and(eq(friendshipsTable.requesterId, uid), eq(friendshipsTable.status, "accepted"))),
+    db.select(convCols).from(friendshipsTable)
+      .innerJoin(usersTable, eq(usersTable.id, friendshipsTable.requesterId))
+      .where(and(eq(friendshipsTable.addresseeId, uid), eq(friendshipsTable.status, "accepted"))),
+  ]);
+  const friendRows = [...convAsSender, ...convAsReceiver];
 
   if (friendRows.length === 0) { res.json([]); return; }
 
