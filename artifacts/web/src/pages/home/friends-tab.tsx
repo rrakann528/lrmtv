@@ -77,7 +77,7 @@ export function FriendsTab({ acceptedToast, onDismissAcceptedToast }: FriendsTab
   const [sentIds, setSentIds] = useState<Set<number>>(new Set());
   const [requestError, setRequestError] = useState<string | null>(null);
 
-  const { data: friends = [], isLoading, isFetching, isError: friendsError, refetch: refetchFriends } = useQuery<FriendUser[]>({
+  const { data: friends = [], isLoading, isFetching, isError: friendsError, error: friendsFetchError, refetch: refetchFriends } = useQuery<FriendUser[]>({
     queryKey: ['friends'],
     queryFn: fetchFriends,
     enabled: !!user,
@@ -396,6 +396,7 @@ export function FriendsTab({ acceptedToast, onDismissAcceptedToast }: FriendsTab
                 {friendsError ? (
                   <>
                     <p className="text-sm text-destructive/70">تعذّر الاتصال بالخادم</p>
+                    <p className="text-xs text-muted-foreground/50 mt-0.5 font-mono">{(friendsFetchError as Error)?.message || 'err'}</p>
                     <button onClick={() => refetchFriends()} className="text-xs text-primary mt-2 underline">أعد المحاولة</button>
                   </>
                 ) : (
