@@ -450,8 +450,10 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           // iOS Safari: native HLS — try direct first, then CF proxy
           const tryNativeHls = (hlsSrc: string, isCfRetry = false) => {
             if (cancelled) return;
+            destroyAll();
+            video.removeAttribute('crossorigin');
             video.src = hlsSrc;
-            video.addEventListener('loadedmetadata', () => { if (!cancelled) { onDurationChange(); setStatusMsg(null); setError(null); startStallWatchdog(); } }, { once: true });
+            video.addEventListener('loadedmetadata', () => { if (!cancelled) { onDurationChange(); setIsLive(!isFinite(video.duration) || video.duration === Infinity); setStatusMsg(null); setError(null); startStallWatchdog(); } }, { once: true });
             video.addEventListener('error', () => {
               if (cancelled) return;
               if (!isCfRetry) {

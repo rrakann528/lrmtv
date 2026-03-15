@@ -11,7 +11,6 @@ channel = "stable-25_05"
 [userenv.shared]
 NODE_ENV = "development"
 JWT_SECRET = "15c2d29827ec073660cfa1f29245a89be5f7c4f6d966ce5c4197584842bd2b81"
-VITE_CF_PROXY_URL = "https://lrmtv-proxy.rrakann528.workers.dev"
 
 [workflows]
 runButton = "Project"
