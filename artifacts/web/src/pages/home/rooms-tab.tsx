@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation } from 'wouter';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Users, Play, Search, Globe, Lock, RefreshCw, X } from 'lucide-react';
+import { Plus, Users, Play, Search, Globe, Lock, X } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/hooks/use-auth';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -55,10 +55,10 @@ export function RoomsTab() {
   const [createErr, setCreateErr] = useState('');
   const keyboardOffset = useKeyboardOffset();
 
-  const { data: rooms = [], isLoading, refetch } = useQuery<PublicRoom[]>({
+  const { data: rooms = [], isLoading } = useQuery<PublicRoom[]>({
     queryKey: ['rooms'],
     queryFn: fetchRooms,
-    refetchInterval: 15_000,
+    refetchInterval: 5_000,
   });
 
   const createMut = useMutation({
@@ -121,9 +121,6 @@ export function RoomsTab() {
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2">
         <span className="text-sm font-semibold text-foreground">الغرف العامة ({filtered.length})</span>
-        <button onClick={() => refetch()} className="p-1.5 rounded-lg hover:bg-muted/50 text-muted-foreground">
-          <RefreshCw className="w-4 h-4" />
-        </button>
       </div>
 
       {/* Rooms list */}
