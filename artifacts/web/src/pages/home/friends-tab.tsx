@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Search, UserPlus, MessageCircle, Check, X, Clock, Bell, Users, Send, MoreVertical, UserMinus, BellOff, Bell as BellOn, AlertCircle, RefreshCw, LogOut } from 'lucide-react';
+import { Search, UserPlus, MessageCircle, Check, X, Clock, Bell, Users, Send, MoreVertical, UserMinus, BellOff, Bell as BellOn, AlertCircle, RefreshCw } from 'lucide-react';
 import { Avatar } from '@/components/avatar';
 import { useAuth, apiFetch } from '@/hooks/use-auth';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -77,7 +77,7 @@ export function FriendsTab({ acceptedToast, onDismissAcceptedToast }: FriendsTab
   const [sentIds, setSentIds] = useState<Set<number>>(new Set());
   const [requestError, setRequestError] = useState<string | null>(null);
 
-  const { data: friends = [], isLoading, isFetching, isError: friendsError, refetch: refetchFriends } = useQuery<FriendUser[]>({
+  const { data: friends = [], isLoading, isFetching, refetch: refetchFriends } = useQuery<FriendUser[]>({
     queryKey: ['friends'],
     queryFn: fetchFriends,
     enabled: !!user,
@@ -268,37 +268,8 @@ export function FriendsTab({ acceptedToast, onDismissAcceptedToast }: FriendsTab
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-4 space-y-2 pb-4">
 
-        {/* ── Auth/Network error banner ─────────────────────────────── */}
-        {friendsError && (
-          <div className="flex flex-col items-center justify-center py-10 gap-3 text-center">
-            <div className="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center">
-              <AlertCircle className="w-8 h-8 text-destructive" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-foreground">تعذّر تحميل البيانات</p>
-              <p className="text-xs text-muted-foreground mt-1">انتهت جلستك أو فقدت الاتصال</p>
-            </div>
-            <div className="flex flex-col gap-2 w-full max-w-[180px]">
-              <button
-                onClick={() => qc.invalidateQueries({ queryKey: ['friends'] })}
-                className="flex items-center justify-center gap-2 w-full py-2.5 bg-primary/15 text-primary rounded-xl text-sm font-semibold"
-              >
-                <RefreshCw className="w-4 h-4" />
-                إعادة المحاولة
-              </button>
-              <button
-                onClick={async () => { await apiFetch('/auth/logout', { method: 'POST' }); window.location.href = '/auth'; }}
-                className="flex items-center justify-center gap-2 w-full py-2.5 bg-muted/50 text-muted-foreground rounded-xl text-sm font-medium"
-              >
-                <LogOut className="w-4 h-4" />
-                تسجيل الدخول مجدداً
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* ── Friends list ──────────────────────────────────────────── */}
-        {!friendsError && subTab === 'friends' && (
+        {subTab === 'friends' && (
           <>
             {isLoading
               ? Array.from({ length: 3 }).map((_, i) => (
@@ -329,7 +300,7 @@ export function FriendsTab({ acceptedToast, onDismissAcceptedToast }: FriendsTab
         )}
 
         {/* ── Requests ─────────────────────────────────────────────── */}
-        {!friendsError && subTab === 'requests' && (
+        {subTab === 'requests' && (
           <>
             {/* Refresh button */}
             <div className="flex items-center justify-between pb-1">
@@ -430,7 +401,7 @@ export function FriendsTab({ acceptedToast, onDismissAcceptedToast }: FriendsTab
         )}
 
         {/* ── Search ───────────────────────────────────────────────── */}
-        {!friendsError && subTab === 'search' && (
+        {subTab === 'search' && (
           <>
             {/* Error toast for failed friend requests */}
             <AnimatePresence>
