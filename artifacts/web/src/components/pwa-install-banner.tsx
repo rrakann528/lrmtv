@@ -25,7 +25,7 @@ function getPlatformInfo() {
   }
 }
 
-// ── LrmTV logo ────────────────────────────────────────────────────────────────
+// ── LrmTV logo — matches the website header icon ──────────────────────────────
 function Logo({ size = 48 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
@@ -36,20 +36,18 @@ function Logo({ size = 48 }: { size?: number }) {
         </linearGradient>
       </defs>
       <rect width="512" height="512" rx="110" fill="url(#lbg)" />
-      <text
-        x="256" y="295"
-        fontFamily="Arial Black, Arial, sans-serif"
-        fontSize="210" fontWeight="900"
-        textAnchor="middle"
-        fill="#06B6D4"
-      >Lrm</text>
+      {/* Lucide Tv icon — same as website header */}
+      <g transform="translate(256,220) scale(10)" stroke="#06B6D4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none">
+        <rect x="-11" y="-6" width="22" height="16" rx="2" />
+        <polyline points="-4,-9 0,-5 4,-9" />
+      </g>
       <text
         x="256" y="420"
         fontFamily="Arial Black, Arial, sans-serif"
-        fontSize="130" fontWeight="900"
+        fontSize="100" fontWeight="900"
         textAnchor="middle"
-        fill="#FFFFFF"
-      >TV</text>
+        fill="#06B6D4"
+      >LrmTV</text>
     </svg>
   );
 }
