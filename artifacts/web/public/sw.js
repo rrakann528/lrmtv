@@ -168,10 +168,16 @@ self.addEventListener('notificationclick', e => {
   e.notification.close();
   const url = e.notification.data?.url || '/';
   const full = url.startsWith('http') ? url : self.location.origin + url;
+  const origin = self.location.origin;
   e.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
-      const existing = list.find(c => c.url === full);
-      if (existing) return existing.focus();
+      // Find any open window on the same origin
+      const existing = list.find(c => c.url.startsWith(origin));
+      if (existing) {
+        // Navigate the existing window to the target URL and focus it
+        existing.navigate(full).catch(() => {});
+        return existing.focus();
+      }
       return clients.openWindow(full);
     })
   );

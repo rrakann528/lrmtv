@@ -320,7 +320,7 @@ router.post("/friends/request", requireAuth, async (req: AuthRequest, res): Prom
       title: `طلب صداقة جديد`,
       body: `${senderName} أرسل لك طلب صداقة`,
       icon: "/icon-192.svg",
-      url: "/home",
+      url: "/home?tab=friends",
       tag: `friend-req-${uid}`,
     });
 

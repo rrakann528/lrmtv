@@ -29,7 +29,19 @@ export default function HomePage() {
   const isGuest = params.get('guest') === '1';
 
   const { user, loading } = useAuth();
-  const [activeTab, setActiveTab] = useState<Tab>('rooms');
+  const tabParam = params.get('tab') as Tab | null;
+  const validTabs: Tab[] = ['rooms', 'friends', 'profile'];
+  const [activeTab, setActiveTab] = useState<Tab>(
+    tabParam && validTabs.includes(tabParam) ? tabParam : 'rooms'
+  );
+
+  // React to URL ?tab= changes (e.g. from push notification navigation)
+  useEffect(() => {
+    if (tabParam && validTabs.includes(tabParam) && tabParam !== activeTab) {
+      setActiveTab(tabParam);
+    }
+  }, [tabParam]);
+
   const [acceptedToast, setAcceptedToast] = useState<string | null>(null);
 
   const handleFriendAccepted = useCallback((data: { byId: number; byName: string }) => {
@@ -37,8 +49,13 @@ export default function HomePage() {
     setTimeout(() => setAcceptedToast(null), 4000);
   }, []);
 
+  const handleFriendRequest = useCallback(() => {
+    setActiveTab('friends');
+  }, []);
+
   useUserSocket({
     userId: user?.id,
+    onFriendRequest: handleFriendRequest,
     onFriendAccepted: handleFriendAccepted,
   });
 
