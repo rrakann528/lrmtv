@@ -436,8 +436,13 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           if (cancelled) return;
           destroyAll();
           setStatusMsg('native');
+          // Full reset: remove crossorigin, clear src, then reload — critical on iOS Safari
+          // after HLS.js was previously attached to the same video element
           video.removeAttribute('crossorigin');
+          video.removeAttribute('src');
+          video.load();
           video.src = src;
+          video.load();
           const onMeta = () => {
             if (!cancelled) { setIsLive(!isFinite(video.duration) || video.duration === Infinity); onDurationChange(); setStatusMsg(null); setError(null); startStallWatchdog(); }
           };
@@ -448,15 +453,23 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           video.addEventListener('error',          onErr,  { once: true });
         };
 
+        // Detect iOS/iPadOS Safari — on these devices native HLS is always more reliable
+        // than HLS.js via MSE (which causes CORS failures with many CDNs)
+        const ua = navigator.userAgent;
+        const isIOSSafari = /iP(hone|od|ad)/.test(ua) && /WebKit/.test(ua) && !/CriOS|FxiOS|OPiOS/.test(ua);
+
         // S1 — HLS.js direct (best features: adaptive bitrate, quality switching)
         setStatusMsg('hls-direct');
-        if (Hls.isSupported()) {
+        if (isIOSSafari) {
+          // On iOS Safari: go straight to native — no CORS restrictions, IP-locked streams work
+          s2_native();
+        } else if (Hls.isSupported()) {
           const hls = makeHls(() => s2_native());
           hlsRef.current = hls;
           hls.loadSource(src);
           hls.attachMedia(video);
         } else if (video.canPlayType('application/vnd.apple.mpegurl') !== '') {
-          // iOS/macOS Safari: native HLS is the primary engine
+          // macOS Safari or other native-HLS browsers
           s2_native();
         } else {
           setStatusMsg(null); setError('unsupported');
