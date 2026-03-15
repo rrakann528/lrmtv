@@ -454,7 +454,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
                     />
                   )}
 
-                {/* Progress bar */}
+                {/* Progress bar — always left→right regardless of page RTL */}
                 {rpDuration > 0 && (
                   <div
                     className={cn('py-2 group', canControl ? 'cursor-pointer' : 'cursor-default')}
@@ -465,22 +465,21 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
                       directSeek(ratio * rpDuration);
                     }}
                   >
-                    <div className="h-1 md:h-1.5 bg-white/20 rounded-full">
+                    <div className="h-1 md:h-1.5 bg-white/20 rounded-full relative">
                       <div
-                        className={cn('h-full rounded-full relative', canControl ? 'bg-primary' : 'bg-white/40')}
+                        className={cn('absolute left-0 top-0 h-full rounded-full', canControl ? 'bg-primary' : 'bg-white/40')}
                         style={{ width: `${rpDuration > 0 ? (rpCurrentTime / rpDuration) * 100 : 0}%` }}
                       >
-                        {canControl && <div className="absolute end-0 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white shadow" />}
+                        {canControl && <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white shadow" />}
                       </div>
                     </div>
                   </div>
                 )}
 
-                {/* Buttons row */}
-                <div className="flex items-center justify-between">
-                  {/* Left */}
+                {/* Buttons row — dir=ltr forces physical left→right */}
+                <div className="flex items-center justify-between" dir="ltr">
+                  {/* ── LEFT: Back · Play/Pause · Forward · Volume ── */}
                   <div className="flex items-center">
-                    {/* Lock badge shown when guest can't control */}
                     {!canControl && (
                       <div className="flex items-center gap-1 px-2 py-1 me-1 rounded-full bg-amber-500/20 border border-amber-400/30">
                         <Lock className="w-3 h-3 text-amber-400" />
@@ -489,42 +488,31 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
                         </span>
                       </div>
                     )}
+                    {/* Skip Back */}
                     <button
-                      className={cn(
-                        'p-2.5 rounded-full transition',
-                        canControl
-                          ? 'text-white hover:bg-white/10 active:scale-90'
-                          : 'text-white/25 cursor-not-allowed',
-                      )}
-                      onClick={() => { if (playing) directPause(); else directPlay(); }}
-                      disabled={!canControl}
-                    >
-                      {playing ? <Pause className="w-5 h-5 fill-white" /> : <Play className="w-5 h-5 fill-white" />}
-                    </button>
-                    <button
-                      className={cn(
-                        'p-2.5 rounded-full transition',
-                        canControl
-                          ? 'text-white hover:bg-white/10 active:scale-90'
-                          : 'text-white/25 cursor-not-allowed',
-                      )}
+                      className={cn('p-2.5 rounded-full transition', canControl ? 'text-white hover:bg-white/10 active:scale-90' : 'text-white/25 cursor-not-allowed')}
                       onClick={() => directSeek(Math.max(0, rpCurrentTime - 10))}
                       disabled={!canControl}
                     >
                       <SkipBack className="w-5 h-5" />
                     </button>
+                    {/* Play / Pause */}
                     <button
-                      className={cn(
-                        'p-2.5 rounded-full transition',
-                        canControl
-                          ? 'text-white hover:bg-white/10 active:scale-90'
-                          : 'text-white/25 cursor-not-allowed',
-                      )}
+                      className={cn('p-2.5 rounded-full transition', canControl ? 'text-white hover:bg-white/10 active:scale-90' : 'text-white/25 cursor-not-allowed')}
+                      onClick={() => { if (playing) directPause(); else directPlay(); }}
+                      disabled={!canControl}
+                    >
+                      {playing ? <Pause className="w-5 h-5 fill-white" /> : <Play className="w-5 h-5 fill-white" />}
+                    </button>
+                    {/* Skip Forward */}
+                    <button
+                      className={cn('p-2.5 rounded-full transition', canControl ? 'text-white hover:bg-white/10 active:scale-90' : 'text-white/25 cursor-not-allowed')}
                       onClick={() => directSeek(rpCurrentTime + 10)}
                       disabled={!canControl}
                     >
                       <SkipForward className="w-5 h-5" />
                     </button>
+                    {/* Volume */}
                     <button
                       className="p-2.5 text-white hover:bg-white/10 rounded-full transition"
                       onClick={() => {
@@ -553,7 +541,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
                       </span>
                     )}
                   </div>
-                  {/* Right */}
+                  {/* ── RIGHT: Chat · Fullscreen ── */}
                   <div className="flex items-center">
                     <button
                       className={cn('p-2.5 text-white hover:bg-white/10 rounded-full transition', isChatOpen && 'text-primary bg-white/10')}
@@ -586,7 +574,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
         />
 
         {/* Toast notifications — bottom-right, 5s, fullscreen only */}
-        <div className="absolute bottom-16 end-4 z-40 flex flex-col gap-2 pointer-events-none">
+        <div className="absolute bottom-16 right-4 z-40 flex flex-col gap-2 pointer-events-none">
           <AnimatePresence>
             {toastQueue.map((msg) => (
               <motion.div
