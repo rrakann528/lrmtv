@@ -398,17 +398,30 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         return hls;
       };
 
-      // ── S-HLS chain: Direct → Manifest-proxy (CF) → Full-proxy (CF) ───────
+      // ── S-HLS chain: Direct → Manifest-proxy (CF) → Full-proxy (CF) → Native ─
       const loadViaHls = () => {
         if (cancelled) return;
+
+        // S4 — native <video> fallback (no crossorigin, bypasses CORS + works for IP-locked streams)
+        const s4_native = () => {
+          if (cancelled) return;
+          destroyAll();
+          setStatusMsg('native');
+          video.removeAttribute('crossorigin');
+          video.src = src;
+          const onMeta = () => { if (!cancelled) { setIsLive(!isFinite(video.duration) || video.duration === Infinity); onDurationChange(); setStatusMsg(null); setError(null); startStallWatchdog(); } };
+          const onErr  = () => { if (!cancelled) { setError('ip-locked'); setStatusMsg(null); } };
+          video.addEventListener('loadedmetadata', onMeta, { once: true });
+          video.addEventListener('error',          onErr,  { once: true });
+        };
 
         // S3 — full proxy via CF Worker (all segments through CF)
         const s3_cfFullProxy = () => {
           if (cancelled) return;
           const cfUrl = buildCfUrl(src);
-          if (!cfUrl) { setError('unsupported'); return; }
+          if (!cfUrl) { s4_native(); return; }
           setStatusMsg('hls-proxy');
-          const hls = makeHls(() => setError('ip-locked'));
+          const hls = makeHls(() => s4_native());
           hlsRef.current = hls;
           hls.loadSource(cfUrl);
           hls.attachMedia(video);
