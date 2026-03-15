@@ -89,6 +89,22 @@ export default function RoomPage() {
   const isAdmin    = you?.isAdmin || false;
   const canControl = isDJ || allowGuestControl;
 
+  // Tell the server when the DJ hides/closes the PWA so it can swallow
+  // the browser-auto-pause and keep the room playing for other viewers.
+  useEffect(() => {
+    if (!isDJ || !socket) return;
+    const notify = () => {
+      if (document.hidden) socket.emit('dj-backgrounding');
+    };
+    const notifyUnload = () => socket.emit('dj-backgrounding');
+    document.addEventListener('visibilitychange', notify);
+    window.addEventListener('pagehide', notifyUnload);
+    return () => {
+      document.removeEventListener('visibilitychange', notify);
+      window.removeEventListener('pagehide', notifyUnload);
+    };
+  }, [isDJ, socket]);
+
   const queryClient = useQueryClient();
   const addMutation = useAddPlaylistItem();
 

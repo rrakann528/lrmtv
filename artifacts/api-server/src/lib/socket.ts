@@ -47,6 +47,8 @@ interface RoomState {
   /** Track last pause so we can detect accidental browser-close pauses */
   lastPauseBy?: string;
   lastPauseAt?: number;
+  /** DJ signalled they are backgrounding/closing — ignore their next pause */
+  djBackgrounding?: { socketId: string; at: number };
 }
 
 const EMPTY_ROOM_TTL_MS = 10 * 60 * 1000; // 10 minutes
@@ -311,7 +313,13 @@ export function initSocketServer(httpServer: HttpServer): Server {
           roomState.lastSyncTimestamp = Date.now();
           startHeartbeat(io, roomState);
           break;
-        case "pause":
+        case "pause": {
+          // If this DJ signalled they are closing/backgrounding, keep room playing
+          const bg = roomState.djBackgrounding;
+          if (bg && bg.socketId === socket.id && Date.now() - bg.at < 15_000) {
+            // Swallow the browser-auto-pause — do NOT propagate it
+            return;
+          }
           roomState.isPlaying = false;
           roomState.currentTime = data.currentTime;
           roomState.lastSyncTimestamp = 0;
@@ -319,6 +327,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
           roomState.lastPauseAt = Date.now();
           stopHeartbeat(roomState);
           break;
+        }
         case "seek":
           roomState.currentTime = data.currentTime;
           roomState.lastSyncTimestamp = Date.now();
@@ -570,6 +579,19 @@ export function initSocketServer(httpServer: HttpServer): Server {
       io.to(data.targetSocketId).emit("webrtc-signal", { fromSocketId: socket.id, signal: data.signal, type: data.type });
     });
 
+    // ── DJ backgrounding / closing — keep room playing ───────────────────────
+    // Client emits this when the DJ hides the PWA or closes the tab.
+    // The server then swallows the next auto-pause from that socket (within 15 s)
+    // and restores play on disconnect so the room never freezes.
+    socket.on("dj-backgrounding", () => {
+      if (!currentRoomSlug) return;
+      const roomState = getRoomState(currentRoomSlug);
+      if (!roomState) return;
+      const user = roomState.users.get(socket.id);
+      if (!user?.isAdmin && !user?.isDJ) return;
+      roomState.djBackgrounding = { socketId: socket.id, at: Date.now() };
+    });
+
     // ── Media toggle ─────────────────────────────────────────────────────────
     socket.on("toggle-media", (data: { isMuted?: boolean; isCameraOff?: boolean }) => {
       if (!currentRoomSlug) return;
@@ -655,19 +677,22 @@ export function initSocketServer(httpServer: HttpServer): Server {
         io.to(currentRoomSlug).emit("users-updated", { users: Array.from(roomState.users.values()) });
       }
 
-      // If the leaving admin caused a pause within the last 3 s (browser auto-pause on close),
-      // restore the play state so the room keeps running.
+      // When the admin/DJ disconnects (app closed, PWA backgrounded, network lost),
+      // restore play so the room never freezes for remaining viewers.
+      // We restore if the room was paused by THIS socket — regardless of when,
+      // because any pause from a disconnecting admin is effectively accidental.
+      const wasDjBackgrounding =
+        roomState.djBackgrounding?.socketId === socket.id;
       if (
-        user?.isAdmin &&
+        (user?.isAdmin || user?.isDJ) &&
         roomState.users.size > 0 &&
         !roomState.isPlaying &&
         roomState.currentVideo &&
-        roomState.lastPauseBy === socket.id &&
-        roomState.lastPauseAt &&
-        Date.now() - roomState.lastPauseAt < 3000
+        (roomState.lastPauseBy === socket.id || wasDjBackgrounding)
       ) {
         roomState.isPlaying = true;
         roomState.lastSyncTimestamp = Date.now();
+        roomState.djBackgrounding = undefined;
         startHeartbeat(io, roomState);
         io.to(currentRoomSlug).emit("video-sync", {
           action: "play",
