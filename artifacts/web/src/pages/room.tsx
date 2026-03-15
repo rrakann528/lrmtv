@@ -145,25 +145,33 @@ export default function RoomPage() {
   }, [background]);
 
   const isRemoteSeekRef = useRef(false);
+  // Timestamp of when the player last became ready — used to enforce a grace period
+  // so the sync effect doesn't issue a seek immediately after the initial buffer load.
+  const readyTimeRef = useRef<number>(0);
 
   // Reset playerReady whenever the video URL changes so the initial-seek gate resets
   useEffect(() => {
     setPlayerReady(false);
+    readyTimeRef.current = 0;
   }, [syncState.url]);
 
-  // Sync effect — thresholds differ by source to avoid heartbeat-induced stuttering
-  // heartbeat: only correct if >5s off (clock drift, tab freeze, etc.)
-  // action:    correct if >1.5s off (someone else play/pause/seek)
-  // initial:   wait until player signals ready (loadedmetadata) to avoid seeking into an unloaded stream
+  // Sync effect — thresholds differ by source to avoid buffering-on-join stuttering.
+  // heartbeat: correct only if >8s off (gentle drift correction)
+  // action:    correct if >1.5s off (play/pause/seek from a peer)
+  // initial:   threshold=Infinity — signalReady() inside HlsPlayer handles the initial
+  //            seek via startPosition + canplay; the sync effect must not interfere.
+  //            After the 10-second grace period, fall back to heartbeat-level threshold.
   useEffect(() => {
-    if (!playerRef.current || isSeeking) return;
+    if (!playerRef.current || isSeeking || !playerReady) return;
 
     const playerTime = playerRef.current.getCurrentTime() || 0;
     const diff = Math.abs(playerTime - syncState.time);
+    const sinceReady = Date.now() - readyTimeRef.current;
 
-    const threshold = syncState.source === 'heartbeat' ? 5
-                    : syncState.source === 'action'    ? 1.5
-                    : playerReady ? 0 : Infinity; // initial — only seek after player is ready
+    const threshold = syncState.source === 'action'    ? 1.5
+                    : syncState.source === 'heartbeat' ? 8
+                    : sinceReady > 10_000              ? 8
+                    : Infinity; // initial within grace period — do not seek
 
     if (diff > threshold) {
       isRemoteSeekRef.current = true;
@@ -380,7 +388,7 @@ export default function RoomPage() {
                 controls={canControl}
                 canControl={canControl}
                 initialTime={syncState.time}
-                onReady={() => setPlayerReady(true)}
+                onReady={() => { readyTimeRef.current = Date.now(); setPlayerReady(true); }}
                 onPlay={handlePlay}
                 onPause={handlePause}
                 onSeek={handleSeek}

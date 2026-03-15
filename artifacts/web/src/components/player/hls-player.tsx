@@ -253,17 +253,30 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
       setBuffering(true);
       let cancelled = false;
 
-      // Clear buffering spinner as soon as the browser can play the stream
-      const onCanPlay = () => { if (!cancelled) setBuffering(false); };
+      // Clear buffering spinner and signal ready once the browser has buffered enough to play.
+      // Firing signalReady() here (instead of MANIFEST_PARSED) ensures:
+      //   • The buffer is actually ready at the join position before we tell room we're ready
+      //   • Only ONE seek happens (via startPosition in HLS config), no duplicate seeks
+      //   • readyFiredRef prevents double-firing for native players (loadedmetadata + canplay)
+      const onCanPlay = () => {
+        if (!cancelled) {
+          setBuffering(false);
+          signalReady(); // no-op if already fired by native loadedmetadata path
+        }
+      };
       video.addEventListener('canplay', onCanPlay);
 
-      // Called once the player has loaded enough to seek — seeks to initialTime then fires onReady
+      // Called once the player has loaded enough to seek — seeks to initialTime if needed, then fires onReady.
+      // When called from canplay (HLS path), startPosition has already positioned the player correctly,
+      // so we only seek if we are actually more than 4 seconds away from the target.
       const signalReady = () => {
         if (cancelled || readyFiredRef.current) return;
         readyFiredRef.current = true;
         const targetTime = initialTimeRef.current;
-        // For live streams skip seek entirely — just play from the live edge
-        if (!isLiveRef.current && targetTime > 2 && video) {
+        const currentPos = video?.currentTime ?? 0;
+        // For live streams skip seek entirely — just play from the live edge.
+        // For VOD: only seek if startPosition didn't already place us close enough.
+        if (!isLiveRef.current && targetTime > 2 && video && Math.abs(currentPos - targetTime) > 4) {
           video.currentTime = targetTime;
         }
         onReadyRef.current?.();
@@ -486,7 +499,9 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           setStatusMsg(null); setError(null);
           setSubtitleTracks(hls.subtitleTracks.map((tk, i) => ({ id: i, name: tk.name || tk.lang || `Track ${i + 1}`, lang: tk.lang })));
           startStallWatchdog();
-          signalReady();
+          // signalReady() is intentionally NOT called here.
+          // It fires from the 'canplay' event once the buffer at startPosition is truly
+          // ready — this prevents the triple-seek that caused heavy join-time stuttering.
         });
         return hls;
       };
