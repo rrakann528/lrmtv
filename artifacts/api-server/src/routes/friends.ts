@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, or, and, ne, like, desc, gt, sql } from "drizzle-orm";
+import { eq, or, and, ne, ilike, desc, gt, sql } from "drizzle-orm";
 import webpush from "web-push";
 import {
   db,
@@ -122,8 +122,16 @@ router.get("/friends/search", requireAuth, async (req: AuthRequest, res): Promis
       avatarUrl: usersTable.avatarUrl,
     })
     .from(usersTable)
-    .where(and(like(usersTable.username, `%${q}%`), ne(usersTable.id, req.userId!)))
-    .limit(10);
+    .where(
+      and(
+        ne(usersTable.id, req.userId!),
+        or(
+          ilike(usersTable.username, `%${q}%`),
+          ilike(usersTable.displayName, `%${q}%`),
+        ),
+      )
+    )
+    .limit(15);
   res.json(users);
 });
 
