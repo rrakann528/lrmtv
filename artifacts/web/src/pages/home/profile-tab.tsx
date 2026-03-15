@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
-import { Edit3, LogOut, Save, X, Bell, BellOff, Globe } from 'lucide-react';
+import { Edit3, LogOut, Save, X, Bell, BellOff } from 'lucide-react';
 import { Avatar } from '@/components/avatar';
 import { useAuth } from '@/hooks/use-auth';
 import { usePush } from '@/hooks/use-push';
@@ -21,7 +21,7 @@ type Section = null | 'name' | 'username' | 'bio' | 'avatar' | 'password';
 
 export function ProfileTab() {
   const { user, logout, updateProfile } = useAuth();
-  const { lang, setLang } = useI18n();
+  const { lang } = useI18n();
   const [, setLocation] = useLocation();
   const { permission, loading: pushLoading, subscribe, refresh: refreshPush, test: testPush, isSupported } = usePush(user?.id);
   const [testMsg, setTestMsg] = useState<'idle' | 'sent' | 'fail'>('idle');
@@ -326,35 +326,6 @@ export function ProfileTab() {
               {testMsg === 'sent' ? 'تم الإرسال — تحقق من إشعاراتك!' : 'فشل الإرسال — جرّب "تحديث" أولاً'}
             </div>
           )}
-        </div>
-
-        {/* Language */}
-        <div className="bg-card border border-border rounded-2xl overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3.5">
-            <div className="text-right">
-              <p className="text-xs text-muted-foreground">{lang === 'ar' ? 'اللغة' : 'Language'}</p>
-              <p className="text-sm font-medium text-foreground mt-0.5">
-                {lang === 'ar' ? 'العربية' : 'English'}
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Globe className="w-4 h-4 text-muted-foreground" />
-              <div className="flex rounded-xl overflow-hidden border border-border">
-                <button
-                  onClick={() => setLang('ar')}
-                  className={`px-3 py-1.5 text-xs font-semibold transition-colors ${lang === 'ar' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'}`}
-                >
-                  العربية
-                </button>
-                <button
-                  onClick={() => setLang('en')}
-                  className={`px-3 py-1.5 text-xs font-semibold transition-colors ${lang === 'en' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'}`}
-                >
-                  English
-                </button>
-              </div>
-            </div>
-          </div>
         </div>
 
         {/* Logout */}

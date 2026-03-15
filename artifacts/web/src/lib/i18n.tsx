@@ -161,8 +161,6 @@ interface I18nContextType {
 const I18nContext = createContext<I18nContextType | null>(null);
 
 function detectDefaultLanguage(): Language {
-  const saved = localStorage.getItem('lrmtv-lang');
-  if (saved === 'ar' || saved === 'en') return saved;
   const deviceLang = navigator.language || (navigator as any).userLanguage || '';
   return deviceLang.toLowerCase().startsWith('ar') ? 'ar' : 'en';
 }
@@ -171,7 +169,6 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   const [lang, setLangState] = useState<Language>(detectDefaultLanguage);
 
   const setLang = (newLang: Language) => {
-    localStorage.setItem('lrmtv-lang', newLang);
     setLangState(newLang);
   };
 
