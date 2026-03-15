@@ -1,7 +1,7 @@
 import { Server as HttpServer } from "http";
 import { Server, Socket } from "socket.io";
 import { db, chatMessagesTable, roomsTable, playlistItemsTable } from "@workspace/db";
-import { eq, notInArray, inArray, asc } from "drizzle-orm";
+import { eq, notInArray, inArray } from "drizzle-orm";
 
 interface RoomUser {
   socketId: string;
@@ -257,14 +257,6 @@ export function initSocketServer(httpServer: HttpServer): Server {
         }
       }
 
-      // Fetch recent chat history so the new joiner can see previous messages
-      const recentMessages = await db
-        .select()
-        .from(chatMessagesTable)
-        .where(eq(chatMessagesTable.roomId, roomState.roomId))
-        .orderBy(asc(chatMessagesTable.createdAt))
-        .limit(50);
-
       socket.emit("room-state", {
         currentVideo: roomState.currentVideo,
         isPlaying: roomState.isPlaying,
@@ -280,7 +272,6 @@ export function initSocketServer(httpServer: HttpServer): Server {
         micDisabled: roomState.micDisabled,
         cameraDisabled: roomState.cameraDisabled,
         subtitle: roomState.subtitle,
-        messages: recentMessages,
       });
 
       const systemMsg = {

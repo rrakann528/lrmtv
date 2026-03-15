@@ -102,13 +102,9 @@ export function useSocket(slug: string | null) {
       roomName?: string;
       users: RoomUser[];
       you: RoomUser;
-      messages?: ChatMessageData[];
     }) => {
       setUsers(state.users || []);
       setYou(state.you);
-      if (state.messages && state.messages.length > 0) {
-        setChatMessages(state.messages);
-      }
       setSyncState({
         playing: state.isPlaying,
         time: state.currentTime,
