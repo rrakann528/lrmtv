@@ -7,9 +7,7 @@ interface DraggableCamProps {
   stream: MediaStream;
   label: string;
   onClose?: () => void;
-  /** Mute audio output — set true for local stream to avoid echo */
   muteAudio?: boolean;
-  /** Override initial position (defaults to bottom-right) */
   initialPos?: { x: number; y: number };
 }
 
@@ -27,7 +25,6 @@ export function DraggableCam({ stream, label, onClose, muteAudio = false, initia
 
   const hasVideo = stream.getVideoTracks().length > 0;
 
-  // Position & size
   const [pos, setPos] = useState(() => initialPos ?? {
     x: window.innerWidth - DEFAULT_W - 16,
     y: window.innerHeight - DEFAULT_H - 80,
@@ -36,11 +33,48 @@ export function DraggableCam({ stream, label, onClose, muteAudio = false, initia
   const [maximized, setMaximized] = useState(false);
   const [prevState, setPrevState] = useState<{ pos: typeof pos; size: typeof size } | null>(null);
 
-  // Drag state
+  // ── Fullscreen awareness ──────────────────────────────────────────────────
+  // Native fullscreen: portal INTO the fullscreen element so the cam is visible.
+  // Simulated fullscreen (CSS z-index:9999): stay in document.body but use
+  // a higher z-index so the cam floats above the simulated overlay.
+  const [portalTarget, setPortalTarget] = useState<HTMLElement>(() => document.body);
+  const [fsZIndex, setFsZIndex] = useState(9999);
+
+  useEffect(() => {
+    const updateNative = () => {
+      const fsEl =
+        document.fullscreenElement ||
+        (document as unknown as { webkitFullscreenElement?: Element }).webkitFullscreenElement;
+      if (fsEl instanceof HTMLElement) {
+        setPortalTarget(fsEl);
+        setFsZIndex(9999);
+      } else {
+        setPortalTarget(document.body);
+        setFsZIndex(9999);
+      }
+    };
+
+    // Simulated fullscreen fires these bubbling events on the element
+    const onSimEnter = () => setFsZIndex(10001);
+    const onSimExit  = () => setFsZIndex(9999);
+
+    document.addEventListener('fullscreenchange', updateNative);
+    document.addEventListener('webkitfullscreenchange', updateNative);
+    document.addEventListener('simulatedfullscreenenter', onSimEnter, true);
+    document.addEventListener('simulatedfullscreenexit',  onSimExit,  true);
+
+    return () => {
+      document.removeEventListener('fullscreenchange', updateNative);
+      document.removeEventListener('webkitfullscreenchange', updateNative);
+      document.removeEventListener('simulatedfullscreenenter', onSimEnter, true);
+      document.removeEventListener('simulatedfullscreenexit',  onSimExit,  true);
+    };
+  }, []);
+
+  // ── Drag ──────────────────────────────────────────────────────────────────
   const dragging = useRef(false);
   const dragStart = useRef({ mx: 0, my: 0, px: 0, py: 0 });
 
-  // Resize state
   const resizing = useRef(false);
   const resizeStart = useRef({ mx: 0, my: 0, w: 0, h: 0 });
 
@@ -55,7 +89,6 @@ export function DraggableCam({ stream, label, onClose, muteAudio = false, initia
     }
   }, [stream, hasVideo, muteAudio]);
 
-  // ── Drag ──────────────────────────────────────────────────────────────────
   const onDragStart = useCallback((e: React.PointerEvent) => {
     if (maximized) return;
     e.preventDefault();
@@ -68,14 +101,13 @@ export function DraggableCam({ stream, label, onClose, muteAudio = false, initia
     if (!dragging.current) return;
     const dx = e.clientX - dragStart.current.mx;
     const dy = e.clientY - dragStart.current.my;
-    const newX = Math.max(0, Math.min(window.innerWidth - size.w, dragStart.current.px + dx));
+    const newX = Math.max(0, Math.min(window.innerWidth  - size.w, dragStart.current.px + dx));
     const newY = Math.max(0, Math.min(window.innerHeight - size.h, dragStart.current.py + dy));
     setPos({ x: newX, y: newY });
   }, [size]);
 
   const onDragEnd = useCallback(() => { dragging.current = false; }, []);
 
-  // ── Resize ────────────────────────────────────────────────────────────────
   const onResizeStart = useCallback((e: React.PointerEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -88,14 +120,14 @@ export function DraggableCam({ stream, label, onClose, muteAudio = false, initia
     if (!resizing.current) return;
     const dx = e.clientX - resizeStart.current.mx;
     const dy = e.clientY - resizeStart.current.my;
-    const newW = Math.max(MIN_W, Math.min(MAX_W, resizeStart.current.w + dx));
-    const newH = Math.max(MIN_H, Math.min(MAX_H, resizeStart.current.h + dy));
-    setSize({ w: newW, h: newH });
+    setSize({
+      w: Math.max(MIN_W, Math.min(MAX_W, resizeStart.current.w + dx)),
+      h: Math.max(MIN_H, Math.min(MAX_H, resizeStart.current.h + dy)),
+    });
   }, []);
 
   const onResizeEnd = useCallback(() => { resizing.current = false; }, []);
 
-  // Combined pointer handlers on the container
   const onPointerMove = useCallback((e: React.PointerEvent) => {
     onDragMove(e);
     onResizeMove(e);
@@ -106,7 +138,6 @@ export function DraggableCam({ stream, label, onClose, muteAudio = false, initia
     onResizeEnd();
   }, [onDragEnd, onResizeEnd]);
 
-  // ── Maximize toggle ───────────────────────────────────────────────────────
   const toggleMaximize = () => {
     if (!maximized) {
       setPrevState({ pos, size });
@@ -125,7 +156,7 @@ export function DraggableCam({ stream, label, onClose, muteAudio = false, initia
     top: pos.y,
     width: size.w,
     height: size.h,
-    zIndex: 9999,
+    zIndex: fsZIndex,
     touchAction: 'none',
   };
 
@@ -137,7 +168,7 @@ export function DraggableCam({ stream, label, onClose, muteAudio = false, initia
       onPointerUp={onPointerUp}
       className="rounded-xl overflow-hidden shadow-2xl border border-white/20 bg-zinc-900 flex flex-col select-none"
     >
-      {/* Drag handle / title bar */}
+      {/* Drag handle */}
       <div
         className="flex items-center justify-between px-2 py-1 bg-black/80 cursor-grab active:cursor-grabbing shrink-0"
         onPointerDown={onDragStart}
@@ -178,7 +209,7 @@ export function DraggableCam({ stream, label, onClose, muteAudio = false, initia
         }
       </div>
 
-      {/* Resize handle (bottom-right corner) */}
+      {/* Resize handle */}
       {!maximized && (
         <div
           className="absolute bottom-0 right-0 w-5 h-5 cursor-se-resize"
@@ -191,6 +222,6 @@ export function DraggableCam({ stream, label, onClose, muteAudio = false, initia
         </div>
       )}
     </div>,
-    document.body
+    portalTarget,
   );
 }
