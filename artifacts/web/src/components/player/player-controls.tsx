@@ -201,16 +201,6 @@ export default function PlayerControls({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="relative">
-              {/* Guest blocker */}
-              {!canControl && (
-                <div
-                  className="absolute inset-0 z-10 cursor-not-allowed"
-                  onClickCapture={(e) => e.stopPropagation()}
-                  onPointerDownCapture={(e) => e.stopPropagation()}
-                  onTouchStartCapture={(e) => e.stopPropagation()}
-                />
-              )}
-
               {/* ── Progress bar — always left→right regardless of page direction ── */}
               {!isLive ? (
                 <div
