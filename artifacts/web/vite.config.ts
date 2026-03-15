@@ -49,27 +49,21 @@ export default defineConfig(async () => {
           //   • UI / icon deps load once then stay cached across navigation
           manualChunks: (id) => {
             // Player-specific heavy deps — defer until room page loads
-            if (id.includes("node_modules/hls.js"))         return "chunk-hls";
-            if (id.includes("node_modules/dashjs"))          return "chunk-dash";
-            if (id.includes("node_modules/react-player"))    return "chunk-player";
+            if (id.includes("node_modules/hls.js"))          return "chunk-hls";
+            if (id.includes("node_modules/dashjs"))           return "chunk-dash";
+            if (id.includes("node_modules/react-player"))     return "chunk-player";
             // Animation — only used in a few places
-            if (id.includes("node_modules/framer-motion"))   return "chunk-framer";
+            if (id.includes("node_modules/framer-motion"))    return "chunk-framer";
             // Emoji picker — large, rarely used
             if (
               id.includes("node_modules/emoji-picker-react") ||
               id.includes("node_modules/emoji-")
-            )                                                return "chunk-emoji";
+            )                                                  return "chunk-emoji";
             // Socket.io client
-            if (id.includes("node_modules/socket.io"))       return "chunk-socket";
-            // Radix UI / shadcn components — shared across all pages
-            if (id.includes("node_modules/@radix-ui"))       return "chunk-radix";
-            // React core
-            if (
-              id.includes("node_modules/react/") ||
-              id.includes("node_modules/react-dom/")
-            )                                                return "chunk-react";
-            // Everything else from node_modules
-            if (id.includes("node_modules/"))                return "chunk-vendor";
+            if (id.includes("node_modules/socket.io"))        return "chunk-socket";
+            // Everything else from node_modules (including React) stays in vendor
+            // NOTE: React must NOT be split separately — doing so breaks initialization order
+            if (id.includes("node_modules/"))                 return "chunk-vendor";
           },
         },
       },
