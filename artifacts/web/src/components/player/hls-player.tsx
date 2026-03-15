@@ -272,15 +272,21 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
       };
 
       // ── S-Native: HTML5 <video> element (MP4, WebM, native HLS on Safari) ─
-      const loadViaNative = (nativeSrc?: string) => {
+      const loadViaNative = (nativeSrc?: string, _isCfRetry = false) => {
         if (cancelled) return;
         destroyAll();
         setStatusMsg('native');
         video.removeAttribute('crossorigin');
-        video.src = nativeSrc ?? src;
+        const targetSrc = nativeSrc ?? src;
+        video.src = targetSrc;
         const onMeta = () => { if (!cancelled) { setIsLive(!isFinite(video.duration) || video.duration === Infinity); setStatusMsg(null); setError(null); } };
         const onErr  = () => {
           if (cancelled) return;
+          // If direct load failed and we haven't tried CF proxy yet, try through it
+          if (!_isCfRetry) {
+            const cfUrl = buildCfUrl(targetSrc);
+            if (cfUrl) { loadViaNative(cfUrl, true); return; }
+          }
           const code = video.error?.code;
           setError(code === 4 ? 'unsupported' : 'ip-locked');
           setStatusMsg(null);
@@ -428,9 +434,21 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           hls.loadSource(src);
           hls.attachMedia(video);
         } else if (video.canPlayType('application/vnd.apple.mpegurl') !== '') {
-          video.src = src;
-          video.addEventListener('loadedmetadata', () => { if (!cancelled) { onDurationChange(); setStatusMsg(null); setError(null); startStallWatchdog(); } }, { once: true });
-          video.addEventListener('error', () => { if (!cancelled) s2_cfManifestProxy(); }, { once: true });
+          // iOS Safari: native HLS — try direct first, then CF proxy
+          const tryNativeHls = (hlsSrc: string, isCfRetry = false) => {
+            if (cancelled) return;
+            video.src = hlsSrc;
+            video.addEventListener('loadedmetadata', () => { if (!cancelled) { onDurationChange(); setStatusMsg(null); setError(null); startStallWatchdog(); } }, { once: true });
+            video.addEventListener('error', () => {
+              if (cancelled) return;
+              if (!isCfRetry) {
+                const cfUrl = buildCfUrl(src);
+                if (cfUrl) { tryNativeHls(cfUrl, true); return; }
+              }
+              setError('ip-locked'); setStatusMsg(null);
+            }, { once: true });
+          };
+          tryNativeHls(src);
         } else {
           setStatusMsg(null); setError('unsupported');
         }
