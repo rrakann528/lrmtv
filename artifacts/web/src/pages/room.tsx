@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   MessageSquare, ListVideo, Users, UserPlus,
   Mic, MicOff, Video, VideoOff, Copy, Share2, Shield,
-  LogOut, LogIn, Radio, X,
+  LogOut, LogIn,
 } from 'lucide-react';
 import { DraggableCam } from '@/components/draggable-cam';
 
@@ -13,7 +13,6 @@ import { useI18n } from '@/lib/i18n';
 import { useUserSession } from '@/hooks/use-user-session';
 import { useSocket } from '@/hooks/use-socket';
 import { useWebRTC } from '@/hooks/use-webrtc';
-import { useStreamRelay } from '@/hooks/use-stream-relay';
 import { useAuth } from '@/hooks/use-auth';
 import { useGetRoom, useAddPlaylistItem, getGetRoomPlaylistQueryKey } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -85,19 +84,6 @@ export default function RoomPage() {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
 
   const { remoteStreams, callAllPeers, hangUp } = useWebRTC(socket, localStream);
-
-  const {
-    isRelaying, relayHostSocketId, relayStream,
-    startRelay, stopRelay, joinRelay, leaveRelay,
-  } = useStreamRelay(socket);
-
-  // Ref for the relay video element
-  const relayVideoRef = useRef<HTMLVideoElement>(null);
-
-  // Attach relay stream to video element
-  useEffect(() => {
-    if (relayVideoRef.current) relayVideoRef.current.srcObject = relayStream;
-  }, [relayStream]);
 
   const isDJ       = you?.isDJ || you?.isAdmin || false;
   const isAdmin    = you?.isAdmin || false;
@@ -398,79 +384,6 @@ export default function RoomPage() {
               </div>
             )}
 
-            {/* Relay: Host "بث للغرفة" button — shown for HLS/MP4 streams only */}
-            {isDJ && syncState.url && !isRelaying &&
-             !['youtube','twitch','vimeo'].includes(detectSourceType(syncState.url)) && (
-              <button
-                onClick={() => {
-                  const el = playerRef.current?.getVideoElement();
-                  if (!el) return;
-                  const result = startRelay(el);
-                  if (result === 'not-ready') {
-                    alert(lang === 'ar'
-                      ? 'انتظر حتى يبدأ الفيديو بالتشغيل ثم حاول مجدداً'
-                      : 'Wait for the video to start playing first');
-                  } else if (result === 'unsupported') {
-                    alert(lang === 'ar'
-                      ? 'متصفحك لا يدعم التقاط الفيديو — جرّب Chrome أو Firefox'
-                      : 'Your browser does not support video capture — try Chrome or Firefox');
-                  }
-                }}
-                className="absolute bottom-14 start-2 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-cyan-600/80 hover:bg-cyan-500 backdrop-blur text-white text-[11px] font-semibold transition-colors"
-                title={lang === 'ar' ? 'ابدأ البث المباشر للغرفة' : 'Relay stream to room'}
-              >
-                <Radio className="w-3.5 h-3.5" />
-                {lang === 'ar' ? 'بث للغرفة' : 'Relay to room'}
-              </button>
-            )}
-
-            {/* Relay: Host "إيقاف البث" button */}
-            {isRelaying && (
-              <button
-                onClick={stopRelay}
-                className="absolute bottom-14 start-2 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-red-600/80 hover:bg-red-500 backdrop-blur text-white text-[11px] font-semibold transition-colors animate-pulse"
-              >
-                <Radio className="w-3.5 h-3.5" />
-                {lang === 'ar' ? 'جارٍ البث… إيقاف' : 'Relaying… Stop'}
-              </button>
-            )}
-
-            {/* Relay: Viewer banner — relay available */}
-            {relayHostSocketId && !relayStream && !isRelaying && (
-              <div className="absolute bottom-14 start-2 z-20 flex items-center gap-2 px-3 py-1.5 rounded-full bg-cyan-700/90 backdrop-blur text-white text-[11px] font-semibold">
-                <Radio className="w-3.5 h-3.5 animate-pulse text-cyan-300" />
-                <span>{lang === 'ar' ? 'بث مباشر متاح' : 'Live relay available'}</span>
-                <button
-                  onClick={() => joinRelay(relayHostSocketId)}
-                  className="ms-1 px-2 py-0.5 rounded-full bg-white/20 hover:bg-white/30 transition-colors"
-                >
-                  {lang === 'ar' ? 'شاهد' : 'Watch'}
-                </button>
-              </div>
-            )}
-
-            {/* Relay: Viewer — receiving relay stream */}
-            {relayStream && (
-              <div className="absolute inset-0 z-30 bg-black flex flex-col">
-                <video
-                  ref={relayVideoRef}
-                  autoPlay
-                  playsInline
-                  className="w-full h-full object-contain"
-                />
-                <button
-                  onClick={leaveRelay}
-                  className="absolute top-2 end-2 flex items-center gap-1 px-2.5 py-1 rounded-full bg-black/60 hover:bg-black/80 text-white text-[11px] z-10"
-                >
-                  <X className="w-3 h-3" />
-                  {lang === 'ar' ? 'إيقاف الاستقبال' : 'Stop relay'}
-                </button>
-                <div className="absolute top-2 start-2 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-600/80 text-white text-[11px] font-semibold">
-                  <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
-                  {lang === 'ar' ? 'بث مباشر' : 'LIVE'}
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Local cam — draggable, bottom-left, audio muted to avoid echo */}

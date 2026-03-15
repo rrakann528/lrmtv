@@ -570,23 +570,6 @@ export function initSocketServer(httpServer: HttpServer): Server {
       io.to(data.targetSocketId).emit("webrtc-signal", { fromSocketId: socket.id, signal: data.signal, type: data.type });
     });
 
-    // ── Stream Relay (P2P video rebroadcast for IP-locked streams) ───────────
-    socket.on("relay:advertise", () => {
-      if (!currentRoomSlug) return;
-      // Broadcast to everyone else in the room that a relay is available
-      socket.to(currentRoomSlug).emit("relay:advertise", { hostSocketId: socket.id });
-    });
-
-    socket.on("relay:stop", () => {
-      if (!currentRoomSlug) return;
-      socket.to(currentRoomSlug).emit("relay:stop", { hostSocketId: socket.id });
-    });
-
-    socket.on("relay:request", (data: { hostSocketId: string }) => {
-      // Forward the viewer's join request to the host
-      io.to(data.hostSocketId).emit("relay:request", { viewerSocketId: socket.id });
-    });
-
     // ── Media toggle ─────────────────────────────────────────────────────────
     socket.on("toggle-media", (data: { isMuted?: boolean; isCameraOff?: boolean }) => {
       if (!currentRoomSlug) return;

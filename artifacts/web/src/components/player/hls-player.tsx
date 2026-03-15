@@ -470,6 +470,12 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           video.addEventListener('error',          onErr,  { once: true });
         };
 
+        // HTTP src on HTTPS page → browser blocks it as mixed content → skip straight to API proxy
+        if (src.startsWith('http:') && window.location.protocol === 'https:') {
+          s5_apiProxy();
+          return;
+        }
+
         // S1 — HLS.js direct (best features: adaptive bitrate, quality switching)
         setStatusMsg('hls-direct');
         if (Hls.isSupported()) {
