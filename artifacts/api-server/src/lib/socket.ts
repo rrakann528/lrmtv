@@ -1,7 +1,7 @@
 import { Server as HttpServer } from "http";
 import { Server, Socket } from "socket.io";
 import { db, chatMessagesTable, roomsTable, playlistItemsTable } from "@workspace/db";
-import { eq, notInArray, inArray } from "drizzle-orm";
+import { eq, notInArray, inArray, asc } from "drizzle-orm";
 
 interface RoomUser {
   socketId: string;
@@ -44,6 +44,9 @@ interface RoomState {
   subtitle: SubtitleSync | null;
   /** Permanent admin — the user who created/first-joined the room. Restored on rejoin. */
   creatorUserId?: number;
+  /** Track last pause so we can detect accidental browser-close pauses */
+  lastPauseBy?: string;
+  lastPauseAt?: number;
 }
 
 const EMPTY_ROOM_TTL_MS = 10 * 60 * 1000; // 10 minutes
@@ -254,6 +257,14 @@ export function initSocketServer(httpServer: HttpServer): Server {
         }
       }
 
+      // Fetch recent chat history so the new joiner can see previous messages
+      const recentMessages = await db
+        .select()
+        .from(chatMessagesTable)
+        .where(eq(chatMessagesTable.roomId, roomState.roomId))
+        .orderBy(asc(chatMessagesTable.createdAt))
+        .limit(50);
+
       socket.emit("room-state", {
         currentVideo: roomState.currentVideo,
         isPlaying: roomState.isPlaying,
@@ -269,6 +280,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
         micDisabled: roomState.micDisabled,
         cameraDisabled: roomState.cameraDisabled,
         subtitle: roomState.subtitle,
+        messages: recentMessages,
       });
 
       const systemMsg = {
@@ -312,6 +324,8 @@ export function initSocketServer(httpServer: HttpServer): Server {
           roomState.isPlaying = false;
           roomState.currentTime = data.currentTime;
           roomState.lastSyncTimestamp = 0;
+          roomState.lastPauseBy = socket.id;
+          roomState.lastPauseAt = Date.now();
           stopHeartbeat(roomState);
           break;
         case "seek":
@@ -648,6 +662,29 @@ export function initSocketServer(httpServer: HttpServer): Server {
       } else if (user?.isAdmin && roomState.creatorUserId) {
         // Creator left — keep the room running but no active admin until they return
         io.to(currentRoomSlug).emit("users-updated", { users: Array.from(roomState.users.values()) });
+      }
+
+      // If the leaving admin caused a pause within the last 3 s (browser auto-pause on close),
+      // restore the play state so the room keeps running.
+      if (
+        user?.isAdmin &&
+        roomState.users.size > 0 &&
+        !roomState.isPlaying &&
+        roomState.currentVideo &&
+        roomState.lastPauseBy === socket.id &&
+        roomState.lastPauseAt &&
+        Date.now() - roomState.lastPauseAt < 3000
+      ) {
+        roomState.isPlaying = true;
+        roomState.lastSyncTimestamp = Date.now();
+        startHeartbeat(io, roomState);
+        io.to(currentRoomSlug).emit("video-sync", {
+          action: "play",
+          currentTime: computedTime(roomState),
+          url: roomState.currentVideo,
+          isPlaying: true,
+          from: "server",
+        });
       }
 
       currentRoomSlug = '';
