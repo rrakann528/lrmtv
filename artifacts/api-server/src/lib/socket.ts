@@ -382,6 +382,26 @@ export function initSocketServer(httpServer: HttpServer): Server {
       });
     });
 
+    // ── Private message (friend-to-friend in the same room) ──────────────────
+    // Client emits: { targetSocketId, content }
+    // Server forwards only to the target socket — no room broadcast, no DB save.
+    socket.on("private-message", (data: { targetSocketId: string; content: string }) => {
+      if (!currentRoomSlug) return;
+      const roomState = getRoomState(currentRoomSlug);
+      if (!roomState) return;
+      const sender = roomState.users.get(socket.id);
+      if (!sender) return;
+      const target = roomState.users.get(data.targetSocketId);
+      if (!target) return; // target left the room
+      const content = String(data.content || '').trim().slice(0, 1000);
+      if (!content) return;
+      io.to(data.targetSocketId).emit("private-message", {
+        from: sender.username,
+        fromId: sender.userId,
+        content,
+      });
+    });
+
     // ── Playlist ──────────────────────────────────────────────────────────────
     socket.on("playlist-update", (data: { action: string; item?: unknown; items?: unknown[] }) => {
       if (!currentRoomSlug) return;

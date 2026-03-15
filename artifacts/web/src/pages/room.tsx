@@ -565,6 +565,9 @@ export default function RoomPage() {
                       userId={authUser.id}
                       roomSlug={slug}
                       roomName={room?.name || slug}
+                      socket={socket}
+                      roomUsers={users}
+                      myUsername={username}
                     />
                   : <div key="friends-login" className="flex flex-col items-center justify-center h-full gap-4 p-6">
                       <UserPlus className="w-12 h-12 text-white/10" />
