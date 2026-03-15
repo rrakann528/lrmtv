@@ -20,6 +20,7 @@ export default function AuthPage() {
   const oauthError = params.get('error');
 
   const [mode, setMode] = useState<'login' | 'register'>(initialMode);
+  const [loginField, setLoginField] = useState(''); // email OR username for login
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -37,8 +38,14 @@ export default function AuthPage() {
     setSubmitting(true);
     try {
       const endpoint = mode === 'login' ? '/auth/login' : '/auth/register';
-      const body: Record<string, string> = { email, password };
-      if (mode === 'register') body.username = username;
+      let body: Record<string, string>;
+      if (mode === 'login') {
+        // Send as email if it looks like one, otherwise as username
+        const isEmail = loginField.includes('@');
+        body = { [isEmail ? 'email' : 'username']: loginField.trim(), password };
+      } else {
+        body = { email, username, password };
+      }
 
       const res = await apiFetch(endpoint, {
         method: 'POST',
@@ -121,14 +128,28 @@ export default function AuthPage() {
               )}
             </AnimatePresence>
 
-            <input
-              type="email"
-              placeholder="البريد الإلكتروني"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              required
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-primary/50 transition"
-            />
+            {mode === 'login' ? (
+              <input
+                type="text"
+                placeholder="البريد الإلكتروني أو اسم المستخدم"
+                value={loginField}
+                onChange={e => setLoginField(e.target.value)}
+                required
+                autoComplete="username"
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-primary/50 transition"
+                dir="ltr"
+              />
+            ) : (
+              <input
+                type="email"
+                placeholder="البريد الإلكتروني"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                required
+                autoComplete="email"
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-primary/50 transition"
+              />
+            )}
 
             <div className="relative">
               <input

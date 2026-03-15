@@ -48,7 +48,7 @@ export function writeToken(t: string | null) {
 
 export async function apiFetch(path: string, opts?: RequestInit) {
   const token = readToken();
-  return fetch(`${BASE}/api${path}`, {
+  const r = await fetch(`${BASE}/api${path}`, {
     ...opts,
     credentials: 'include',
     headers: {
@@ -57,6 +57,11 @@ export async function apiFetch(path: string, opts?: RequestInit) {
       ...(opts?.headers || {}),
     },
   });
+  // If the stored Bearer token was rejected, clear it so next requests use cookies
+  if (r.status === 401 && token) {
+    writeToken(null);
+  }
+  return r;
 }
 
 export function useAuth() {

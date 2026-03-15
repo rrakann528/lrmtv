@@ -52,15 +52,19 @@ export function UserProfileSheet({ userId, username, onClose, onChat }: Props) {
   const queryKey = userId ? ['user-profile', userId] : ['user-profile-name', username];
   const queryUrl = userId ? `/users/${userId}` : `/users/by-username/${encodeURIComponent(username ?? '')}`;
 
-  const { data: profile, isLoading, isError } = useQuery<UserProfile>({
+  const { data: profile, isLoading, isError, error } = useQuery<UserProfile>({
     queryKey,
     queryFn: () => apiFetch(queryUrl).then(async r => {
-      if (!r.ok) throw new Error('not_found');
+      if (!r.ok) throw new Error(`${r.status}`);
       return r.json();
     }),
     enabled: !!(userId || username),
     retry: false,
   });
+
+  const errorStatus = (error as Error)?.message;
+  const isNotFound = errorStatus === '404';
+  const isAuthError = errorStatus === '401';
 
   const isSelf = me?.id === profile?.id;
 
@@ -129,8 +133,26 @@ export function UserProfileSheet({ userId, username, onClose, onChat }: Props) {
 
           {/* ── Error state for registered user (userId provided but API failed) ─ */}
           {!isLoading && (isError || !profile) && userId && (
-            <div className="flex flex-col items-center justify-center py-20 gap-3">
-              <p className="text-sm text-white/40">{lang === 'ar' ? 'تعذّر تحميل الملف الشخصي' : 'Could not load profile'}</p>
+            <div className="flex flex-col items-center justify-center py-20 gap-3 px-6 text-center">
+              <div className="w-14 h-14 rounded-full bg-white/5 flex items-center justify-center">
+                <span className="text-2xl">{isNotFound ? '🔍' : isAuthError ? '🔒' : '⚠️'}</span>
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-white/70">
+                  {isNotFound
+                    ? (lang === 'ar' ? 'المستخدم غير موجود' : 'User not found')
+                    : isAuthError
+                      ? (lang === 'ar' ? 'انتهت جلستك' : 'Session expired')
+                      : (lang === 'ar' ? 'تعذّر تحميل الملف الشخصي' : 'Could not load profile')}
+                </p>
+                <p className="text-xs text-white/30 mt-1">
+                  {isNotFound
+                    ? (lang === 'ar' ? 'ربما تم حذف الحساب أو لا يوجد في هذا النظام' : 'Account may not exist in this system')
+                    : isAuthError
+                      ? (lang === 'ar' ? 'سجّل دخولك مجدداً' : 'Please log in again')
+                      : ''}
+                </p>
+              </div>
             </div>
           )}
 

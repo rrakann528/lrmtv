@@ -68,25 +68,44 @@ router.post("/auth/register", async (req, res): Promise<void> => {
 });
 
 // ── Login ──────────────────────────────────────────────────────────────────────
+// Accepts email OR username
 const LoginBody = z.object({
-  email: z.string().email(),
+  email:    z.string().optional(),
+  username: z.string().optional(),
   password: z.string().min(1),
-});
+}).refine(d => d.email || d.username, { message: "يجب إدخال البريد أو اسم المستخدم" });
 
 router.post("/auth/login", async (req, res): Promise<void> => {
   const parsed = LoginBody.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: "بيانات غير صحيحة" }); return; }
-  const { email, password } = parsed.data;
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.errors[0]?.message || "بيانات غير صحيحة" }); return; }
+  const { email, username, password } = parsed.data;
 
-  const [user] = await db.select().from(usersTable).where(eq(usersTable.email, email)).limit(1);
-  if (!user) { res.status(401).json({ error: "البريد أو كلمة المرور غير صحيحة" }); return; }
+  let user: typeof usersTable.$inferSelect | undefined;
+  if (email && email.trim()) {
+    // Try email first (exact match)
+    const [byEmail] = await db.select().from(usersTable)
+      .where(eq(usersTable.email, email.trim().toLowerCase())).limit(1);
+    user = byEmail;
+    // Fallback: maybe they typed their username in the email field
+    if (!user) {
+      const [byUsername] = await db.select().from(usersTable)
+        .where(eq(usersTable.username, email.trim())).limit(1);
+      user = byUsername;
+    }
+  } else if (username && username.trim()) {
+    const [byUsername] = await db.select().from(usersTable)
+      .where(eq(usersTable.username, username.trim())).limit(1);
+    user = byUsername;
+  }
+
+  if (!user) { res.status(401).json({ error: "اسم المستخدم أو كلمة المرور غير صحيحة" }); return; }
   if (!user.passwordHash) {
     res.status(401).json({ error: "هذا الحساب مرتبط بـ Google، سجّل دخولك بـ Google" });
     return;
   }
 
   const valid = await bcrypt.compare(password, user.passwordHash);
-  if (!valid) { res.status(401).json({ error: "البريد أو كلمة المرور غير صحيحة" }); return; }
+  if (!valid) { res.status(401).json({ error: "اسم المستخدم أو كلمة المرور غير صحيحة" }); return; }
 
   const token = signToken(user.id, user.username);
   res.cookie("token", token, { httpOnly: true, sameSite: "lax", maxAge: 30 * 24 * 60 * 60 * 1000, path: "/" });
