@@ -32,7 +32,7 @@ interface ChatPanelProps {
 
 export default function ChatPanel({ slug, emitChatMessage, username, liveMessages, chatDisabled, isAdmin }: ChatPanelProps) {
   const { t, lang } = useI18n();
-  const isRtl = lang === 'ar';
+  const (lang === 'ar') = lang === 'ar';
   const inputBlocked = chatDisabled && !isAdmin;
   const { data: history } = useGetRoomMessages(slug);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -132,15 +132,15 @@ export default function ChatPanel({ slug, emitChatMessage, username, liveMessage
 
       {/* Chat disabled banner */}
       {chatDisabled && (
-        <div className={`flex items-center gap-2 px-4 py-2 text-xs font-medium border-t ${isAdmin ? 'bg-amber-500/10 border-amber-500/20 text-amber-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`} dir={isRtl ? 'rtl' : 'ltr'}>
+        <div className={`flex items-center gap-2 px-4 py-2 text-xs font-medium border-t ${isAdmin ? 'bg-amber-500/10 border-amber-500/20 text-amber-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
           <MessageSquareOff className="w-3.5 h-3.5 shrink-0" />
           {isAdmin
-            ? (isRtl ? 'الدردشة معطلة — أنت المضيف ويمكنك الكتابة' : 'Chat is disabled — you can still write as host')
-            : (isRtl ? 'الدردشة معطّلة من المضيف' : 'Chat has been disabled by the host')}
+            ? ((lang === 'ar') ? 'الدردشة معطلة — أنت المضيف ويمكنك الكتابة' : 'Chat is disabled — you can still write as host')
+            : ((lang === 'ar') ? 'الدردشة معطّلة من المضيف' : 'Chat has been disabled by the host')}
         </div>
       )}
 
-      <div className="p-3 bg-black/40 border-t border-white/10 relative" dir={isRtl ? 'rtl' : 'ltr'}>
+      <div className="p-3 bg-black/40 border-t border-white/10 relative">
         {showEmoji && !inputBlocked && (
           <div className="absolute bottom-full right-4 mb-2 z-50">
             <Suspense fallback={<div className="w-[300px] h-[400px] rounded-xl bg-zinc-900 flex items-center justify-center"><div className="w-6 h-6 rounded-full border-2 border-primary border-t-transparent animate-spin" /></div>}>
@@ -167,7 +167,7 @@ export default function ChatPanel({ slug, emitChatMessage, username, liveMessage
             disabled={inputBlocked}
             className="ps-10 rounded-full bg-white/5 border-white/10 disabled:opacity-40 disabled:cursor-not-allowed"
             placeholder={inputBlocked
-              ? (isRtl ? 'الدردشة معطّلة...' : 'Chat is disabled...')
+              ? ((lang === 'ar') ? 'الدردشة معطّلة...' : 'Chat is disabled...')
               : t('typeMessage')}
           />
           

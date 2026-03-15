@@ -100,10 +100,8 @@ export default function YoutubeSearch({ onAdd, isAdding, lang = 'en' }: Props) {
     setTimeout(() => inputRef.current?.focus(), 50);
   };
 
-  const isRtl = lang === 'ar';
-
   return (
-    <div ref={containerRef} className="relative" dir={isRtl ? 'rtl' : 'ltr'}>
+    <div ref={containerRef} className="relative">
       {/* Mode toggle */}
       <div className="flex gap-1 mb-1.5">
         <button
@@ -117,7 +115,7 @@ export default function YoutubeSearch({ onAdd, isAdding, lang = 'en' }: Props) {
           )}
         >
           <Youtube className="w-3.5 h-3.5" />
-          {isRtl ? 'بحث يوتيوب' : 'YouTube Search'}
+          {(lang === 'ar') ? 'بحث يوتيوب' : 'YouTube Search'}
         </button>
         <button
           type="button"
@@ -130,7 +128,7 @@ export default function YoutubeSearch({ onAdd, isAdding, lang = 'en' }: Props) {
           )}
         >
           <LinkIcon className="w-3.5 h-3.5" />
-          {isRtl ? 'رابط مباشر' : 'Direct URL'}
+          {(lang === 'ar') ? 'رابط مباشر' : 'Direct URL'}
         </button>
       </div>
 
@@ -143,7 +141,7 @@ export default function YoutubeSearch({ onAdd, isAdding, lang = 'en' }: Props) {
               ref={inputRef}
               value={query}
               onChange={handleQueryChange}
-              placeholder={isRtl ? 'ابحث عن فيديو...' : 'Search YouTube...'}
+              placeholder={(lang === 'ar') ? 'ابحث عن فيديو...' : 'Search YouTube...'}
               className="w-full h-9 ps-9 pe-8 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder-white/30 outline-none focus:border-red-500/60 transition-colors"
             />
             {query && (

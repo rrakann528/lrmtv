@@ -14,7 +14,7 @@ interface SubtitleSearchProps {
 type Tab = 'upload' | 'url';
 
 export default function SubtitleSearch({ isOpen, onClose, onApply, lang = 'en' }: SubtitleSearchProps) {
-  const isAr = lang === 'ar';
+  const isAr = lang === 'ar'; // used for text only
   const [tab, setTab] = useState<Tab>('upload');
 
   // ── Upload tab ──────────────────────────────────────────────────────────────
@@ -78,7 +78,6 @@ export default function SubtitleSearch({ isOpen, onClose, onApply, lang = 'en' }
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
             className="absolute inset-x-0 bottom-0 z-50 bg-zinc-900 rounded-t-2xl border-t border-white/10 flex flex-col"
-            dir={isAr ? 'rtl' : 'ltr'}
           >
             {/* Handle */}
             <div className="flex justify-center pt-2 pb-1">
@@ -152,7 +151,7 @@ export default function SubtitleSearch({ isOpen, onClose, onApply, lang = 'en' }
                     : 'Paste a direct link to an SRT or VTT file'}
                 </p>
                 <div className="relative">
-                  <Link className={cn('absolute top-1/2 -translate-y-1/2 w-4 h-4 text-white/30 pointer-events-none', isAr ? 'right-3' : 'left-3')} />
+                  <Link className="absolute top-1/2 -translate-y-1/2 w-4 h-4 text-white/30 pointer-events-none right-3" />
                   <input
                     value={url}
                     onChange={e => { setUrl(e.target.value); setUrlError(null); }}
@@ -161,7 +160,7 @@ export default function SubtitleSearch({ isOpen, onClose, onApply, lang = 'en' }
                     dir="ltr"
                     className={cn(
                       'w-full bg-white/5 border border-white/10 rounded-xl text-white text-sm py-2.5',
-                      isAr ? 'pr-9 pl-3' : 'pl-9 pr-3',
+                      'pr-9 pl-3',
                       'placeholder-white/20 focus:outline-none focus:border-primary/60',
                     )}
                   />

@@ -44,7 +44,7 @@ export default function PlaylistPanel({
   emitSync, emitPlaylistUpdate,
 }: PlaylistPanelProps) {
   const { t, lang } = useI18n();
-  const isRtl = lang === 'ar';
+  const (lang === 'ar') = lang === 'ar';
   const { data: playlist, isLoading } = useGetRoomPlaylist(slug);
   const deleteMutation = useDeletePlaylistItem();
   const reorderMutation = useReorderPlaylist();
@@ -116,7 +116,7 @@ export default function PlaylistPanel({
         className="flex-1 flex flex-col items-center justify-center gap-3 text-white/40 p-6"
       >
         <ListVideo className="w-10 h-10 opacity-30" />
-        <p className="text-sm text-center">{isRtl ? 'القائمة فارغة، أضف فيديو أعلاه' : 'Playlist is empty — add a video above'}</p>
+        <p className="text-sm text-center">{(lang === 'ar') ? 'القائمة فارغة، أضف فيديو أعلاه' : 'Playlist is empty — add a video above'}</p>
       </motion.div>
     );
   }
@@ -127,17 +127,17 @@ export default function PlaylistPanel({
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -20 }}
       className="flex flex-col h-full"
-      dir={isRtl ? 'rtl' : 'ltr'}
+     
     >
       {/* Header info */}
       <div className="px-3 pt-2 pb-1 flex items-center justify-between shrink-0">
         <span className="text-xs text-white/50 flex items-center gap-1.5">
           <Music2 className="w-3.5 h-3.5" />
-          {items.length} {isRtl ? 'فيديو' : 'video(s)'}
+          {items.length} {(lang === 'ar') ? 'فيديو' : 'video(s)'}
         </span>
         {!canControl && (
           <span className="text-[10px] text-amber-400/70 flex items-center gap-1">
-            {isRtl ? 'عرض فقط' : 'View only'}
+            {(lang === 'ar') ? 'عرض فقط' : 'View only'}
           </span>
         )}
       </div>
@@ -226,7 +226,7 @@ export default function PlaylistPanel({
                     <button
                       className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/15 hover:bg-primary/30 active:bg-primary/40 text-primary transition-colors"
                       onClick={() => playItem(item.url)}
-                      title={isRtl ? 'تشغيل' : 'Play'}
+                      title={(lang === 'ar') ? 'تشغيل' : 'Play'}
                     >
                       <Play className="w-3.5 h-3.5 fill-primary" />
                     </button>
@@ -237,7 +237,7 @@ export default function PlaylistPanel({
                     <button
                       className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/15 hover:bg-primary/30 text-primary transition-colors"
                       onClick={() => emitSync(0, !isPlaying, item.url)}
-                      title={isPlaying ? (isRtl ? 'إيقاف' : 'Pause') : (isRtl ? 'تشغيل' : 'Play')}
+                      title={isPlaying ? ((lang === 'ar') ? 'إيقاف' : 'Pause') : ((lang === 'ar') ? 'تشغيل' : 'Play')}
                     >
                       {isPlaying
                         ? <Pause className="w-3.5 h-3.5 fill-primary" />
@@ -252,7 +252,7 @@ export default function PlaylistPanel({
                       className="flex items-center justify-center w-8 h-8 rounded-lg text-white/30 hover:text-red-400 hover:bg-red-400/10 active:bg-red-400/20 transition-colors"
                       onClick={() => removeItem(item.id)}
                       disabled={deletingId === item.id}
-                      title={isRtl ? 'حذف' : 'Remove'}
+                      title={(lang === 'ar') ? 'حذف' : 'Remove'}
                     >
                       {deletingId === item.id
                         ? <Loader2 className="w-3.5 h-3.5 animate-spin" />

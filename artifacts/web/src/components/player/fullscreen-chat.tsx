@@ -34,8 +34,6 @@ export default function FullscreenChat({
   const [showEmoji, setShowEmoji] = useState(false);
   const scrollRef  = useRef<HTMLDivElement>(null);
   const inputRef   = useRef<HTMLInputElement>(null);
-  const isRtl = lang === 'ar';
-
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -62,13 +60,12 @@ export default function FullscreenChat({
           exit={{ opacity: 0, x: 60 }}
           transition={{ type: 'spring', stiffness: 300, damping: 30 }}
           className="absolute inset-y-0 right-0 z-30 flex flex-col w-72 bg-black/90 backdrop-blur-xl border-l border-white/10 shadow-2xl"
-          dir={isRtl ? 'rtl' : 'ltr'}
           onClick={e => e.stopPropagation()}
         >
           {/* ── Header ── */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 shrink-0">
             <span className="text-sm font-semibold text-white">
-              {isRtl ? 'الدردشة المباشرة' : 'Live Chat'}
+              {lang === 'ar' ? 'الدردشة المباشرة' : 'Live Chat'}
             </span>
             <button
               className="p-1 rounded-full hover:bg-white/10 transition text-white/60 hover:text-white"
@@ -177,7 +174,7 @@ export default function FullscreenChat({
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') handleSend(); }}
-                placeholder={isRtl ? 'اكتب رسالة...' : 'Type a message...'}
+                placeholder={lang === 'ar' ? 'اكتب رسالة...' : 'Type a message...'}
                 className="flex-grow min-w-0 h-9 px-3 rounded-full bg-white/5 border border-white/10 text-white text-sm placeholder-white/30 outline-none focus:border-primary transition"
               />
 

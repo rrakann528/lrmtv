@@ -47,7 +47,6 @@ export function RoomsTab() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const { lang } = useI18n();
-  const isRtl = lang === 'ar';
   const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [roomName, setRoomName] = useState('');
@@ -230,8 +229,8 @@ export function RoomsTab() {
                     autoFocus
                   />
 
-                  <div className="flex items-center justify-between px-1 py-2" dir={isRtl ? 'rtl' : 'ltr'}>
-                    <span className="text-sm text-foreground">{isRtl ? 'غرفة خاصة' : 'Private room'}</span>
+                  <div className="flex items-center justify-between px-1 py-2">
+                    <span className="text-sm text-foreground">{(lang === 'ar') ? 'غرفة خاصة' : 'Private room'}</span>
                     <Switch checked={isPrivate} onCheckedChange={setIsPrivate} />
                   </div>
 
