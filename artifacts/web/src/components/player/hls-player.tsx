@@ -253,9 +253,9 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         backBufferLength: 30,
         maxBufferLength: 45,
         maxMaxBufferLength: 90,
-        manifestLoadingMaxRetry: 3,
-        manifestLoadingTimeOut: 15000,
-        manifestLoadingRetryDelay: 1000,
+        manifestLoadingMaxRetry: 1,
+        manifestLoadingTimeOut: 8000,
+        manifestLoadingRetryDelay: 500,
         levelLoadingMaxRetry: 3,
         levelLoadingTimeOut: 15000,
         fragLoadingMaxRetry: 4,
@@ -341,15 +341,16 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         stallWatchdog = setInterval(() => {
           if (cancelled || !video || video.paused || video.ended) return;
           const now = video.currentTime;
-          if (now === lastTime && video.readyState < 4) {
+          // Only fire on readyState < 3 (no future data at all) to avoid false positives
+          if (now === lastTime && video.readyState < 3) {
             stalledFor += 1;
-            if (stalledFor >= 3) {
+            if (stalledFor >= 5) {  // 10 seconds of true stall before acting
               stalledFor = 0;
               const buf = video.buffered;
               if (buf.length > 0) {
                 const ahead = buf.end(buf.length - 1) - now;
                 if (ahead > 0.5) {
-                  video.currentTime = now + 0.3;
+                  video.currentTime = now + 0.1;
                 } else if (hlsRef.current) {
                   hlsRef.current.startLoad();
                 }
@@ -455,23 +456,15 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           video.addEventListener('error',          onErr,  { once: true });
         };
 
-        // Detect iOS/iPadOS Safari — on these devices native HLS is always more reliable
-        // than HLS.js via MSE (which causes CORS failures with many CDNs)
-        const ua = navigator.userAgent;
-        const isIOSSafari = /iP(hone|od|ad)/.test(ua) && /WebKit/.test(ua) && !/CriOS|FxiOS|OPiOS/.test(ua);
-
         // S1 — HLS.js direct (best features: adaptive bitrate, quality switching)
         setStatusMsg('hls-direct');
-        if (isIOSSafari) {
-          // On iOS Safari: go straight to native — no CORS restrictions, IP-locked streams work
-          s2_native();
-        } else if (Hls.isSupported()) {
+        if (Hls.isSupported()) {
           const hls = makeHls(() => s2_native());
           hlsRef.current = hls;
           hls.loadSource(src);
           hls.attachMedia(video);
         } else if (video.canPlayType('application/vnd.apple.mpegurl') !== '') {
-          // macOS Safari or other native-HLS browsers
+          // Safari (iOS/macOS) without MSE: native HLS only
           s2_native();
         } else {
           setStatusMsg(null); setError('unsupported');
