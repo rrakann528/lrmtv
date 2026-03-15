@@ -1,73 +1,35 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Shield, Headphones, Crown,
-  Users, Lock, Unlock, RefreshCw, ChevronLeft, Pencil, Check,
+  Headphones, Crown,
+  Users, Lock, Unlock, RefreshCw,
   MoreHorizontal, UserCircle, ShieldCheck, LogOut, X,
-  Globe, EyeOff, MessageSquareOff, MessageSquare, Mic, MicOff, Video, VideoOff,
-  Trash2, AlertTriangle, UserX, UserCheck,
+  MicOff, VideoOff,
 } from 'lucide-react';
 import { RoomUser } from '@/hooks/use-socket';
 import { generateColorFromString, cn } from '@/lib/utils';
-import { Switch } from '@/components/ui/switch';
 import { useI18n } from '@/lib/i18n';
 
 interface UsersPanelProps {
   users: RoomUser[];
   you: RoomUser | null;
   isAdmin: boolean;
-  isLocked: boolean;
   allowGuestControl: boolean;
-  allowGuestEntry: boolean;
-  isPrivate: boolean;
-  chatDisabled: boolean;
   micDisabled: boolean;
   cameraDisabled: boolean;
-  toggleLock: () => void;
-  toggleAllowGuests: () => void;
-  toggleGuestEntry: () => void;
-  togglePrivacy: () => void;
-  toggleChat: () => void;
-  toggleMic: () => void;
-  toggleCamera: () => void;
   toggleDJ: (socketId: string) => void;
   kickUser: (socketId: string) => void;
   transferAdmin: (socketId: string) => void;
   requestSync: () => void;
-  currentRoomName?: string;
-  renameRoom?: (name: string) => void;
   onUserClick?: (username: string, userId?: number) => void;
-  deleteRoom?: () => void;
-  showSettings?: boolean;
-  onCloseSettings?: () => void;
 }
 
 export default function UsersPanel({
-  users, you, isAdmin, isLocked, allowGuestControl, allowGuestEntry,
-  isPrivate, chatDisabled, micDisabled, cameraDisabled,
-  toggleLock, toggleAllowGuests, toggleGuestEntry, togglePrivacy, toggleChat, toggleMic, toggleCamera,
-  toggleDJ, kickUser, transferAdmin,
-  requestSync, currentRoomName = '', renameRoom, onUserClick,
-  deleteRoom,
-  showSettings: externalShowSettings = false,
-  onCloseSettings,
+  users, you, isAdmin, allowGuestControl, micDisabled, cameraDisabled,
+  toggleDJ, kickUser, transferAdmin, requestSync, onUserClick,
 }: UsersPanelProps) {
-  const { t, lang } = useI18n();
-  const [showSettings, setShowSettings] = useState(externalShowSettings);
-  const [editingName, setEditingName] = useState(false);
-  const [nameInput, setNameInput] = useState('');
+  const { lang } = useI18n();
   const [adminSheetUser, setAdminSheetUser] = useState<RoomUser | null>(null);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-
-  // Sync external showSettings prop → internal state
-  useEffect(() => { setShowSettings(externalShowSettings); }, [externalShowSettings]);
-
-  const handleCloseSettings = () => { setShowSettings(false); onCloseSettings?.(); };
-
-  const handleRenameSubmit = () => {
-    if (nameInput.trim() && renameRoom) renameRoom(nameInput.trim());
-    setEditingName(false);
-  };
 
   return (
     <motion.div
@@ -75,345 +37,117 @@ export default function UsersPanel({
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -20 }}
       className="flex flex-col h-full relative overflow-hidden"
-     
     >
       {/* Header */}
       <div className="flex items-center justify-between px-4 pt-3 pb-2 shrink-0">
-        <AnimatePresence mode="wait">
-          {showSettings ? (
-            <motion.button
-              key="back"
-              initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -8 }}
-              className="flex items-center gap-1.5 text-sm text-white/60 hover:text-white transition"
-              onClick={handleCloseSettings}
-            >
-              <ChevronLeft className="w-4 h-4" />
-              {(lang === 'ar') ? 'المستخدمون' : 'Users'}
-            </motion.button>
-          ) : (
-            <motion.span
-              key="title"
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="text-sm font-semibold text-white/80 flex items-center gap-2"
-            >
-              <Users className="w-4 h-4" />
-              {(lang === 'ar') ? `${users.length} في الغرفة` : `${users.length} in room`}
-            </motion.span>
-          )}
-        </AnimatePresence>
+        <span className="text-sm font-semibold text-white/80 flex items-center gap-2">
+          <Users className="w-4 h-4" />
+          {lang === 'ar' ? `${users.length} في الغرفة` : `${users.length} in room`}
+        </span>
 
         <button
           onClick={requestSync}
-          title={(lang === 'ar') ? 'مزامنة الآن' : 'Sync now'}
+          title={lang === 'ar' ? 'مزامنة الآن' : 'Sync now'}
           className="p-1.5 rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition"
         >
           <RefreshCw className="w-4 h-4" />
         </button>
       </div>
 
-      <AnimatePresence mode="wait">
-        {/* ── Settings ─────────────────────────────────────────────────────── */}
-        {showSettings ? (
-          <motion.div
-            key="settings"
-            initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 30 }}
-            className="flex-1 overflow-y-auto px-4 pb-4 flex flex-col gap-4"
-          >
-            <h3 className="text-sm font-bold text-white flex items-center gap-2 mt-1">
-              <Shield className="w-4 h-4 text-primary" />
-              {(lang === 'ar') ? 'إعدادات الغرفة' : 'Room Settings'}
-            </h3>
+      {/* Users list */}
+      <div className="flex-1 overflow-y-auto px-3 pb-3 flex flex-col gap-2">
 
-            {isAdmin && (
-              <div className="bg-white/5 border border-white/10 rounded-xl p-3">
-                <p className="text-xs text-white/50 mb-1.5">{(lang === 'ar') ? 'اسم الغرفة' : 'Room Name'}</p>
-                {editingName ? (
-                  <div className="flex gap-2">
-                    <input
-                      value={nameInput}
-                      onChange={e => setNameInput(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Enter') handleRenameSubmit(); if (e.key === 'Escape') setEditingName(false); }}
-                      className="flex-1 bg-white/10 border border-white/20 rounded-lg px-3 py-1.5 text-sm text-white outline-none focus:border-primary"
-                      maxLength={60} autoFocus dir="auto"
-                    />
-                    <button onClick={handleRenameSubmit} className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center shrink-0">
-                      <Check className="w-4 h-4 text-white" />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-white font-medium truncate">{currentRoomName || '—'}</span>
-                    <button
-                      onClick={() => { setNameInput(currentRoomName); setEditingName(true); }}
-                      className="p-1.5 rounded-lg hover:bg-white/10 text-white/50 hover:text-white transition"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                )}
+        {/* Control mode banner */}
+        <div className={cn(
+          'flex items-center gap-2 px-3 py-2 rounded-lg text-xs mb-1',
+          allowGuestControl
+            ? 'bg-green-500/10 text-green-400 border border-green-500/20'
+            : 'bg-amber-500/10 text-amber-400 border border-amber-500/20',
+        )}>
+          {allowGuestControl
+            ? <Unlock className="w-3.5 h-3.5 shrink-0" />
+            : <Lock className="w-3.5 h-3.5 shrink-0" />}
+          {allowGuestControl
+            ? (lang === 'ar' ? 'الجميع يتحكم في التشغيل' : 'Everyone controls playback')
+            : (lang === 'ar' ? 'فقط المضيف والـ DJ يتحكمون' : 'Host & DJ control only')}
+        </div>
+
+        {/* Global restriction banners */}
+        {(micDisabled || cameraDisabled) && (
+          <div className="flex flex-col gap-1.5">
+            {micDisabled && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs bg-red-500/10 text-red-400 border border-red-500/20">
+                <MicOff className="w-3.5 h-3.5 shrink-0" />
+                {lang === 'ar' ? 'المايكروفون معطّل لجميع المستخدمين' : 'Microphone disabled for everyone'}
               </div>
             )}
-
-            <div className="bg-white/5 border border-white/10 rounded-xl p-4 flex items-center justify-between gap-3">
-              <div className="flex items-start gap-3">
-                {allowGuestControl
-                  ? <Unlock className="w-5 h-5 text-green-400 mt-0.5 shrink-0" />
-                  : <Lock className="w-5 h-5 text-amber-400 mt-0.5 shrink-0" />}
-                <div>
-                  <p className="text-sm font-medium text-white">
-                    {(lang === 'ar') ? 'السماح للجميع بالتحكم' : 'Allow all to control'}
-                  </p>
-                  <p className="text-xs text-white/50 mt-0.5 leading-relaxed">
-                    {allowGuestControl
-                      ? ((lang === 'ar') ? 'يمكن لأي مستخدم تشغيل/إيقاف/تقديم الفيديو' : 'Anyone can play, pause, and seek')
-                      : ((lang === 'ar') ? 'فقط المضيف والـ DJ يتحكمون' : 'Only host and DJs can control')}
-                  </p>
-                </div>
-              </div>
-              <Switch checked={allowGuestControl} onCheckedChange={toggleAllowGuests} />
-            </div>
-
-            {/* Allow guest entry */}
-            <div className="bg-white/5 border border-white/10 rounded-xl p-4 flex items-center justify-between gap-3">
-              <div className="flex items-start gap-3">
-                {allowGuestEntry
-                  ? <UserCheck className="w-5 h-5 text-green-400 mt-0.5 shrink-0" />
-                  : <UserX className="w-5 h-5 text-red-400 mt-0.5 shrink-0" />}
-                <div>
-                  <p className="text-sm font-medium text-white">
-                    {(lang === 'ar') ? 'دخول الزوار' : 'Guest Entry'}
-                  </p>
-                  <p className="text-xs text-white/50 mt-0.5 leading-relaxed">
-                    {allowGuestEntry
-                      ? ((lang === 'ar') ? 'يمكن للزوار (غير المسجّلين) الدخول' : 'Unregistered guests can join')
-                      : ((lang === 'ar') ? 'الغرفة للمسجّلين فقط' : 'Registered users only')}
-                  </p>
-                </div>
-              </div>
-              <Switch checked={allowGuestEntry} onCheckedChange={toggleGuestEntry} />
-            </div>
-
-            {/* Privacy / Chat / Mic / Camera */}
-            <div className="bg-white/5 border border-white/10 rounded-xl divide-y divide-white/5">
-              {/* Private room */}
-              <div className="flex items-center justify-between gap-3 px-4 py-3">
-                <div className="flex items-center gap-3">
-                  {isPrivate
-                    ? <EyeOff className="w-4 h-4 text-purple-400 shrink-0" />
-                    : <Globe className="w-4 h-4 text-green-400 shrink-0" />}
-                  <div>
-                    <p className="text-sm font-medium text-white">
-                      {(lang === 'ar') ? 'نوع الغرفة' : 'Room visibility'}
-                    </p>
-                    <p className="text-xs text-white/50">
-                      {isPrivate
-                        ? ((lang === 'ar') ? 'خاصة — لا تظهر في القائمة العامة' : 'Private — hidden from public list')
-                        : ((lang === 'ar') ? 'عامة — تظهر للجميع' : 'Public — visible to everyone')}
-                    </p>
-                  </div>
-                </div>
-                <Switch checked={isPrivate} onCheckedChange={togglePrivacy} />
-              </div>
-
-              {/* Disable chat */}
-              <div className="flex items-center justify-between gap-3 px-4 py-3">
-                <div className="flex items-center gap-3">
-                  {chatDisabled
-                    ? <MessageSquareOff className="w-4 h-4 text-red-400 shrink-0" />
-                    : <MessageSquare className="w-4 h-4 text-white/40 shrink-0" />}
-                  <div>
-                    <p className="text-sm font-medium text-white">
-                      {(lang === 'ar') ? 'الدردشة' : 'Chat'}
-                    </p>
-                    <p className="text-xs text-white/50">
-                      {chatDisabled
-                        ? ((lang === 'ar') ? 'محظورة على الجميع' : 'Disabled for everyone')
-                        : ((lang === 'ar') ? 'مفتوحة للجميع' : 'Open for everyone')}
-                    </p>
-                  </div>
-                </div>
-                <Switch checked={!chatDisabled} onCheckedChange={toggleChat} />
-              </div>
-
-              {/* Disable mic */}
-              <div className="flex items-center justify-between gap-3 px-4 py-3">
-                <div className="flex items-center gap-3">
-                  {micDisabled
-                    ? <MicOff className="w-4 h-4 text-red-400 shrink-0" />
-                    : <Mic className="w-4 h-4 text-white/40 shrink-0" />}
-                  <div>
-                    <p className="text-sm font-medium text-white">
-                      {(lang === 'ar') ? 'المايكروفون' : 'Microphone'}
-                    </p>
-                    <p className="text-xs text-white/50">
-                      {micDisabled
-                        ? ((lang === 'ar') ? 'محظور على الجميع' : 'Disabled for everyone')
-                        : ((lang === 'ar') ? 'مفتوح للجميع' : 'Open for everyone')}
-                    </p>
-                  </div>
-                </div>
-                <Switch checked={!micDisabled} onCheckedChange={toggleMic} />
-              </div>
-
-              {/* Disable camera */}
-              <div className="flex items-center justify-between gap-3 px-4 py-3">
-                <div className="flex items-center gap-3">
-                  {cameraDisabled
-                    ? <VideoOff className="w-4 h-4 text-red-400 shrink-0" />
-                    : <Video className="w-4 h-4 text-white/40 shrink-0" />}
-                  <div>
-                    <p className="text-sm font-medium text-white">
-                      {(lang === 'ar') ? 'الكاميرا' : 'Camera'}
-                    </p>
-                    <p className="text-xs text-white/50">
-                      {cameraDisabled
-                        ? ((lang === 'ar') ? 'محظورة على الجميع' : 'Disabled for everyone')
-                        : ((lang === 'ar') ? 'مفتوحة للجميع' : 'Open for everyone')}
-                    </p>
-                  </div>
-                </div>
-                <Switch checked={!cameraDisabled} onCheckedChange={toggleCamera} />
-              </div>
-            </div>
-
-            {deleteRoom && (
-              <div className="mt-2">
-                <div className="h-px bg-white/10 mb-4" />
-                {showDeleteConfirm ? (
-                  <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 flex flex-col gap-3">
-                    <div className="flex items-center gap-2 text-red-400">
-                      <AlertTriangle className="w-4 h-4 shrink-0" />
-                      <p className="text-sm font-semibold">
-                        {(lang === 'ar') ? 'هل أنت متأكد؟' : 'Are you sure?'}
-                      </p>
-                    </div>
-                    <p className="text-xs text-white/50 leading-relaxed">
-                      {(lang === 'ar')
-                        ? 'سيتم حذف الغرفة والمحادثة وقائمة التشغيل نهائياً، وسيُخرج جميع المستخدمين.'
-                        : 'The room, chat history, and playlist will be permanently deleted. All users will be removed.'}
-                    </p>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => setShowDeleteConfirm(false)}
-                        className="flex-1 py-2 rounded-lg bg-white/10 text-white text-sm font-medium hover:bg-white/15 transition"
-                      >
-                        {(lang === 'ar') ? 'إلغاء' : 'Cancel'}
-                      </button>
-                      <button
-                        onClick={deleteRoom}
-                        className="flex-1 py-2 rounded-lg bg-red-500 text-white text-sm font-bold hover:bg-red-600 transition flex items-center justify-center gap-1.5"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        {(lang === 'ar') ? 'حذف' : 'Delete'}
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => setShowDeleteConfirm(true)}
-                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/15 transition text-sm font-medium"
-                  >
-                    <Trash2 className="w-4 h-4 shrink-0" />
-                    {(lang === 'ar') ? 'حذف الغرفة نهائياً' : 'Delete Room Permanently'}
-                  </button>
-                )}
+            {cameraDisabled && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs bg-red-500/10 text-red-400 border border-red-500/20">
+                <VideoOff className="w-3.5 h-3.5 shrink-0" />
+                {lang === 'ar' ? 'الكاميرا معطّلة لجميع المستخدمين' : 'Camera disabled for everyone'}
               </div>
             )}
-          </motion.div>
-
-        ) : (
-          /* ── Users list ────────────────────────────────────────────────────── */
-          <motion.div
-            key="users"
-            initial={{ opacity: 0, x: -30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -30 }}
-            className="flex-1 overflow-y-auto px-3 pb-3 flex flex-col gap-2"
-          >
-            <div className={cn(
-              'flex items-center gap-2 px-3 py-2 rounded-lg text-xs mb-1',
-              allowGuestControl
-                ? 'bg-green-500/10 text-green-400 border border-green-500/20'
-                : 'bg-amber-500/10 text-amber-400 border border-amber-500/20',
-            )}>
-              {allowGuestControl ? <Unlock className="w-3.5 h-3.5 shrink-0" /> : <Lock className="w-3.5 h-3.5 shrink-0" />}
-              {allowGuestControl
-                ? ((lang === 'ar') ? 'الجميع يتحكم في التشغيل' : 'Everyone controls playback')
-                : ((lang === 'ar') ? 'فقط المضيف والـ DJ يتحكمون' : 'Host & DJ control only')}
-            </div>
-
-            {/* Global restriction banners */}
-            {(micDisabled || cameraDisabled) && (
-              <div className="flex flex-col gap-1.5">
-                {micDisabled && (
-                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs bg-red-500/10 text-red-400 border border-red-500/20">
-                    <MicOff className="w-3.5 h-3.5 shrink-0" />
-                    {(lang === 'ar') ? 'المايكروفون معطّل لجميع المستخدمين' : 'Microphone disabled for everyone'}
-                  </div>
-                )}
-                {cameraDisabled && (
-                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs bg-red-500/10 text-red-400 border border-red-500/20">
-                    <VideoOff className="w-3.5 h-3.5 shrink-0" />
-                    {(lang === 'ar') ? 'الكاميرا معطّلة لجميع المستخدمين' : 'Camera disabled for everyone'}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {users.map((user) => {
-              const isYou = user.socketId === you?.socketId;
-              return (
-                <div
-                  key={user.socketId}
-                  className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5 hover:bg-white/8 transition-colors group"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    {/* Avatar — always opens profile */}
-                    <button
-                      className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white shadow relative shrink-0"
-                      style={{ backgroundColor: generateColorFromString(user.username) }}
-                      onClick={() => !isYou && onUserClick?.(user.username, user.userId)}
-                    >
-                      {user.username.substring(0, 2).toUpperCase()}
-                      <div className="absolute bottom-0 end-0 w-3 h-3 bg-green-500 border-2 border-[#1a1a1a] rounded-full" />
-                    </button>
-
-                    {/* Name — also opens profile */}
-                    <button
-                      className="flex flex-col min-w-0 text-start"
-                      onClick={() => !isYou && onUserClick?.(user.username, user.userId)}
-                      disabled={isYou}
-                    >
-                      <span className="text-sm font-medium text-white flex items-center gap-1.5 truncate">
-                        {user.displayName || user.username}
-                        {isYou && <span className="text-[10px] text-white/40 font-normal">{(lang === 'ar') ? '(أنت)' : '(you)'}</span>}
-                        {user.isAdmin && <Crown className="w-3 h-3 text-yellow-400 shrink-0" />}
-                        {user.isDJ && !user.isAdmin && <Headphones className="w-3 h-3 text-primary shrink-0" />}
-                      </span>
-                      <span className="text-[10px] text-white/50">
-                        {user.isAdmin
-                          ? ((lang === 'ar') ? 'مضيف' : 'Host')
-                          : user.isDJ ? 'DJ'
-                            : ((lang === 'ar') ? 'مشاهد' : 'Viewer')}
-                      </span>
-                    </button>
-                  </div>
-
-                  {/* Admin actions button */}
-                  {isAdmin && !isYou && (
-                    <button
-                      className="p-2 rounded-lg active:bg-white/10 text-white/40 hover:text-white shrink-0"
-                      onClick={() => setAdminSheetUser(user)}
-                    >
-                      <MoreHorizontal className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </motion.div>
+          </div>
         )}
-      </AnimatePresence>
 
-      {/* ── Admin Actions Bottom Sheet ─────────────────────────────────────── */}
+        {users.map((user) => {
+          const isYou = user.socketId === you?.socketId;
+          return (
+            <div
+              key={user.socketId}
+              className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5 hover:bg-white/8 transition-colors group"
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                {/* Avatar */}
+                <button
+                  className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white shadow relative shrink-0"
+                  style={{ backgroundColor: generateColorFromString(user.username) }}
+                  onClick={() => !isYou && onUserClick?.(user.username, user.userId)}
+                >
+                  {user.username.substring(0, 2).toUpperCase()}
+                  <div className="absolute bottom-0 end-0 w-3 h-3 bg-green-500 border-2 border-[#1a1a1a] rounded-full" />
+                </button>
+
+                {/* Name */}
+                <button
+                  className="flex flex-col min-w-0 text-start"
+                  onClick={() => !isYou && onUserClick?.(user.username, user.userId)}
+                  disabled={isYou}
+                >
+                  <span className="text-sm font-medium text-white flex items-center gap-1.5 truncate">
+                    {user.displayName || user.username}
+                    {isYou && (
+                      <span className="text-[10px] text-white/40 font-normal">
+                        {lang === 'ar' ? '(أنت)' : '(you)'}
+                      </span>
+                    )}
+                    {user.isAdmin && <Crown className="w-3 h-3 text-yellow-400 shrink-0" />}
+                    {user.isDJ && !user.isAdmin && <Headphones className="w-3 h-3 text-primary shrink-0" />}
+                  </span>
+                  <span className="text-[10px] text-white/50">
+                    {user.isAdmin
+                      ? (lang === 'ar' ? 'مضيف' : 'Host')
+                      : user.isDJ ? 'DJ'
+                      : (lang === 'ar' ? 'مشاهد' : 'Viewer')}
+                  </span>
+                </button>
+              </div>
+
+              {/* Admin actions */}
+              {isAdmin && !isYou && (
+                <button
+                  className="p-2 rounded-lg active:bg-white/10 text-white/40 hover:text-white shrink-0"
+                  onClick={() => setAdminSheetUser(user)}
+                >
+                  <MoreHorizontal className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Admin Actions Bottom Sheet */}
       <AnimatePresence>
         {adminSheetUser && (
           <motion.div
@@ -425,7 +159,6 @@ export default function UsersPanel({
               className="relative w-full bg-[#1a1a2e] rounded-t-2xl z-10 overflow-hidden"
               initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 30, stiffness: 400 }}
-             
             >
               {/* Handle */}
               <div className="flex justify-center pt-3 pb-1">
@@ -455,16 +188,14 @@ export default function UsersPanel({
 
               {/* Actions */}
               <div className="flex flex-col py-2 px-2">
-                {/* View Profile */}
                 <button
                   className="flex items-center gap-3 px-4 py-3.5 rounded-xl hover:bg-white/8 transition text-white w-full text-start"
                   onClick={() => { onUserClick?.(adminSheetUser.username, adminSheetUser.userId); setAdminSheetUser(null); }}
                 >
                   <UserCircle className="w-5 h-5 text-white/60 shrink-0" />
-                  <span className="text-sm">{(lang === 'ar') ? 'عرض الملف الشخصي' : 'View Profile'}</span>
+                  <span className="text-sm">{lang === 'ar' ? 'عرض الملف الشخصي' : 'View Profile'}</span>
                 </button>
 
-                {/* Grant / Revoke DJ */}
                 <button
                   className="flex items-center gap-3 px-4 py-3.5 rounded-xl hover:bg-white/8 transition text-white w-full text-start"
                   onClick={() => { toggleDJ(adminSheetUser.socketId); setAdminSheetUser(null); }}
@@ -472,30 +203,28 @@ export default function UsersPanel({
                   <Headphones className={cn('w-5 h-5 shrink-0', adminSheetUser.isDJ ? 'text-destructive' : 'text-primary')} />
                   <span className="text-sm">
                     {adminSheetUser.isDJ
-                      ? ((lang === 'ar') ? 'إلغاء صلاحية التحكم في التشغيل' : 'Revoke Playback Control')
-                      : ((lang === 'ar') ? 'منح صلاحية التحكم في التشغيل' : 'Grant Playback Control')}
+                      ? (lang === 'ar' ? 'إلغاء صلاحية التحكم في التشغيل' : 'Revoke Playback Control')
+                      : (lang === 'ar' ? 'منح صلاحية التحكم في التشغيل' : 'Grant Playback Control')}
                   </span>
                 </button>
 
-                {/* Transfer Admin */}
                 {!adminSheetUser.isAdmin && (
                   <button
                     className="flex items-center gap-3 px-4 py-3.5 rounded-xl hover:bg-white/8 transition text-white w-full text-start"
                     onClick={() => { transferAdmin(adminSheetUser.socketId); setAdminSheetUser(null); }}
                   >
                     <ShieldCheck className="w-5 h-5 text-yellow-400 shrink-0" />
-                    <span className="text-sm">{(lang === 'ar') ? 'تحويل صلاحية المضيف' : 'Transfer Host'}</span>
+                    <span className="text-sm">{lang === 'ar' ? 'تحويل صلاحية المضيف' : 'Transfer Host'}</span>
                   </button>
                 )}
 
-                {/* Kick */}
                 {!adminSheetUser.isAdmin && (
                   <button
                     className="flex items-center gap-3 px-4 py-3.5 rounded-xl hover:bg-destructive/15 transition text-destructive w-full text-start"
                     onClick={() => { kickUser(adminSheetUser.socketId); setAdminSheetUser(null); }}
                   >
                     <LogOut className="w-5 h-5 shrink-0" />
-                    <span className="text-sm font-medium">{(lang === 'ar') ? 'طرد من الغرفة' : 'Kick from Room'}</span>
+                    <span className="text-sm font-medium">{lang === 'ar' ? 'طرد من الغرفة' : 'Kick from Room'}</span>
                   </button>
                 )}
               </div>

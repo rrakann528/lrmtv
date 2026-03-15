@@ -24,6 +24,7 @@ import ChatPanel from './room/chat-panel';
 import PlaylistPanel from './room/playlist-panel';
 import UsersPanel from './room/users-panel';
 import FriendsPanel from './room/friends-panel';
+import { RoomSettingsSheet } from './room/room-settings-sheet';
 import { UserProfileSheet } from '@/components/user-profile-sheet';
 import { SmartPlayer, type SmartPlayerHandle } from '@/components/player/smart-player';
 import YoutubeSearch from '@/components/youtube-search';
@@ -347,7 +348,7 @@ export default function RoomPage() {
           {/* Room Settings — admin only */}
           {isAdmin && (
             <button
-              onClick={() => { setShowRoomSettings(s => !s); setActiveTab('users'); }}
+              onClick={() => setShowRoomSettings(s => !s)}
               title={lang === 'ar' ? 'إعدادات الغرفة' : 'Room Settings'}
               className={cn(
                 'h-8 w-8 flex items-center justify-center rounded-lg border border-white/10 transition-colors',
@@ -558,30 +559,14 @@ export default function RoomPage() {
                   users={users}
                   you={you}
                   isAdmin={isAdmin}
-                  isLocked={isLocked}
                   allowGuestControl={allowGuestControl}
-                  allowGuestEntry={allowGuestEntry}
-                  isPrivate={isPrivate}
-                  chatDisabled={chatDisabled}
                   micDisabled={micDisabled}
                   cameraDisabled={cameraDisabled}
-                  toggleLock={toggleLock}
-                  toggleAllowGuests={toggleAllowGuests}
-                  toggleGuestEntry={toggleGuestEntry}
-                  togglePrivacy={togglePrivacy}
-                  toggleChat={toggleChat}
-                  toggleMic={toggleMic}
-                  toggleCamera={toggleCamera}
                   toggleDJ={toggleDJ}
                   kickUser={kickUser}
                   transferAdmin={transferAdmin}
                   requestSync={requestSync}
-                  currentRoomName={roomName || room.name}
-                  renameRoom={renameRoom}
                   onUserClick={(username, userId) => setRoomProfile({ username, userId })}
-                  deleteRoom={isAdmin ? handleDeleteRoom : undefined}
-                  showSettings={showRoomSettings}
-                  onCloseSettings={() => setShowRoomSettings(false)}
                 />
               )}
               {activeTab === 'friends' && (
@@ -618,6 +603,31 @@ export default function RoomPage() {
             userId={roomProfile.userId}
             username={roomProfile.username}
             onClose={() => setRoomProfile(null)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* ── Room Settings Sheet ──────────────────────────────────────── */}
+      <AnimatePresence>
+        {showRoomSettings && isAdmin && (
+          <RoomSettingsSheet
+            isAdmin={isAdmin}
+            allowGuestControl={allowGuestControl}
+            allowGuestEntry={allowGuestEntry}
+            isPrivate={isPrivate}
+            chatDisabled={chatDisabled}
+            micDisabled={micDisabled}
+            cameraDisabled={cameraDisabled}
+            toggleAllowGuests={toggleAllowGuests}
+            toggleGuestEntry={toggleGuestEntry}
+            togglePrivacy={togglePrivacy}
+            toggleChat={toggleChat}
+            toggleMic={toggleMic}
+            toggleCamera={toggleCamera}
+            currentRoomName={roomName || room.name}
+            renameRoom={renameRoom}
+            deleteRoom={isAdmin ? handleDeleteRoom : undefined}
+            onClose={() => setShowRoomSettings(false)}
           />
         )}
       </AnimatePresence>
