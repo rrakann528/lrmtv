@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Search, UserPlus, MessageCircle, Check, X, Clock, Bell, Users, Send, MoreVertical, UserMinus, BellOff, Bell as BellOn } from 'lucide-react';
@@ -7,7 +7,6 @@ import { useAuth, apiFetch } from '@/hooks/use-auth';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { DmChat } from './dm-chat';
 import { UserProfileSheet } from '@/components/user-profile-sheet';
-import { io, Socket } from 'socket.io-client';
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -61,7 +60,12 @@ function formatLastTime(iso: string): string {
   return d.toLocaleDateString('ar-SA', { day: 'numeric', month: 'numeric' });
 }
 
-export function FriendsTab() {
+interface FriendsTabProps {
+  acceptedToast?: string | null;
+  onDismissAcceptedToast?: () => void;
+}
+
+export function FriendsTab({ acceptedToast, onDismissAcceptedToast }: FriendsTabProps = {}) {
   const { user } = useAuth();
   const qc = useQueryClient();
   const [subTab, setSubTab] = useState<SubTab>('friends');
@@ -69,8 +73,6 @@ export function FriendsTab() {
   const [dmFriend, setDmFriend] = useState<FriendUser | null>(null);
   const [menuFriend, setMenuFriend] = useState<FriendUser | null>(null);
   const [profileUserId, setProfileUserId] = useState<number | null>(null);
-  const [acceptedToast, setAcceptedToast] = useState<string | null>(null);
-  const socketRef = useRef<Socket | null>(null);
 
   const { data: friends = [], isLoading } = useQuery<FriendUser[]>({
     queryKey: ['friends'],
@@ -109,33 +111,6 @@ export function FriendsTab() {
     }
   }, [pendingReceived.length]);
 
-  // Socket: real-time events
-  useEffect(() => {
-    if (!user?.id) return;
-    const socket = io(`${BASE}`, {
-      path: `${BASE}/api/socket.io`,
-      transports: ['websocket', 'polling'],
-    });
-    socketRef.current = socket;
-    socket.emit('join-user-room', { userId: user.id });
-    socket.on('friend-request', () => {
-      qc.invalidateQueries({ queryKey: ['friends'] });
-      qc.invalidateQueries({ queryKey: ['friends-badge'] });
-    });
-    socket.on('friend-accepted', (data: { byId: number; byName: string }) => {
-      qc.invalidateQueries({ queryKey: ['friends'] });
-      qc.invalidateQueries({ queryKey: ['friends-badge'] });
-      setAcceptedToast(data.byName);
-      setTimeout(() => setAcceptedToast(null), 4000);
-    });
-    socket.on('dm:receive', () => {
-      if (!dmFriend) {
-        qc.invalidateQueries({ queryKey: ['friends-conversations'] });
-        qc.invalidateQueries({ queryKey: ['friends-badge'] });
-      }
-    });
-    return () => { socket.disconnect(); };
-  }, [user?.id, dmFriend]);
 
   const requestMut = useMutation({
     mutationFn: (addresseeId: number) => apiFetch('/friends/request', { method: 'POST', body: JSON.stringify({ addresseeId }) }),
@@ -193,7 +168,7 @@ export function FriendsTab() {
               <p className="text-xs font-bold text-green-400">تم قبول طلب الصداقة! 🎉</p>
               <p className="text-xs text-green-300/70 truncate">{acceptedToast} قبل طلب صداقتك</p>
             </div>
-            <button onClick={() => setAcceptedToast(null)} className="shrink-0 text-green-400/60 hover:text-green-400">
+            <button onClick={() => onDismissAcceptedToast?.()} className="shrink-0 text-green-400/60 hover:text-green-400">
               <X className="w-3.5 h-3.5" />
             </button>
           </motion.div>

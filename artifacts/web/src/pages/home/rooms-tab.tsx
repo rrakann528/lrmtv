@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation } from 'wouter';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -8,7 +8,6 @@ import { apiFetch } from '@/hooks/use-auth';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Switch } from '@/components/ui/switch';
 import { useI18n } from '@/lib/i18n';
-import { io, Socket } from 'socket.io-client';
 
 interface PublicRoom {
   id: number;
@@ -68,8 +67,6 @@ export function RoomsTab() {
   const [joinCode, setJoinCode] = useState('');
   const [createErr, setCreateErr] = useState('');
   const keyboardOffset = useKeyboardOffset();
-  const socketRef = useRef<Socket | null>(null);
-
   const { data: rooms = [], isLoading } = useQuery<PublicRoom[]>({
     queryKey: ['rooms'],
     queryFn: fetchRooms,
@@ -85,25 +82,6 @@ export function RoomsTab() {
     refetchOnWindowFocus: true,
   });
 
-  // Socket: listen for new room invites
-  useEffect(() => {
-    if (!user?.id) return;
-    const socket = io(`${BASE}`, {
-      path: `${BASE}/api/socket.io`,
-      transports: ['websocket', 'polling'],
-    });
-    socketRef.current = socket;
-    socket.emit('join-user-room', { userId: user.id });
-    socket.on('room-invite', () => {
-      qc.invalidateQueries({ queryKey: ['room-invites'] });
-      qc.invalidateQueries({ queryKey: ['rooms-badge'] });
-    });
-    socket.on('room-deleted', () => {
-      qc.invalidateQueries({ queryKey: ['room-invites'] });
-      qc.invalidateQueries({ queryKey: ['rooms-badge'] });
-    });
-    return () => { socket.disconnect(); };
-  }, [user?.id]);
 
   const declineMut = useMutation({
     mutationFn: (id: number) => apiFetch(`/invites/${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'declined' }) }),

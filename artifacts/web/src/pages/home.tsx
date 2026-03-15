@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useLocation, useSearch } from 'wouter';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Tv, Users, User } from 'lucide-react';
@@ -9,6 +9,7 @@ import { FriendsTab } from './home/friends-tab';
 import { ProfileTab } from './home/profile-tab';
 import { NotifBanner } from '@/components/notif-banner';
 import { useQuery } from '@tanstack/react-query';
+import { useUserSocket } from '@/hooks/use-user-socket';
 
 type Tab = 'rooms' | 'friends' | 'profile';
 
@@ -18,8 +19,8 @@ const TABS: { id: Tab; label: string; Icon: typeof Tv }[] = [
   { id: 'profile', label: 'حسابي',    Icon: User },
 ];
 
-const HEADER_H = 56;  // px
-const NAV_H    = 64;  // px
+const HEADER_H = 56;
+const NAV_H    = 64;
 
 export default function HomePage() {
   const [, setLocation] = useLocation();
@@ -29,6 +30,17 @@ export default function HomePage() {
 
   const { user, loading } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('rooms');
+  const [acceptedToast, setAcceptedToast] = useState<string | null>(null);
+
+  const handleFriendAccepted = useCallback((data: { byId: number; byName: string }) => {
+    setAcceptedToast(data.byName);
+    setTimeout(() => setAcceptedToast(null), 4000);
+  }, []);
+
+  useUserSocket({
+    userId: user?.id,
+    onFriendAccepted: handleFriendAccepted,
+  });
 
   // Badge: pending friend requests + unread DMs
   const { data: friendsBadge = 0 } = useQuery<number>({
@@ -118,7 +130,7 @@ export default function HomePage() {
             transition={{ duration: 0.15 }}
           >
             {activeTab === 'rooms'   && <RoomsTab />}
-            {activeTab === 'friends' && <FriendsTab />}
+            {activeTab === 'friends' && <FriendsTab acceptedToast={acceptedToast} onDismissAcceptedToast={() => setAcceptedToast(null)} />}
             {activeTab === 'profile' && (
               user
                 ? <ProfileTab />
