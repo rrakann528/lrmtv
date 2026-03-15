@@ -75,6 +75,9 @@ export function FriendsTab() {
     queryKey: ['friends'],
     queryFn: fetchFriends,
     enabled: !!user,
+    refetchInterval: 30_000,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
   });
 
   const { data: conversations = [] } = useQuery<Conversation[]>({
@@ -95,6 +98,16 @@ export function FriendsTab() {
   const pendingReceived = friends.filter(f => f.status === 'pending_received');
   const pendingSent = friends.filter(f => f.status === 'pending_sent');
 
+  // Auto-switch to requests tab when there are pending friend requests
+  const didAutoSwitch = useRef(false);
+  useEffect(() => {
+    if (didAutoSwitch.current) return;
+    if (pendingReceived.length > 0 && subTab === 'friends') {
+      setSubTab('requests');
+      didAutoSwitch.current = true;
+    }
+  }, [pendingReceived.length]);
+
   // Socket: real-time events
   useEffect(() => {
     if (!user?.id) return;
@@ -104,9 +117,15 @@ export function FriendsTab() {
     });
     socketRef.current = socket;
     socket.emit('join-user-room', { userId: user.id });
-    socket.on('friend-request', () => qc.invalidateQueries({ queryKey: ['friends'] }));
+    socket.on('friend-request', () => {
+      qc.invalidateQueries({ queryKey: ['friends'] });
+      qc.invalidateQueries({ queryKey: ['friends-badge'] });
+    });
     socket.on('dm:receive', () => {
-      if (!dmFriend) qc.invalidateQueries({ queryKey: ['friends-conversations'] });
+      if (!dmFriend) {
+        qc.invalidateQueries({ queryKey: ['friends-conversations'] });
+        qc.invalidateQueries({ queryKey: ['friends-badge'] });
+      }
     });
     return () => { socket.disconnect(); };
   }, [user?.id, dmFriend]);
@@ -119,7 +138,10 @@ export function FriendsTab() {
   const respondMut = useMutation({
     mutationFn: ({ id, action }: { id: number; action: 'accepted' | 'rejected' }) =>
       apiFetch(`/friends/${id}`, { method: 'PATCH', body: JSON.stringify({ action }) }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['friends'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['friends'] });
+      qc.invalidateQueries({ queryKey: ['friends-badge'] });
+    },
   });
 
   const removeMut = useMutation({
@@ -206,7 +228,7 @@ export function FriendsTab() {
                       key={f.id}
                       friend={f}
                       conv={convMap.get(f.id) ?? null}
-                      onChat={() => setDmFriend(f)}
+                      onChat={() => { setDmFriend(f); qc.invalidateQueries({ queryKey: ['friends-badge'] }); }}
                       onMenu={() => setMenuFriend(f)}
                       onProfile={() => setProfileUserId(f.id)}
                     />

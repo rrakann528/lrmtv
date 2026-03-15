@@ -2,12 +2,13 @@ import { useState, useEffect } from 'react';
 import { useLocation, useSearch } from 'wouter';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Tv, Users, User } from 'lucide-react';
-import { useAuth } from '@/hooks/use-auth';
+import { useAuth, apiFetch } from '@/hooks/use-auth';
 import { Avatar } from '@/components/avatar';
 import { RoomsTab } from './home/rooms-tab';
 import { FriendsTab } from './home/friends-tab';
 import { ProfileTab } from './home/profile-tab';
 import { NotifBanner } from '@/components/notif-banner';
+import { useQuery } from '@tanstack/react-query';
 
 type Tab = 'rooms' | 'friends' | 'profile';
 
@@ -28,6 +29,24 @@ export default function HomePage() {
 
   const { user, loading } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('rooms');
+
+  // Badge: pending friend requests + unread DMs
+  const { data: friendsBadge = 0 } = useQuery<number>({
+    queryKey: ['friends-badge'],
+    queryFn: async () => {
+      const [fr, cv] = await Promise.all([
+        apiFetch('/friends').then(r => r.json()).catch(() => []),
+        apiFetch('/friends/conversations').then(r => r.json()).catch(() => []),
+      ]);
+      const pending = Array.isArray(fr) ? fr.filter((f: { status: string }) => f.status === 'pending_received').length : 0;
+      const unread  = Array.isArray(cv) ? cv.reduce((s: number, c: { unreadCount: number }) => s + (c.unreadCount || 0), 0) : 0;
+      return pending + unread;
+    },
+    enabled: !!user,
+    refetchInterval: 20_000,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+  });
 
   useEffect(() => {
     if (!loading && !user && !isGuest) setLocation('/');
@@ -107,6 +126,7 @@ export default function HomePage() {
         <div className="flex items-center justify-around px-2" style={{ height: NAV_H }}>
           {TABS.map(({ id, label, Icon }) => {
             const active = activeTab === id;
+            const badge = id === 'friends' && !active ? friendsBadge : 0;
             return (
               <button
                 key={id}
@@ -114,6 +134,7 @@ export default function HomePage() {
                 className="flex flex-col items-center justify-center gap-1 flex-1 py-1"
               >
                 <motion.div
+                  className="relative"
                   animate={{ scale: active ? 1.12 : 1 }}
                   transition={{ type: 'spring', stiffness: 500, damping: 30 }}
                 >
@@ -121,6 +142,11 @@ export default function HomePage() {
                     className={`w-6 h-6 ${active ? 'text-primary' : 'text-muted-foreground'}`}
                     strokeWidth={active ? 2.5 : 1.8}
                   />
+                  {badge > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 min-w-[17px] h-[17px] bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-0.5 leading-none shadow-sm">
+                      {badge > 99 ? '99+' : badge}
+                    </span>
+                  )}
                 </motion.div>
                 <span className={`text-[10px] font-medium ${active ? 'text-primary' : 'text-muted-foreground'}`}>
                   {label}
