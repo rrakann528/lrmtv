@@ -73,6 +73,10 @@ catalogs:
 importers:
 
   .:
+    dependencies:
+      '@replit/connectors-sdk':
+        specifier: ^0.2.0
+        version: 0.2.0
     devDependencies:
       prettier:
         specifier: ^3.8.1
@@ -1977,6 +1981,9 @@ packages:
     peerDependencies:
       react: ^18.2.0
       react-dom: ^18.2.0
+
+  '@replit/connectors-sdk@0.2.0':
+    resolution: {integrity: sha512-hXcrKjTfc+/v0e4Uxo7VLuajyAx/C8xVriRhP/lw/XmeoyRWmHedBhMOApchWLHAQb+UPhDbulpAti1OgGbtxg==}
 
   '@replit/vite-plugin-cartographer@0.5.0':
     resolution: {integrity: sha512-U1LKR78LU0F/nQFRVzaFSH2tX189oFUNsut25KQh24bFN0N9OJEkrCMiJfMBtLXGabjUX4aw2OWJ0u8TjBlxkg==}
@@ -6176,6 +6183,8 @@ snapshots:
       react: 19.1.0
       react-dom: 19.1.0(react@19.1.0)
       react-promise-suspense: 0.3.4
+
+  '@replit/connectors-sdk@0.2.0': {}
 
   '@replit/vite-plugin-cartographer@0.5.0':
     dependencies:
