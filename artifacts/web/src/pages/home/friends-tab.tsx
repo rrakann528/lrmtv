@@ -113,8 +113,24 @@ export function FriendsTab({ acceptedToast, onDismissAcceptedToast }: FriendsTab
 
 
   const requestMut = useMutation({
-    mutationFn: (addresseeId: number) => apiFetch('/friends/request', { method: 'POST', body: JSON.stringify({ addresseeId }) }),
-    onSuccess: () => {
+    mutationFn: async ({ addresseeId }: { addresseeId: number; targetUser: FriendUser }) => {
+      const r = await apiFetch('/friends/request', { method: 'POST', body: JSON.stringify({ addresseeId }) });
+      if (!r.ok && r.status !== 409) throw new Error('request_failed');
+      return r;
+    },
+    onMutate: async ({ targetUser }) => {
+      await qc.cancelQueries({ queryKey: ['friends'] });
+      const prev = qc.getQueryData<FriendUser[]>(['friends']) ?? [];
+      qc.setQueryData<FriendUser[]>(['friends'], [
+        ...prev,
+        { ...targetUser, status: 'pending_sent' as const },
+      ]);
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) qc.setQueryData(['friends'], ctx.prev);
+    },
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: ['friends'] });
       qc.invalidateQueries({ queryKey: ['friends-badge'] });
     },
@@ -360,11 +376,11 @@ export function FriendsTab({ acceptedToast, onDismissAcceptedToast }: FriendsTab
                     <>
                       {status === 'none' && (
                         <button
-                          onClick={() => requestMut.mutate(u.id)}
-                          disabled={requestMut.isPending && requestMut.variables === u.id}
+                          onClick={() => requestMut.mutate({ addresseeId: u.id, targetUser: u })}
+                          disabled={requestMut.isPending && requestMut.variables?.addresseeId === u.id}
                           className="flex items-center gap-1.5 px-3.5 py-2 bg-primary text-primary-foreground rounded-xl text-xs font-bold active:scale-95 transition-all disabled:opacity-60 shrink-0"
                         >
-                          {requestMut.isPending && requestMut.variables === u.id
+                          {requestMut.isPending && requestMut.variables?.addresseeId === u.id
                             ? <div className="w-3.5 h-3.5 border-2 border-primary-foreground/50 border-t-transparent rounded-full animate-spin" />
                             : <UserPlus className="w-3.5 h-3.5" />
                           }

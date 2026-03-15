@@ -111,8 +111,15 @@ export function UserProfileSheet({ userId, username, onClose, onChat }: Props) {
             </div>
           )}
 
+          {/* ── Error state for registered user (userId provided but API failed) ─ */}
+          {!isLoading && (isError || !profile) && userId && (
+            <div className="flex flex-col items-center justify-center py-20 gap-3">
+              <p className="text-sm text-white/40">{lang === 'ar' ? 'تعذّر تحميل الملف الشخصي' : 'Could not load profile'}</p>
+            </div>
+          )}
+
           {/* ── Guest user (no account / not found) ───────── */}
-          {!isLoading && (isError || !profile) && username && (
+          {!isLoading && (isError || !profile) && !userId && username && (
             <>
               <div
                 className="relative pt-10 pb-6 px-6 flex flex-col items-center text-center"
