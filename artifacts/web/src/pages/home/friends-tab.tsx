@@ -77,7 +77,7 @@ export function FriendsTab({ acceptedToast, onDismissAcceptedToast }: FriendsTab
   const [sentIds, setSentIds] = useState<Set<number>>(new Set());
   const [requestError, setRequestError] = useState<string | null>(null);
 
-  const { data: friends = [], isLoading, isFetching, refetch: refetchFriends } = useQuery<FriendUser[]>({
+  const { data: friends = [], isLoading, isFetching, isError: friendsError, refetch: refetchFriends } = useQuery<FriendUser[]>({
     queryKey: ['friends'],
     queryFn: fetchFriends,
     enabled: !!user,
@@ -393,8 +393,17 @@ export function FriendsTab({ acceptedToast, onDismissAcceptedToast }: FriendsTab
             {!isLoading && pendingReceived.length === 0 && pendingSent.length === 0 && (
               <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
                 <Bell className="w-12 h-12 mb-3 opacity-30" />
-                <p className="text-sm">لا توجد طلبات</p>
-                <p className="text-xs text-muted-foreground/40 mt-1">يتحدث كل 5 ثوانٍ تلقائياً</p>
+                {friendsError ? (
+                  <>
+                    <p className="text-sm text-destructive/70">تعذّر الاتصال بالخادم</p>
+                    <button onClick={() => refetchFriends()} className="text-xs text-primary mt-2 underline">أعد المحاولة</button>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm">لا توجد طلبات</p>
+                    <p className="text-xs text-muted-foreground/40 mt-1">يتحدث كل 5 ثوانٍ تلقائياً</p>
+                  </>
+                )}
               </div>
             )}
           </>
