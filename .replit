@@ -10,3 +10,57 @@ channel = "stable-25_05"
 [userenv.shared]
 NODE_ENV = "development"
 PORT = "8080"
+JWT_SECRET = "15c2d29827ec073660cfa1f29245a89be5f7c4f6d966ce5c4197584842bd2b81"
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Backend API"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start application"
+
+[[workflows.workflow]]
+name = "Backend API"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd artifacts/api-server && PORT=8080 NODE_ENV=development pnpm dev"
+waitForPort = 8080
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "Start application"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd artifacts/web && PORT=5000 pnpm dev"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[ports]]
+localPort = 5000
+externalPort = 5000
+
+[[ports]]
+localPort = 8080
+externalPort = 80
+
+[deployment]
+deploymentTarget = "vm"
+run = ["bash", "start.sh"]
+build = ["bash", "-c", "pnpm install --no-frozen-lockfile && BASE_PATH=/ pnpm --filter @workspace/web build && pnpm --filter @workspace/api-server build"]
