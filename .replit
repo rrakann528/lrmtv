@@ -9,7 +9,6 @@ channel = "stable-25_05"
 
 [userenv.shared]
 NODE_ENV = "development"
-PORT = "8080"
 JWT_SECRET = "15c2d29827ec073660cfa1f29245a89be5f7c4f6d966ce5c4197584842bd2b81"
 
 [workflows]
@@ -22,23 +21,7 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "Backend API"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
 args = "Start application"
-
-[[workflows.workflow]]
-name = "Backend API"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "cd artifacts/api-server && PORT=8080 NODE_ENV=development pnpm dev"
-waitForPort = 8080
-
-[workflows.workflow.metadata]
-outputType = "console"
 
 [[workflows.workflow]]
 name = "Start application"
@@ -59,6 +42,10 @@ externalPort = 5000
 [[ports]]
 localPort = 8080
 externalPort = 80
+
+[[ports]]
+localPort = 22333
+externalPort = 3001
 
 [deployment]
 deploymentTarget = "vm"
