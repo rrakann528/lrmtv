@@ -100,14 +100,7 @@ export function createRelayLoader() {
       const onRelayError = (err: { requestId: string; status: number }) => {
         if (err.requestId !== requestId) return;
         cleanup();
-        if (this._aborted) return;
-        if (err.status === 503) {
-          // 503 = server rejected relay because this client IS the host.
-          // Fall back to direct HTTP load — the host's IP is accepted by the CDN.
-          super.load(context, config, callbacks);
-        } else {
-          onErrCb({ code: err.status || 502, text: `relay error ${err.status}` }, context, null, stats);
-        }
+        if (!this._aborted) onErrCb({ code: err.status || 502, text: `relay error ${err.status}` }, context, null, stats);
       };
 
       const timer = setTimeout(() => {

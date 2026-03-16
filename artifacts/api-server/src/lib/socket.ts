@@ -12,6 +12,8 @@ interface RoomUser {
   isDJ: boolean;
   isMuted: boolean;
   isCameraOff: boolean;
+  /** Real public IP of the client — used for server-side relay fetches */
+  ip?: string;
 }
 
 interface SubtitleSync {
@@ -117,6 +119,23 @@ function cancelRoomDeletion(roomState: RoomState) {
 }
 
 const rooms = new Map<string, RoomState>();
+
+/** Extract the real client IP — prefers x-forwarded-for (Railway / proxied envs) */
+function getClientIp(socket: Socket): string {
+  const fwd = socket.handshake.headers['x-forwarded-for'];
+  if (fwd) {
+    const first = (Array.isArray(fwd) ? fwd[0] : fwd).split(',')[0].trim();
+    if (first) return first;
+  }
+  return socket.handshake.address || '';
+}
+
+const RELAY_BASE_HEADERS: Record<string, string> = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+  'Accept': '*/*',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Accept-Encoding': 'identity',
+};
 
 let _io: Server | null = null;
 export function getIO(): Server | null { return _io; }
@@ -297,6 +316,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
         isDJ: isAdmin,
         isMuted: true,
         isCameraOff: true,
+        ip: getClientIp(socket),
       };
 
       roomState.users.set(socket.id, user);
@@ -739,44 +759,56 @@ export function initSocketServer(httpServer: HttpServer): Server {
       });
     });
 
-    // ── Relay: route segment/manifest fetch requests through the room host ───────
-    // pendingRelays is stored on RoomState so it is shared across all socket handlers
-    socket.on("relay:fetch", (data: { requestId: string; url: string }) => {
+    // ── Relay: server-side segment/manifest proxy using the DJ's IP ─────────────
+    // The server fetches the URL directly (no browser CORS restrictions) and
+    // forwards DJ's IP via X-Forwarded-For so IP-locked CDNs accept the request.
+    // This replaces the old browser-side relay (which failed due to CORS on the DJ's fetch).
+    socket.on("relay:fetch", async (data: { requestId: string; url: string }) => {
       if (!currentRoomSlug || !data?.requestId || !data?.url) return;
       const roomState = getRoomState(currentRoomSlug);
       if (!roomState) return;
 
       const host = Array.from(roomState.users.values()).find(u => u.isDJ || u.isAdmin);
-      if (!host || host.socketId === socket.id) {
+      if (!host) {
         socket.emit("relay:error", { requestId: data.requestId, status: 503 });
         return;
       }
 
-      roomState.pendingRelays.set(data.requestId, socket.id);
-      // Auto-cleanup after 20 s to prevent memory leaks
-      setTimeout(() => roomState.pendingRelays.delete(data.requestId), 20_000);
+      const djIp = host.ip || '';
 
-      io.to(host.socketId).emit("relay:fetch", { requestId: data.requestId, url: data.url });
-    });
+      const headers: Record<string, string> = { ...RELAY_BASE_HEADERS };
+      if (djIp) {
+        headers['X-Forwarded-For'] = djIp;
+        headers['X-Real-IP']       = djIp;
+      }
 
-    socket.on("relay:response", (data: { requestId: string; data: Buffer; contentType: string }) => {
-      if (!data?.requestId || !currentRoomSlug) return;
-      const roomState = getRoomState(currentRoomSlug);
-      if (!roomState) return;
-      const requesterSocketId = roomState.pendingRelays.get(data.requestId);
-      if (!requesterSocketId) return;
-      roomState.pendingRelays.delete(data.requestId);
-      io.to(requesterSocketId).emit("relay:response", data);
-    });
+      // Try without Referer first, then CDN host as Referer
+      const referers = ['', `${new URL(data.url).protocol}//${new URL(data.url).hostname}/`];
+      let lastStatus = 502;
 
-    socket.on("relay:error", (data: { requestId: string; status: number }) => {
-      if (!data?.requestId || !currentRoomSlug) return;
-      const roomState = getRoomState(currentRoomSlug);
-      if (!roomState) return;
-      const requesterSocketId = roomState.pendingRelays.get(data.requestId);
-      if (!requesterSocketId) return;
-      roomState.pendingRelays.delete(data.requestId);
-      io.to(requesterSocketId).emit("relay:error", data);
+      for (const referer of referers) {
+        if (referer) headers['Referer'] = referer;
+        else delete headers['Referer'];
+
+        try {
+          const response = await fetch(data.url, {
+            headers,
+            redirect: 'follow',
+            signal: AbortSignal.timeout(15_000),
+          });
+
+          if (!response.ok) { lastStatus = response.status; continue; }
+
+          const contentType = response.headers.get('content-type') || 'video/mp2t';
+          const buffer = Buffer.from(await response.arrayBuffer());
+          socket.emit("relay:response", { requestId: data.requestId, data: buffer, contentType });
+          return;
+        } catch {
+          // try next referer
+        }
+      }
+
+      socket.emit("relay:error", { requestId: data.requestId, status: lastStatus });
     });
 
     socket.on("subtitle-sync", (data: SubtitleSync) => {
