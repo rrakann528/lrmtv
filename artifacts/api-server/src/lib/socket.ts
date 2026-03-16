@@ -53,6 +53,8 @@ interface RoomState {
   lastPauseAt?: number;
   /** DJ signalled they are backgrounding/closing — ignore their next pause */
   djBackgrounding?: { socketId: string; at: number };
+  /** Room-level relay pending map: requestId → requester socketId */
+  pendingRelays: Map<string, string>;
 }
 
 const EMPTY_ROOM_TTL_MS = 10 * 60 * 1000; // 10 minutes
@@ -195,6 +197,7 @@ function createRoomState(slug: string, roomId: number, roomName: string): RoomSt
     isLive: false,
     subtitle: null,
     allowGuestEntry: true,
+    pendingRelays: new Map(),
   };
   rooms.set(slug, state);
   return state;
@@ -737,9 +740,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
     });
 
     // ── Relay: route segment/manifest fetch requests through the room host ───────
-    // pendingRelays maps requestId → requester's socketId for response routing
-    const pendingRelays = new Map<string, string>();
-
+    // pendingRelays is stored on RoomState so it is shared across all socket handlers
     socket.on("relay:fetch", (data: { requestId: string; url: string }) => {
       if (!currentRoomSlug || !data?.requestId || !data?.url) return;
       const roomState = getRoomState(currentRoomSlug);
@@ -751,26 +752,30 @@ export function initSocketServer(httpServer: HttpServer): Server {
         return;
       }
 
-      pendingRelays.set(data.requestId, socket.id);
+      roomState.pendingRelays.set(data.requestId, socket.id);
       // Auto-cleanup after 20 s to prevent memory leaks
-      setTimeout(() => pendingRelays.delete(data.requestId), 20_000);
+      setTimeout(() => roomState.pendingRelays.delete(data.requestId), 20_000);
 
       io.to(host.socketId).emit("relay:fetch", { requestId: data.requestId, url: data.url });
     });
 
     socket.on("relay:response", (data: { requestId: string; data: Buffer; contentType: string }) => {
-      if (!data?.requestId) return;
-      const requesterSocketId = pendingRelays.get(data.requestId);
+      if (!data?.requestId || !currentRoomSlug) return;
+      const roomState = getRoomState(currentRoomSlug);
+      if (!roomState) return;
+      const requesterSocketId = roomState.pendingRelays.get(data.requestId);
       if (!requesterSocketId) return;
-      pendingRelays.delete(data.requestId);
+      roomState.pendingRelays.delete(data.requestId);
       io.to(requesterSocketId).emit("relay:response", data);
     });
 
     socket.on("relay:error", (data: { requestId: string; status: number }) => {
-      if (!data?.requestId) return;
-      const requesterSocketId = pendingRelays.get(data.requestId);
+      if (!data?.requestId || !currentRoomSlug) return;
+      const roomState = getRoomState(currentRoomSlug);
+      if (!roomState) return;
+      const requesterSocketId = roomState.pendingRelays.get(data.requestId);
       if (!requesterSocketId) return;
-      pendingRelays.delete(data.requestId);
+      roomState.pendingRelays.delete(data.requestId);
       io.to(requesterSocketId).emit("relay:error", data);
     });
 
