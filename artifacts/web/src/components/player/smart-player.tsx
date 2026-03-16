@@ -102,6 +102,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
     const [error, setError] = useState<string | null>(null);
     const [ready, setReady] = useState(false);
     const [autoplayBlocked, setAutoplayBlocked] = useState(false);
+    const [proxyUrl, setProxyUrl] = useState<string | null>(null);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [showOverlay, setShowOverlay] = useState(true);
@@ -126,6 +127,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       setReady(false);
       setAutoplayBlocked(false);
       setMutedForAutoplay(false);
+      setProxyUrl(null);
     }, [normalizedUrl]);
 
     // Fullscreen tracking
@@ -277,8 +279,17 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
         setAutoplayBlocked(true);
         return;
       }
+      // For direct video URLs (html5) that failed — auto-retry through server proxy
+      // which bypasses CORS and hotlink-protection restrictions on CDN servers
+      if (videoType === 'html5' && !proxyUrl) {
+        const px = `/api/proxy/video?url=${encodeURIComponent(normalizedUrl)}`;
+        setProxyUrl(px);
+        setError(null);
+        setReady(false);
+        return;
+      }
       setError('playback');
-    }, []);
+    }, [videoType, normalizedUrl, proxyUrl]);
 
     // ── HLS: custom player with built-in controls ────────────────────────────
     if (isHls) {
@@ -350,9 +361,9 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
         )}
 
         <ReactPlayer
-          key={normalizedUrl}
+          key={proxyUrl ?? normalizedUrl}
           ref={reactPlayerRef}
-          url={normalizedUrl}
+          url={proxyUrl ?? normalizedUrl}
           width="100%"
           height="100%"
           playing={autoplayBlocked ? false : playing}
