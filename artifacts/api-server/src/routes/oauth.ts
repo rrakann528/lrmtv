@@ -30,6 +30,7 @@ function getGoogleCallbackUrl(req: any): string {
 function sendSuccessPage(res: any, token: string, redirectTo: string) {
   res.cookie("token", token, {
     httpOnly: true,
+    secure: true,
     sameSite: "lax",
     maxAge: 30 * 24 * 60 * 60 * 1000,
     path: "/",
@@ -136,6 +137,22 @@ async function findOrCreateOAuthUser(
 
   return newUser;
 }
+
+// ── OAuth diagnostics (no secrets exposed) ────────────────────────────────────
+router.get("/auth/google/info", (req, res) => {
+  const callbackUrl = getGoogleCallbackUrl(req);
+  const origin = getPublicOrigin(req);
+  res.json({
+    callbackUrl,
+    origin,
+    hasClientId: !!process.env.GOOGLE_CLIENT_ID,
+    hasClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
+    hasCallbackUrlEnv: !!process.env.GOOGLE_CALLBACK_URL,
+    hasBaseUrl: !!process.env.BASE_URL,
+    xForwardedHost: req.get("x-forwarded-host") || null,
+    host: req.get("host") || null,
+  });
+});
 
 // ── Google OAuth ───────────────────────────────────────────────────────────────
 
