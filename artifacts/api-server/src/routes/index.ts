@@ -10,6 +10,7 @@ import pushRouter from "./push";
 import dmRouter from "./dm";
 import storageRouter from "./storage";
 import subtitlesRouter from "./subtitles";
+import adminRouter from "./admin";
 
 const router: IRouter = Router();
 
@@ -24,5 +25,6 @@ router.use(hlsProxyRouter);
 router.use(youtubeSearchRouter);
 router.use(storageRouter);
 router.use(subtitlesRouter);
+router.use(adminRouter);
 
 export default router;
