@@ -779,33 +779,6 @@ export function initSocketServer(httpServer: HttpServer): Server {
       io.to(requesterSocketId).emit("relay:error", data);
     });
 
-    // ── P2P WebRTC signaling ──────────────────────────────────────────────────
-    socket.on("p2p:join", () => {
-      if (!currentRoomSlug) return;
-      const roomState = getRoomState(currentRoomSlug);
-      if (!roomState) return;
-      const host = Array.from(roomState.users.values()).find(u => u.isDJ || u.isAdmin);
-      if (!host || host.socketId === socket.id) return;
-      io.to(host.socketId).emit("p2p:viewer-joined", { viewerSocketId: socket.id });
-    });
-
-    socket.on("p2p:offer", (data: { viewerSocketId: string; sdp: unknown }) => {
-      if (!data?.viewerSocketId) return;
-      io.to(data.viewerSocketId).emit("p2p:offer", { hostSocketId: socket.id, sdp: data.sdp });
-    });
-
-    socket.on("p2p:answer", (data: { hostSocketId: string; sdp: unknown }) => {
-      if (!data?.hostSocketId) return;
-      io.to(data.hostSocketId).emit("p2p:answer", { viewerSocketId: socket.id, sdp: data.sdp });
-    });
-
-    socket.on("p2p:ice", (data: { targetSocketId: string; candidate: unknown }) => {
-      if (!data?.targetSocketId) return;
-      io.to(data.targetSocketId).emit("p2p:ice", { fromSocketId: socket.id, candidate: data.candidate });
-    });
-
-    socket.on("p2p:leave", () => {});
-
     socket.on("subtitle-sync", (data: SubtitleSync) => {
       if (!currentRoomSlug) return;
       const roomState = getRoomState(currentRoomSlug);
