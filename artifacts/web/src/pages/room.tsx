@@ -13,6 +13,8 @@ import { useI18n } from '@/lib/i18n';
 import { useUserSession } from '@/hooks/use-user-session';
 import { useSocket } from '@/hooks/use-socket';
 import { useRelayHost } from '@/hooks/use-relay-host';
+import { usePeerHost } from '@/hooks/use-p2p-host';
+import { usePeerViewer } from '@/hooks/use-p2p-viewer';
 import { useWebRTC } from '@/hooks/use-webrtc';
 import { useAuth, apiFetch } from '@/hooks/use-auth';
 import { useGetRoom, useAddPlaylistItem, getGetRoomPlaylistQueryKey } from '@workspace/api-client-react';
@@ -99,6 +101,11 @@ export default function RoomPage() {
   // Activate relay host: when this client is the DJ/admin, handle relay:fetch
   // requests from other room members whose IPs are blocked by the CDN.
   useRelayHost(socket ?? null, isDJ || isAdmin);
+
+  // P2P WebRTC: host opens a DataChannel to each viewer for direct segment relay
+  usePeerHost(socket ?? null, isDJ || isAdmin);
+  // P2P WebRTC: viewers connect to host via WebRTC (bypasses IP restrictions)
+  usePeerViewer(socket ?? null, !isDJ && !isAdmin);
 
   // Tell the server when the DJ hides/closes the PWA so it can swallow
   // the browser-auto-pause and keep the room playing for other viewers.
