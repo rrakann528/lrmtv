@@ -123,9 +123,31 @@ DO $$ BEGIN
     ALTER TABLE muted_friends RENAME COLUMN muted_user_id TO friend_id;
   END IF;
 END $$;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_site_admin BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_banned BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE rooms ADD COLUMN IF NOT EXISTS is_frozen BOOLEAN NOT NULL DEFAULT FALSE;
+CREATE TABLE IF NOT EXISTS site_settings (
+  key VARCHAR(100) PRIMARY KEY,
+  value TEXT NOT NULL DEFAULT '',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS banned_ips (
+  id SERIAL PRIMARY KEY,
+  ip VARCHAR(45) NOT NULL UNIQUE,
+  reason TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS login_attempts (
+  id SERIAL PRIMARY KEY,
+  identifier VARCHAR(255) NOT NULL,
+  ip VARCHAR(45) NOT NULL DEFAULT '',
+  success BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 CREATE INDEX IF NOT EXISTS idx_friendships_addressee ON friendships(addressee_id);
 CREATE INDEX IF NOT EXISTS idx_chat_messages_room ON chat_messages(room_id);
 CREATE INDEX IF NOT EXISTS idx_playlist_items_room ON playlist_items(room_id);
+CREATE INDEX IF NOT EXISTS idx_login_attempts_created ON login_attempts(created_at);
 `;
 
 export async function runMigrations(): Promise<void> {
