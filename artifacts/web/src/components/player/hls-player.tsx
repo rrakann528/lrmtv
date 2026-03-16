@@ -539,8 +539,7 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
       };
 
       // ── HLS instance factory with built-in error recovery ────────────────
-      // fastFail: when true, skip retries on 4xx errors (IP-locked) and jump straight to relay
-      const makeHls = (onFatal: () => void, fastFail = false) => {
+      const makeHls = (onFatal: () => void) => {
         const hls = new Hls(HLS_CONFIG as Hls['config']);
         let mediaErrCount = 0;
         let netErrCount   = 0;
@@ -570,15 +569,6 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
             // CORS / blocked request: response code 0 → fail immediately, don't retry
             const isCorsBlock = !d.response?.code || d.response.code === 0;
             if (isCorsBlock) {
-              hls.destroy();
-              if (stallWatchdog) { clearInterval(stallWatchdog); stallWatchdog = null; }
-              setStatusMsg(null);
-              onFatal();
-              return;
-            }
-            // IP-locked (4xx): if relay is available skip retries entirely → saves 9s
-            const isIpBlocked = (d.response?.code ?? 0) >= 400;
-            if (fastFail && isIpBlocked) {
               hls.destroy();
               if (stallWatchdog) { clearInterval(stallWatchdog); stallWatchdog = null; }
               setStatusMsg(null);
@@ -626,18 +616,16 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
       const loadViaHls = () => {
         if (cancelled) return;
 
-        // S2 — native <video> (no CORS, no crossorigin — preserves user's IP for IP-locked streams)
+        // S2 — native <video> (no CORS, no crossorigin)
         // onFail: optional next step; if omitted shows ip-locked error (true last resort)
         const s2_native = (onFail?: () => void) => {
           if (cancelled) return;
           destroyAll();
           setStatusMsg('native');
-          // Full reset — critical on iOS Safari after HLS.js was previously attached.
-          // Set referrerpolicy="no-referrer" so Safari does NOT send Referer: lrmtv.sbs
-          // to the CDN (many CDNs reject requests with an unknown Referer header).
+          // Full reset: remove crossorigin, clear src, then reload — critical on iOS Safari
+          // after HLS.js was previously attached to the same video element
           video.removeAttribute('crossorigin');
-          (video as HTMLVideoElement).crossOrigin = null as unknown as string;
-          video.setAttribute('referrerpolicy', 'no-referrer');
+          video.removeAttribute('referrerpolicy');
           video.removeAttribute('src');
           video.load();
           video.src = src;
@@ -748,35 +736,21 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         }
 
         // S1 — HLS.js direct (best features: adaptive bitrate, quality switching)
-        // On CORS/IP failure:
-        //   Socket connected + iOS/Safari: S2 native (DJ uses own IP, no CORS) → sRelay
-        //   Socket connected + Chrome/Firefox: sRelay directly (no native HLS on these browsers)
-        //   No socket (Safari): S2 native → S5 proxy fallback
-        //   No socket (Chrome): S5 proxy directly
-        const canRelay = socket?.connected === true;
+        // On failure: Safari → S2 native → S3/S5 proxy → sRelay
+        //             Chrome → S3/S5 proxy → sRelay
         setStatusMsg('hls-direct');
         if (Hls.isSupported()) {
           const canNativeHls = video.canPlayType('application/vnd.apple.mpegurl') !== '';
-          // When relay is available:
-          //   iOS/Safari (canNativeHls): try S2 native first (no CORS, preserves IP for DJ)
-          //     then relay for viewers whose IP is blocked
-          //   Chrome/Firefox: go straight to relay (no native HLS support)
-          // When no relay: original S2→S5 chain
-          const onS1Fail = canRelay
-            ? canNativeHls
-              ? () => s2_native(() => sRelay())
-              : () => sRelay()
-            : canNativeHls
-              ? () => s2_native(() => CF_PROXY ? s3_cfManifestProxy() : s5_apiProxy())
-              : () => CF_PROXY ? s3_cfManifestProxy() : s5_apiProxy();
-          const hls = makeHls(onS1Fail, canRelay);
+          const onS1Fail = canNativeHls
+            ? () => s2_native(() => CF_PROXY ? s3_cfManifestProxy() : s5_apiProxy())
+            : () => CF_PROXY ? s3_cfManifestProxy() : s5_apiProxy();
+          const hls = makeHls(onS1Fail);
           hlsRef.current = hls;
           hls.loadSource(src);
           hls.attachMedia(video);
         } else if (video.canPlayType('application/vnd.apple.mpegurl') !== '') {
           // Safari (iOS/macOS) without MSE: native HLS only
-          // If relay available use it as fallback, otherwise try proxy
-          s2_native(() => canRelay ? sRelay() : (CF_PROXY ? s3_cfManifestProxy() : s5_apiProxy()));
+          s2_native(() => CF_PROXY ? s3_cfManifestProxy() : s5_apiProxy());
         } else {
           setStatusMsg(null); setError('unsupported');
         }
