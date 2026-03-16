@@ -415,9 +415,9 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         fragLoadingTimeOut:        20_000,
         fragLoadingRetryDelay:     500,
 
-        // ── ABR — start high, upgrade conservatively ─────────────────────────
-        startLevel:             -1,
-        abrEwmaDefaultEstimate: 5_000_000,
+        // ── ABR — start at lowest quality, upgrade conservatively ────────────
+        startLevel:             0,
+        abrEwmaDefaultEstimate: 1_000_000,
         abrBandWidthFactor:     0.8,
         abrBandWidthUpFactor:   0.5,
         testBandwidth:          false,
@@ -923,9 +923,8 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         {/* Rebuffer spinner — small badge in corner, no dark overlay so video stays visible */}
         {buffering && !statusMsg && !error && (
           <div className="absolute bottom-14 end-3 z-20 pointer-events-none">
-            <div className="flex items-center gap-1.5 bg-black/50 backdrop-blur-sm rounded-full px-2.5 py-1">
+            <div className="bg-black/50 backdrop-blur-sm rounded-full p-1.5">
               <Loader2 className="w-3.5 h-3.5 text-white/80 animate-spin" />
-              <span className="text-white/70 text-xs">{lang === 'ar' ? 'تحميل…' : 'Buffering…'}</span>
             </div>
           </div>
         )}

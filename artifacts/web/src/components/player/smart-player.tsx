@@ -12,14 +12,50 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { normalizeUrl, detectVideoType } from '@/lib/detect-video-type';
 import {
   AlertTriangle, Play, Pause, Maximize, Minimize,
-  MessageSquare, SkipBack, SkipForward, Volume2, VolumeX, Lock,
+  MessageSquare, SkipBack, SkipForward, Volume2, VolumeX, Lock, Subtitles,
 } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 import { enterFullscreen, exitFullscreen, isFullscreenActive, isSimulatedFullscreen, onFullscreenChange } from '@/lib/fullscreen';
 import { HlsPlayer, type HlsPlayerHandle } from './hls-player';
 import FullscreenChat from './fullscreen-chat';
+import SubtitleSearch from './subtitle-search';
 import { generateColorFromString, cn } from '@/lib/utils';
 import type { ToastMessage } from './player-controls';
+
+interface SubtitleCue { start: number; end: number; text: string }
+
+function parseSrtTime(t: string): number {
+  const clean = t.replace(',', '.').trim();
+  const parts = clean.split(':');
+  if (parts.length < 3) return 0;
+  return parseFloat(parts[0]) * 3600 + parseFloat(parts[1]) * 60 + parseFloat(parts[2]);
+}
+
+function parseSubtitles(raw: string): SubtitleCue[] {
+  const withoutBom = raw.replace(/^\uFEFF/, '');
+  const normalized = withoutBom.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const isVtt = normalized.trimStart().startsWith('WEBVTT');
+  const text = isVtt ? normalized.replace(/^WEBVTT[^\n]*/m, '') : normalized;
+  const blocks = text.trim().split(/\n{2,}/);
+  const cues: SubtitleCue[] = [];
+  for (const block of blocks) {
+    const lines = block.trim().split('\n');
+    const timeLine = lines.find(l => l.includes('-->'));
+    if (!timeLine) continue;
+    const arrowIdx = timeLine.indexOf('-->');
+    const startStr = timeLine.slice(0, arrowIdx).trim();
+    const endStr = timeLine.slice(arrowIdx + 3).trim().split(/\s+/)[0];
+    const start = parseSrtTime(startStr);
+    const end   = parseSrtTime(endStr);
+    if (isNaN(start) || isNaN(end)) continue;
+    const textLines = lines
+      .slice(lines.indexOf(timeLine) + 1)
+      .filter(l => l.trim() && !/^\d+$/.test(l.trim()));
+    const cueText = textLines.join('\n').replace(/<[^>]+>/g, '').replace(/\{[^}]+\}/g, '').trim();
+    if (cueText) cues.push({ start, end, text: cueText });
+  }
+  return cues;
+}
 
 function formatTime(s: number): string {
   if (!isFinite(s) || s < 0) return '0:00';
@@ -121,6 +157,12 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
     const [rpVolume, setRpVolume] = useState(1);
     const [rpMuted, setRpMuted] = useState(false);
     const [mutedForAutoplay, setMutedForAutoplay] = useState(false);
+
+    // ── Subtitle state (ReactPlayer branch only) ─────────────────────────────
+    const [showSubtitleSearch, setShowSubtitleSearch] = useState(false);
+    const [customSubtitleCues, setCustomSubtitleCues] = useState<SubtitleCue[]>([]);
+    const [currentSubtitleText, setCurrentSubtitleText] = useState('');
+    const [customSubtitleLabel, setCustomSubtitleLabel] = useState('');
 
     const { t } = useI18n();
 
@@ -244,6 +286,49 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       pause: () => { if (isHls) hlsPlayerRef.current?.pause(); },
       getVideoElement: () => isHls ? (hlsPlayerRef.current?.getVideoElement() ?? null) : null,
     }));
+
+    // ── Subtitle: update current cue as video progresses ────────────────────
+    useEffect(() => {
+      if (isHls) return;
+      if (customSubtitleCues.length === 0) { setCurrentSubtitleText(''); return; }
+      const cue = customSubtitleCues.find(c => rpCurrentTime >= c.start && rpCurrentTime <= c.end);
+      setCurrentSubtitleText(cue ? cue.text : '');
+    }, [rpCurrentTime, customSubtitleCues, isHls]);
+
+    // ── Subtitle: apply external subtitle from a room peer ───────────────────
+    useEffect(() => {
+      if (isHls) return;
+      if (!externalSubtitle) return;
+      if (externalSubtitle.type === 'clear') {
+        setCustomSubtitleCues([]);
+        setCustomSubtitleLabel('');
+        return;
+      }
+      if (externalSubtitle.type === 'content' && externalSubtitle.content) {
+        setCustomSubtitleCues(parseSubtitles(externalSubtitle.content));
+        setCustomSubtitleLabel(externalSubtitle.label ?? '');
+      } else if (externalSubtitle.type === 'url' && externalSubtitle.url) {
+        fetch(`/api/proxy/subtitle?url=${encodeURIComponent(externalSubtitle.url)}`)
+          .then(r => r.text())
+          .then(text => {
+            setCustomSubtitleCues(parseSubtitles(text));
+            setCustomSubtitleLabel(externalSubtitle.label ?? '');
+          })
+          .catch(err => console.warn('[subtitle] failed to fetch external URL', err));
+      }
+    }, [externalSubtitle, isHls]);
+
+    // ── Subtitle: handle apply from search dialog ────────────────────────────
+    const handleApplySubtitle = useCallback((raw: string, label: string, sourceUrl?: string) => {
+      const cues = parseSubtitles(raw);
+      setCustomSubtitleCues(cues);
+      setCustomSubtitleLabel(label);
+      if (onSubtitleApplied) {
+        onSubtitleApplied(sourceUrl
+          ? { type: 'url', url: sourceUrl, label, from: '' }
+          : { type: 'content', content: raw, label, from: '' });
+      }
+    }, [onSubtitleApplied]);
 
     // ── PWA / tab-switch recovery: resume ReactPlayer (YouTube/Twitch) ─────────
     useEffect(() => {
@@ -603,8 +688,18 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
                     )}
                   </div>
 
-                  {/* ── RIGHT: Volume · Chat · Fullscreen — always interactive for ALL users ── */}
+                  {/* ── RIGHT: Subtitles · Volume · Chat · Fullscreen — always interactive for ALL users ── */}
                   <div className="flex items-center">
+                    {/* Subtitles */}
+                    <button
+                      className={cn(
+                        'p-2.5 rounded-full hover:bg-white/10 transition text-white',
+                        customSubtitleCues.length > 0 && 'text-primary',
+                      )}
+                      onClick={() => setShowSubtitleSearch(true)}
+                    >
+                      <Subtitles className="w-5 h-5" />
+                    </button>
                     <button
                       className="p-2.5 text-white hover:bg-white/10 rounded-full transition"
                       onClick={() => {
@@ -646,6 +741,26 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
           )}
         </AnimatePresence>
 
+        {/* Custom subtitle overlay */}
+        {currentSubtitleText && (
+          <div
+            className="absolute inset-x-0 bottom-16 z-10 flex justify-center pointer-events-none px-4"
+            style={{ userSelect: 'none' }}
+          >
+            <div
+              className="text-white text-center font-medium leading-snug px-3 py-1.5 rounded-lg max-w-[90%]"
+              style={{
+                fontSize: 'clamp(13px, 2.2vw, 20px)',
+                textShadow: '0 1px 4px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.7)',
+                background: 'rgba(0,0,0,0.45)',
+                whiteSpace: 'pre-line',
+              }}
+            >
+              {currentSubtitleText}
+            </div>
+          </div>
+        )}
+
         {/* Fullscreen chat panel */}
         <FullscreenChat
           isOpen={isChatOpen && isFullscreen}
@@ -682,6 +797,13 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
             ))}
           </AnimatePresence>
         </div>
+        {/* Subtitle search dialog */}
+        <SubtitleSearch
+          isOpen={showSubtitleSearch}
+          onClose={() => setShowSubtitleSearch(false)}
+          onApply={handleApplySubtitle}
+          lang={lang}
+        />
       </div>
     );
   },

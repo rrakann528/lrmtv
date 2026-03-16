@@ -180,8 +180,8 @@ RoomState.pendingRelays: Map<requestId, requesterSocketId>
   fragLoadingMaxRetry: 6,
   fragLoadingTimeOut: 20_000,     // مهم للـ relay
   fragLoadingRetryDelay: 500,
-  startLevel: -1,
-  abrEwmaDefaultEstimate: 5_000_000,
+  startLevel: 0,               // start at lowest quality for faster initial load
+  abrEwmaDefaultEstimate: 1_000_000,  // 1 Mbps default (conservative, upgrades fast)
   abrBandWidthFactor: 0.8,
   abrBandWidthUpFactor: 0.5,
   testBandwidth: false,
