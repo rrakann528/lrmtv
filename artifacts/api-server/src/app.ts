@@ -1,10 +1,11 @@
-import express, { type Express } from "express";
+import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import path from "path";
 import { existsSync } from "fs";
 import router from "./routes";
+import { db, bannedIpsTable, siteSettingsTable } from "@workspace/db";
 import {
   botDetection,
   generalLimiter,
@@ -14,6 +15,45 @@ import {
   pathGuard,
   securityHeaders,
 } from "./middlewares/security";
+
+// ── Cache site settings in memory (refresh every 30s) ─────────────────────────
+let _bannedIps = new Set<string>();
+let _maintenanceMode = false;
+let _registrationEnabled = true;
+
+async function refreshSiteCache() {
+  try {
+    const [ips, settings] = await Promise.all([
+      db.select({ ip: bannedIpsTable.ip }).from(bannedIpsTable),
+      db.select().from(siteSettingsTable),
+    ]);
+    _bannedIps = new Set(ips.map(r => r.ip));
+    const settingMap = new Map(settings.map(s => [s.key, s.value]));
+    _maintenanceMode = settingMap.get("maintenance_mode") === "true";
+    _registrationEnabled = settingMap.get("registration_enabled") !== "false";
+  } catch { /* DB not ready yet */ }
+}
+refreshSiteCache();
+setInterval(refreshSiteCache, 30_000);
+
+export function isRegistrationEnabled() { return _registrationEnabled; }
+
+// ── IP ban middleware ─────────────────────────────────────────────────────────
+function ipBanMiddleware(req: Request, res: Response, next: NextFunction): void {
+  const ip = req.ip || "";
+  if (_bannedIps.has(ip)) { res.status(403).json({ error: "محظور" }); return; }
+  next();
+}
+
+// ── Maintenance mode middleware ────────────────────────────────────────────────
+function maintenanceMiddleware(req: Request, res: Response, next: NextFunction): void {
+  if (!_maintenanceMode) { next(); return; }
+  // Allow admin routes and health check
+  if (req.path.startsWith("/api/admin") || req.path === "/api/healthz" || req.path.startsWith("/api/auth")) {
+    next(); return;
+  }
+  res.status(503).json({ error: "الموقع في وضع الصيانة. يرجى المحاولة لاحقاً." });
+}
 
 const app: Express = express();
 
@@ -57,6 +97,10 @@ app.use(botDetection);
 app.use(express.json({ limit: "100kb" }));
 app.use(express.urlencoded({ extended: true, limit: "100kb" }));
 app.use(cookieParser());
+
+// ── Security: banned IPs + maintenance mode ────────────────────────────────────
+app.use("/api", ipBanMiddleware);
+app.use("/api", maintenanceMiddleware);
 
 // ── Rate limiting ──────────────────────────────────────────────────────────────
 app.use("/api", generalLimiter);
