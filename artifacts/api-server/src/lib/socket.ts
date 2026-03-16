@@ -131,6 +131,39 @@ export function kickRoom(slug: string): void {
   rooms.delete(slug);
 }
 
+export function getTotalActiveUsers(): number {
+  let total = 0;
+  for (const room of rooms.values()) total += room.users.size;
+  return total;
+}
+
+export function getActiveRoomsDetailed(): { slug: string; userCount: number; isPlaying: boolean; url: string | null }[] {
+  return Array.from(rooms.entries()).map(([slug, s]) => ({
+    slug,
+    userCount: s.users.size,
+    isPlaying: s.isPlaying,
+    url: s.url,
+  }));
+}
+
+export function broadcastSystemMessage(message: string): void {
+  if (!_io) return;
+  for (const slug of rooms.keys()) {
+    _io.to(slug).emit('chat-message', {
+      id: `sys-${Date.now()}`,
+      content: message,
+      username: '🔔 النظام',
+      timestamp: new Date().toISOString(),
+      isSystem: true,
+    });
+  }
+}
+
+export function freezeRoom(slug: string, frozen: boolean): void {
+  if (!_io || !frozen) return;
+  _io.to(slug).emit('room-frozen');
+}
+
 function getRoomState(slug: string): RoomState | undefined {
   return rooms.get(slug);
 }
@@ -233,6 +266,13 @@ export function initSocketServer(httpServer: HttpServer): Server {
 
       // Cancel pending auto-delete if someone is joining an empty room
       cancelRoomDeletion(roomState);
+
+      // Block if room is frozen (admin only)
+      const [dbRoomFrozen] = await db.select({ isFrozen: roomsTable.isFrozen }).from(roomsTable).where(eq(roomsTable.slug, slug)).limit(1);
+      if (dbRoomFrozen?.isFrozen) {
+        socket.emit("room-frozen");
+        return;
+      }
 
       // Block unregistered guests if the room has guest entry disabled
       if (!userId && !roomState.allowGuestEntry) {
