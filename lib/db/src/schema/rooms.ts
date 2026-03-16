@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, varchar, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, varchar, integer, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -10,6 +10,7 @@ export const roomsTable = pgTable("rooms", {
   background: text("background").default("default"),
   adminSocketId: text("admin_socket_id"),
   creatorUserId: integer("creator_user_id"),
+  isFrozen: boolean("is_frozen").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
