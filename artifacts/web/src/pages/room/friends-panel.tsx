@@ -160,10 +160,10 @@ export default function FriendsPanel({ userId, roomSlug, roomName, socket: _sock
                       )}
                       <button
                         onClick={() => setDmFriend(f)}
-                        className="p-1.5 rounded-lg bg-white/5 text-white/50 hover:text-primary hover:bg-primary/10 transition"
-                        title="دردشة خاصة"
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-white/10 text-white text-xs font-medium hover:bg-primary/20 hover:text-primary transition"
                       >
-                        <MessageCircle className="w-4 h-4" />
+                        <MessageCircle className="w-3 h-3" />
+                        دردشة
                       </button>
                     </div>
                   </div>
