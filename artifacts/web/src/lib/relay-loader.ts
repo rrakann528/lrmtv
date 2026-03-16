@@ -20,22 +20,10 @@ export function createRelayLoader() {
     destroy(): void;
   }) {
     private _aborted = false;
-    private _requestId: string | null = null;
-    private _timer: ReturnType<typeof setTimeout> | null = null;
+    private _cancelRelay: (() => void) | null = null;
 
-    private _clear(socket: Socket | null, onResp: (d: unknown) => void, onErr: (d: unknown) => void) {
-      if (this._timer) { clearTimeout(this._timer); this._timer = null; }
-      if (socket) { socket.off('relay:response', onResp); socket.off('relay:error', onErr); }
-      this._requestId = null;
-    }
-
-    abort()   { this._aborted = true; this._cleanup(); super.abort(); }
-    destroy() { this._aborted = true; this._cleanup(); super.destroy(); }
-
-    private _cleanup() {
-      if (this._timer) { clearTimeout(this._timer); this._timer = null; }
-      this._requestId = null;
-    }
+    abort()   { this._aborted = true; this._cancelRelay?.(); super.abort(); }
+    destroy() { this._aborted = true; this._cancelRelay?.(); super.destroy(); }
 
     load(
       context: Record<string, unknown>,
@@ -44,7 +32,6 @@ export function createRelayLoader() {
     ) {
       const socket = getSocket();
 
-      // No socket → fall back to default loader (no relay available)
       if (!socket?.connected) {
         super.load(context, config, callbacks);
         return;
@@ -58,36 +45,49 @@ export function createRelayLoader() {
       const stats = {
         trequest: performance.now(), tfirst: 0, tload: 0,
         loaded: 0, total: 0, retry: 0, chunkCount: 0, bwEstimate: 0,
-        loading: { start: 0, first: 0, end: 0 },
+        loading: { start: performance.now(), first: 0, end: 0 },
         parsing:  { start: 0, end: 0 },
         buffering: { start: 0, first: 0, end: 0 },
       };
 
       const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      this._requestId = requestId;
 
-      const onResponse = (data: { requestId: string; data: ArrayBuffer; contentType: string }) => {
+      const cleanup = () => {
+        clearTimeout(timer);
+        socket.off('relay:response', onResponse);
+        socket.off('relay:error', onRelayError);
+        this._cancelRelay = null;
+      };
+
+      const onResponse = (data: { requestId: string; data: unknown; contentType: string }) => {
         if (data.requestId !== requestId) return;
-        this._clear(socket, onResponse, onRelayError);
+        cleanup();
         if (this._aborted) return;
 
         stats.tfirst = stats.tload = performance.now();
+        stats.loading.first = stats.loading.end = stats.tload;
+
         try {
-          // HLS.js needs a string for manifests/playlists and ArrayBuffer for media segments
           const ctxType = (context.type as string) ?? '';
           const isText = ctxType === 'manifest' || ctxType === 'level' ||
             ctxType === 'audioTrack' || ctxType === 'subtitle' ||
             String(data.contentType ?? '').includes('mpegurl') ||
             String(data.contentType ?? '').includes('x-mpegurl');
 
-          const rawBuf = data.data instanceof ArrayBuffer
-            ? data.data
-            : (data.data as unknown as { buffer: ArrayBuffer }).buffer ?? data.data;
+          // Normalize to ArrayBuffer (Socket.IO may deliver as Buffer/Uint8Array)
+          let rawBuf: ArrayBuffer;
+          if (data.data instanceof ArrayBuffer) {
+            rawBuf = data.data;
+          } else if (ArrayBuffer.isView(data.data)) {
+            rawBuf = (data.data as ArrayBufferView).buffer;
+          } else {
+            rawBuf = data.data as ArrayBuffer;
+          }
 
           const payload = isText ? new TextDecoder('utf-8').decode(rawBuf) : rawBuf;
           stats.loaded = stats.total = isText
             ? (payload as string).length
-            : (rawBuf as ArrayBuffer).byteLength;
+            : rawBuf.byteLength;
 
           (callbacks.onSuccess as (r: unknown, s: unknown, c: unknown, n: null) => void)(
             { url, data: payload }, stats, context, null,
@@ -99,15 +99,16 @@ export function createRelayLoader() {
 
       const onRelayError = (err: { requestId: string; status: number }) => {
         if (err.requestId !== requestId) return;
-        this._clear(socket, onResponse, onRelayError);
+        cleanup();
         if (!this._aborted) onErrCb({ code: err.status || 502, text: `relay error ${err.status}` }, context, null, stats);
       };
 
-      this._timer = setTimeout(() => {
-        this._clear(socket, onResponse, onRelayError);
+      const timer = setTimeout(() => {
+        cleanup();
         if (!this._aborted) onErrCb({ code: 0, text: 'relay timeout' }, context, null, stats);
       }, 15_000);
 
+      this._cancelRelay = cleanup;
       socket.on('relay:response', onResponse);
       socket.on('relay:error', onRelayError);
       socket.emit('relay:fetch', { requestId, url });
