@@ -14,6 +14,8 @@ export const usersTable = pgTable("users", {
   avatarUrl: text("avatar_url"),
   email: varchar("email", { length: 255 }).unique(),
   emailVerified: boolean("email_verified").notNull().default(false),
+  isSiteAdmin: boolean("is_site_admin").notNull().default(false),
+  isBanned: boolean("is_banned").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
