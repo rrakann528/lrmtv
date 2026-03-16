@@ -36,8 +36,6 @@ export function ProfileTab() {
   const [avatarColor, setAvatarColor] = useState(user?.avatarColor || '#06B6D4');
   const [avatarUrl, setAvatarUrl] = useState(user?.avatarUrl || '');
   const [avatarCategory, setAvatarCategory] = useState<typeof AVATAR_CATEGORIES[number]>('boy');
-  const [currentPw, setCurrentPw] = useState('');
-  const [newPw, setNewPw] = useState('');
 
   if (!user) return null;
 
@@ -234,30 +232,6 @@ export function ProfileTab() {
           <SaveBtn saving={saving} onClick={() => save({ avatarColor, avatarUrl })} />
         </ProfileSection>
 
-        {/* Password */}
-        <ProfileSection
-          label="تغيير كلمة المرور"
-          value="••••••••"
-          onEdit={() => setSection('password')}
-          isOpen={section === 'password'}
-          onClose={() => setSection(null)}
-        >
-          <input
-            type="password"
-            value={currentPw}
-            onChange={e => setCurrentPw(e.target.value)}
-            placeholder="كلمة المرور الحالية"
-            className="w-full bg-muted/50 border border-border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary mb-2"
-          />
-          <input
-            type="password"
-            value={newPw}
-            onChange={e => setNewPw(e.target.value)}
-            placeholder="كلمة المرور الجديدة (6 أحرف على الأقل)"
-            className="w-full bg-muted/50 border border-border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-          />
-          <SaveBtn saving={saving} onClick={() => save({ currentPassword: currentPw, newPassword: newPw })} label="تحديث كلمة المرور" />
-        </ProfileSection>
 
         {/* Notifications */}
         <div className="bg-card border border-border rounded-2xl overflow-hidden">
