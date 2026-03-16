@@ -56,14 +56,19 @@ function sendSuccessPage(res: any, token: string, redirectTo: string) {
 </html>`);
 }
 
-function sendErrorPage(res: any, errorKey: string, origin: string) {
+function sendErrorPage(res: any, errorKey: string, origin: string, detail?: string) {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   const dest = `${origin}/auth?error=${errorKey}`;
+  const debugInfo = detail ? `<pre style="color:#f87171;font-size:12px;word-break:break-all;max-width:90vw;margin:12px auto;">${detail.replace(/</g,"&lt;")}</pre>` : "";
   res.send(`<!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"><title>خطأ</title></head>
+<head><meta charset="utf-8"><title>خطأ</title>
+<style>body{background:#0D0D0E;color:#fff;font-family:Arial;text-align:center;padding:40px;}</style>
+</head>
 <body>
-  <script>window.location.replace(${JSON.stringify(dest)});</script>
+  <p>⚠️ ${errorKey}</p>
+  ${debugInfo}
+  <p><a href="${dest}" style="color:#06B6D4">العودة لتسجيل الدخول</a></p>
 </body>
 </html>`);
 }
@@ -197,8 +202,9 @@ router.get("/auth/google/callback", async (req, res): Promise<void> => {
       const result = await client.getToken(code);
       tokens = result.tokens;
     } catch (googleErr: any) {
-      console.error("[OAuth] getToken failed:", googleErr?.response?.data || googleErr?.message || googleErr);
-      sendErrorPage(res, "google_failed", origin);
+      const detail = JSON.stringify(googleErr?.response?.data || googleErr?.message || String(googleErr));
+      console.error("[OAuth] getToken failed:", detail);
+      sendErrorPage(res, "google_failed", origin, `getToken error: ${detail}`);
       return;
     }
 
@@ -236,9 +242,10 @@ router.get("/auth/google/callback", async (req, res): Promise<void> => {
     const token = signToken(user.id, user.username);
     console.log("[OAuth] Success. userId:", user.id, "redirecting to:", `${origin}/home`);
     sendSuccessPage(res, token, `${origin}/home`);
-  } catch (err) {
-    console.error("[OAuth] Unexpected error:", err);
-    sendErrorPage(res, "google_failed", origin);
+  } catch (err: any) {
+    const detail = err?.message || String(err);
+    console.error("[OAuth] Unexpected error:", detail);
+    sendErrorPage(res, "google_failed", origin, `Unexpected: ${detail}`);
   }
 });
 
