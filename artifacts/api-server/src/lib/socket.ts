@@ -759,16 +759,29 @@ export function initSocketServer(httpServer: HttpServer): Server {
       });
     });
 
-    // ── Relay: server-side segment/manifest proxy using the DJ's IP ─────────────
-    // The server fetches the URL directly (no browser CORS restrictions) and
-    // forwards DJ's IP via X-Forwarded-For so IP-locked CDNs accept the request.
-    // This replaces the old browser-side relay (which failed due to CORS on the DJ's fetch).
+    // ── Relay: dual-path proxy for IP-locked HLS streams ────────────────────────
+    // Strategy: race DJ-browser fetch vs server fetch — first success wins.
+    //
+    // Path A (DJ browser): server forwards request to DJ's socket → DJ's browser
+    //   does fetch() and replies. Works when DJ uses a browser/app that bypasses
+    //   CORS (e.g. Web Video Cast WKWebView) because fetch comes from DJ's own IP.
+    //
+    // Path B (server): server fetches directly with X-Forwarded-For = DJ's IP.
+    //   Works when the CDN trusts the X-Forwarded-For header.
+    //
+    // Both run concurrently; whoever succeeds first sends relay:response to viewer.
     socket.on("relay:fetch", async (data: { requestId: string; url: string }) => {
       if (!currentRoomSlug || !data?.requestId || !data?.url) return;
       const roomState = getRoomState(currentRoomSlug);
       if (!roomState) return;
 
-      const host = Array.from(roomState.users.values()).find(u => u.isDJ || u.isAdmin);
+      // Find DJ's user entry AND their socket ID (map key = socketId)
+      let hostSocketId: string | undefined;
+      let host: (typeof roomState.users extends Map<string, infer V> ? V : never) | undefined;
+      for (const [sid, u] of roomState.users.entries()) {
+        if (u.isDJ || u.isAdmin) { hostSocketId = sid; host = u; break; }
+      }
+
       if (!host) {
         console.log(`[relay] no host in room ${currentRoomSlug} → 503`);
         socket.emit("relay:error", { requestId: data.requestId, status: 503 });
@@ -779,17 +792,71 @@ export function initSocketServer(httpServer: HttpServer): Server {
       const urlShort = data.url.split('?')[0].split('/').slice(-2).join('/');
       console.log(`[relay] room=${currentRoomSlug} djIp=${djIp || 'none'} url=...${urlShort}`);
 
+      let settled = false;
+      const respondOnce = (buf: Buffer, contentType: string) => {
+        if (settled) return; settled = true;
+        socket.emit("relay:response", { requestId: data.requestId, data: buf, contentType });
+      };
+      const failOnce = (status: number) => {
+        if (settled) return; settled = true;
+        console.log(`[relay] all paths failed status=${status}`);
+        socket.emit("relay:error", { requestId: data.requestId, status });
+      };
+
+      // ── Path A: ask DJ's browser to fetch (works if browser bypasses CORS) ──
+      const djSocket = hostSocketId ? io.sockets.sockets.get(hostSocketId) : null;
+      const djReqId = `dj-${data.requestId}`;
+      let djTimedOut = false;
+      let djTimer: ReturnType<typeof setTimeout> | null = null;
+
+      if (djSocket?.connected) {
+        djTimer = setTimeout(() => {
+          djTimedOut = true;
+          djSocket.off('relay:dj-response', onDjResponse);
+          djSocket.off('relay:dj-error',    onDjError);
+          console.log(`[relay] DJ browser timeout url=...${urlShort}`);
+        }, 6_000);
+
+        const onDjResponse = (res: { requestId: string; data: unknown; contentType: string }) => {
+          if (res.requestId !== djReqId || djTimedOut) return;
+          clearTimeout(djTimer!);
+          djSocket.off('relay:dj-response', onDjResponse);
+          djSocket.off('relay:dj-error',    onDjError);
+          if (settled) return;
+          console.log(`[relay] DJ browser success url=...${urlShort}`);
+          let buf: Buffer;
+          if (res.data instanceof Buffer)        buf = res.data;
+          else if (ArrayBuffer.isView(res.data)) buf = Buffer.from(res.data as Uint8Array);
+          else                                    buf = Buffer.from(res.data as ArrayBuffer);
+          respondOnce(buf, res.contentType || 'video/mp2t');
+        };
+        const onDjError = (res: { requestId: string; status?: number }) => {
+          if (res.requestId !== djReqId || djTimedOut) return;
+          clearTimeout(djTimer!);
+          djSocket.off('relay:dj-response', onDjResponse);
+          djSocket.off('relay:dj-error',    onDjError);
+          console.log(`[relay] DJ browser error status=${res.status || 0} url=...${urlShort}`);
+        };
+
+        djSocket.on('relay:dj-response', onDjResponse);
+        djSocket.on('relay:dj-error',    onDjError);
+        djSocket.emit('relay:fetch-for-dj', { requestId: djReqId, url: data.url });
+      }
+
+      // ── Path B: server fetch with DJ IP in X-Forwarded-For ──────────────────
       const headers: Record<string, string> = { ...RELAY_BASE_HEADERS };
       if (djIp) {
         headers['X-Forwarded-For'] = djIp;
         headers['X-Real-IP']       = djIp;
+        headers['CF-Connecting-IP']  = djIp;
+        headers['True-Client-IP']    = djIp;
       }
 
-      // Try without Referer first, then CDN host as Referer
       const referers = ['', `${new URL(data.url).protocol}//${new URL(data.url).hostname}/`];
       let lastStatus = 502;
 
       for (const referer of referers) {
+        if (settled) break;
         if (referer) headers['Referer'] = referer;
         else delete headers['Referer'];
 
@@ -797,23 +864,32 @@ export function initSocketServer(httpServer: HttpServer): Server {
           const response = await fetch(data.url, {
             headers,
             redirect: 'follow',
-            signal: AbortSignal.timeout(15_000),
+            signal: AbortSignal.timeout(12_000),
           });
 
-          console.log(`[relay] status=${response.status} referer="${referer || 'none'}" url=...${urlShort}`);
+          console.log(`[relay] server status=${response.status} referer="${referer || 'none'}" url=...${urlShort}`);
           if (!response.ok) { lastStatus = response.status; continue; }
 
           const contentType = response.headers.get('content-type') || 'video/mp2t';
           const buffer = Buffer.from(await response.arrayBuffer());
-          socket.emit("relay:response", { requestId: data.requestId, data: buffer, contentType });
+          respondOnce(buffer, contentType);
           return;
         } catch (err: any) {
-          console.log(`[relay] fetch error: ${err?.message} url=...${urlShort}`);
+          console.log(`[relay] server fetch error: ${err?.message} url=...${urlShort}`);
         }
       }
 
-      console.log(`[relay] all attempts failed, lastStatus=${lastStatus}`);
-      socket.emit("relay:error", { requestId: data.requestId, status: lastStatus });
+      // If server path failed but DJ path still pending, wait for it
+      if (!settled) {
+        await new Promise<void>(resolve => {
+          const checkInterval = setInterval(() => {
+            if (settled || djTimedOut) { clearInterval(checkInterval); resolve(); }
+          }, 100);
+          setTimeout(() => { clearInterval(checkInterval); resolve(); }, 7_000);
+        });
+      }
+
+      if (!settled) failOnce(lastStatus);
     });
 
     socket.on("subtitle-sync", (data: SubtitleSync) => {
