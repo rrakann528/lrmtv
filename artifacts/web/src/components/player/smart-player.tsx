@@ -103,6 +103,8 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
     const [ready, setReady] = useState(false);
     const [autoplayBlocked, setAutoplayBlocked] = useState(false);
     const [proxyUrl, setProxyUrl] = useState<string | null>(null);
+    const [nativeVideo, setNativeVideo] = useState(false);
+    const nativeVideoRef = useRef<HTMLVideoElement>(null);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [showOverlay, setShowOverlay] = useState(true);
@@ -128,6 +130,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       setAutoplayBlocked(false);
       setMutedForAutoplay(false);
       setProxyUrl(null);
+      setNativeVideo(false);
     }, [normalizedUrl]);
 
     // Fullscreen tracking
@@ -281,15 +284,25 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       }
       // For direct video URLs (html5) that failed — auto-retry through server proxy
       // which bypasses CORS and hotlink-protection restrictions on CDN servers
-      if (videoType === 'html5' && !proxyUrl) {
+      if (videoType === 'html5' && !proxyUrl && !nativeVideo) {
         const px = `/api/proxy/video?url=${encodeURIComponent(normalizedUrl)}`;
         setProxyUrl(px);
         setError(null);
         setReady(false);
         return;
       }
+      // If proxy also failed — last resort: try a bare <video> element with the
+      // original URL (no ReactPlayer, no crossOrigin). Works for IP-locked CDN
+      // tokens where only the user's browser IP is accepted.
+      if (videoType === 'html5' && proxyUrl && !nativeVideo) {
+        setNativeVideo(true);
+        setProxyUrl(null);
+        setError(null);
+        setReady(false);
+        return;
+      }
       setError('playback');
-    }, [videoType, normalizedUrl, proxyUrl]);
+    }, [videoType, normalizedUrl, proxyUrl, nativeVideo]);
 
     // ── HLS: custom player with built-in controls ────────────────────────────
     if (isHls) {
@@ -342,6 +355,16 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
                   ? (lang === 'ar' ? 'صاحب الفيديو منع تشغيله خارج يوتيوب. جرب فيديو آخر.' : 'The video owner disabled embedding. Try another video.')
                   : t('videoErrorDesc')}
               </p>
+              {error === 'playback' && videoType === 'html5' && (
+                <a
+                  href={normalizedUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white/80 text-sm font-medium transition-colors border border-white/20"
+                >
+                  {lang === 'ar' ? 'افتح في تبويب جديد' : 'Open in new tab'}
+                </a>
+              )}
             </div>
           </div>
         )}
@@ -360,13 +383,30 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
           </div>
         )}
 
+        {/* S3: last-resort native <video> — no crossOrigin, direct browser fetch */}
+        {nativeVideo && (
+          <video
+            ref={nativeVideoRef}
+            key={normalizedUrl + '__native'}
+            src={normalizedUrl}
+            style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain' }}
+            autoPlay={playing}
+            playsInline
+            controls={false}
+            onLoadedMetadata={() => { setError(null); setReady(true); onReady?.(); }}
+            onError={() => setError('playback')}
+            onPlay={() => { setError(null); onPlay?.(); }}
+            onPause={onPause}
+          />
+        )}
+
         <ReactPlayer
           key={proxyUrl ?? normalizedUrl}
           ref={reactPlayerRef}
           url={proxyUrl ?? normalizedUrl}
           width="100%"
           height="100%"
-          playing={autoplayBlocked ? false : playing}
+          playing={nativeVideo ? false : (autoplayBlocked ? false : playing)}
           controls={false}
           volume={rpMuted ? 0 : rpVolume}
           muted={rpMuted || mutedForAutoplay}
@@ -400,7 +440,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
             }
           }}
           onError={handleError}
-          style={{ position: 'absolute', top: 0, left: 0 }}
+          style={{ position: 'absolute', top: 0, left: 0, display: nativeVideo ? 'none' : undefined }}
           config={{
             youtube: {
               playerVars: {
