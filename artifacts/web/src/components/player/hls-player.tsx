@@ -16,7 +16,6 @@ import FullscreenChat from './fullscreen-chat';
 import SubtitleSearch from './subtitle-search';
 import { type ChatMessage } from './smart-player';
 import { setRelaySocket, createRelayLoader } from '@/lib/relay-loader';
-import { createP2PLoader, hasPeerChannel } from '@/lib/p2p-loader';
 
 // ── SRT / VTT parser ─────────────────────────────────────────────────────────
 interface SubtitleCue { start: number; end: number; text: string }
@@ -392,47 +391,40 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
       const HLS_CONFIG: Partial<Hls['config']> = {
         enableWorker: true,
         lowLatencyMode: false,
-        // Start loading from the join-time position — avoids seek-after-manifest overhead
         startPosition: startPos,
-        // Pre-fetch the first fragment while manifest is still being processed
         startFragPrefetch: true,
 
-        // ── Live latency tuning ───────────────────────────────────────────────
-        // Target 2 segments behind live edge instead of the default 3 →
-        // reduces latency from ~18 s to ~10 s without causing buffering
-        liveSyncDurationCount:     2,
-        // If we fall more than 6 segments behind, snap back to live edge
-        liveMaxLatencyDurationCount: 6,
-        // Play at 1.1× to catch up gradually when slightly behind live edge
-        maxLiveSyncPlaybackRate:   1.1,
+        // ── Live latency — 3 segments behind for stability ───────────────────
+        liveSyncDurationCount:       3,
+        liveMaxLatencyDurationCount: 8,
+        maxLiveSyncPlaybackRate:     1.1,
 
-        // ── Buffer ───────────────────────────────────────────────────────────
-        // Larger forward buffer → fewer stalls on slow networks or after resuming from background.
-        // Larger back-buffer → smoother scrubbing backward without re-fetching.
-        backBufferLength:   30,
-        maxBufferLength:    30,
-        maxMaxBufferLength: 90,
+        // ── Buffer — generous to absorb relay latency & network jitter ───────
+        backBufferLength:   60,
+        maxBufferLength:    60,
+        maxMaxBufferLength: 120,
 
-        // ── Retry / timeout ──────────────────────────────────────────────────
-        manifestLoadingMaxRetry:   1,
-        manifestLoadingTimeOut:    8000,
-        manifestLoadingRetryDelay: 500,
-        levelLoadingMaxRetry:      3,
-        levelLoadingTimeOut:       12000,
-        fragLoadingMaxRetry:       3,
-        fragLoadingTimeOut:        12000,  // fail faster; live segments expire anyway
+        // ── Retry / timeout — generous for relay & slow CDNs ────────────────
+        manifestLoadingMaxRetry:   3,
+        manifestLoadingTimeOut:    10_000,
+        manifestLoadingRetryDelay: 1000,
+        levelLoadingMaxRetry:      4,
+        levelLoadingTimeOut:       15_000,
+        levelLoadingRetryDelay:    1000,
+        fragLoadingMaxRetry:       6,
+        fragLoadingTimeOut:        20_000,
         fragLoadingRetryDelay:     500,
 
-        // ── ABR ──────────────────────────────────────────────────────────────
-        startLevel:              -1,
-        abrEwmaDefaultEstimate:  1_000_000,
-        abrBandWidthFactor:      0.85,
-        abrBandWidthUpFactor:    0.6,
-        testBandwidth:           false,
+        // ── ABR — start high, upgrade conservatively ─────────────────────────
+        startLevel:             -1,
+        abrEwmaDefaultEstimate: 5_000_000,
+        abrBandWidthFactor:     0.8,
+        abrBandWidthUpFactor:   0.5,
+        testBandwidth:          false,
 
-        progressive: true,
-        nudgeMaxRetry: 5,
-        nudgeOffset:  0.2,
+        progressive:   true,
+        nudgeMaxRetry: 10,
+        nudgeOffset:   0.1,
       };
 
       // ── S-Native: HTML5 <video> element (MP4, WebM, native HLS on Safari) ─
@@ -512,26 +504,27 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         stallWatchdog = setInterval(() => {
           if (cancelled || !video || video.paused || video.ended) return;
           const now = video.currentTime;
-          // Only fire when no data is available (readyState < 3) to avoid false positives
           if (now === lastTime && video.readyState < 3) {
             stalledFor += 1;
-            if (stalledFor >= 2) {  // 4 s of true stall → act immediately
+            if (stalledFor >= 2) {  // 2 s of true stall → act immediately
               stalledFor = 0;
               const buf = video.buffered;
               const ahead = buf.length > 0 ? buf.end(buf.length - 1) - now : 0;
-              if (ahead > 0.5) {
-                // Buffer is there but video froze — nudge past the frozen frame.
-                // Set the internal flag so onSeeked doesn't broadcast this to the room.
+              if (ahead > 0.3) {
+                // Buffer exists but decoder froze — nudge past stuck frame
                 isInternalNudgeRef.current = true;
                 video.currentTime = now + 0.1;
                 setTimeout(() => { isInternalNudgeRef.current = false; }, 200);
               } else if (hlsRef.current) {
-                // No buffer ahead — kick HLS.js to load more segments
-                try { hlsRef.current.startLoad(); } catch { /* ignore */ }
+                // No buffer — force HLS.js to reload segments from current position
+                try {
+                  hlsRef.current.stopLoad();
+                  hlsRef.current.startLoad(now);
+                } catch { /* ignore */ }
               } else if (dashRef.current) {
-                // DASH: nothing to do, player auto-recovers
+                // DASH auto-recovers
               } else {
-                // Native video stall — try reload from current position
+                // Native video — reload from current position
                 const t = video.currentTime;
                 video.load();
                 video.currentTime = t;
@@ -542,7 +535,7 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
             stalledFor = 0;
           }
           lastTime = now;
-        }, 2000);
+        }, 1000);  // Check every 1 s instead of 2 s for faster stall detection
       };
 
       // ── HLS instance factory with built-in error recovery ────────────────
@@ -699,43 +692,13 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           hls.attachMedia(video);
         };
 
-        // S-P2P — WebRTC DataChannel relay via host's browser (peer-to-peer, no server hop)
-        const sP2P = () => {
-          if (cancelled) return;
-          if (!hasPeerChannel()) { sRelay(); return; }
-          const P2PLoader = createP2PLoader();
-          setStatusMsg('hls-proxy');
-          const p2pCfg = { ...HLS_CONFIG, loader: P2PLoader as unknown as Hls['config']['loader'] };
-          const hls = new Hls(p2pCfg as Hls['config']);
-          hls.on(Hls.Events.ERROR, (_, d) => {
-            if (cancelled || !d.fatal) return;
-            hls.destroy();
-            sRelay();
-          });
-          hls.on(Hls.Events.MANIFEST_PARSED, () => {
-            if (cancelled) return;
-            const d = video.duration;
-            if (!isNaN(d)) {
-              const live = !d || !isFinite(d) || d === Infinity;
-              isLiveRef.current = live; setIsLive(live);
-              onIsLiveRef.current?.(live);
-            }
-            setStatusMsg(null); setError(null);
-            setSubtitleTracks(hls.subtitleTracks.map((tk, i) => ({ id: i, name: tk.name || tk.lang || `Track ${i + 1}`, lang: tk.lang })));
-            startStallWatchdog();
-          });
-          hlsRef.current = hls;
-          hls.loadSource(src);
-          hls.attachMedia(video);
-        };
-
         // S5 — API server manifest proxy (server-side fetch bypasses CORS; segments routed via /api/proxy/segment)
         const s5_apiProxy = () => {
           if (cancelled) return;
           setStatusMsg('hls-proxy');
           const proxyUrl = `/api/proxy/manifest?url=${encodeURIComponent(src)}`;
-          // On failure → try P2P relay (host's browser over WebRTC DataChannel) → then socket relay
-          const hls = makeHls(() => sP2P());
+          // On failure → socket relay through host's browser
+          const hls = makeHls(() => sRelay());
           hlsRef.current = hls;
           hls.loadSource(proxyUrl);
           hls.attachMedia(video);
