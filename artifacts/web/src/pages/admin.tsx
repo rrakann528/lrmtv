@@ -143,6 +143,8 @@ export default function AdminPage() {
         const r = await apiFetch('/admin/settings');
         if (r.ok) { const s = await r.json(); setSettings(s); setEditSettings(s); }
       }
+    } catch (e) {
+      console.error('[Admin] load error:', e);
     } finally { setLoading(false); }
   }, []);
 
@@ -157,8 +159,10 @@ export default function AdminPage() {
   useEffect(() => {
     if (tab !== 'dashboard') { if (liveTimerRef.current) clearInterval(liveTimerRef.current); return; }
     liveTimerRef.current = setInterval(async () => {
-      const r = await apiFetch('/admin/stats/live');
-      if (r.ok) setLiveStats(await r.json());
+      try {
+        const r = await apiFetch('/admin/stats/live');
+        if (r.ok) setLiveStats(await r.json());
+      } catch {}
     }, 15_000);
     return () => { if (liveTimerRef.current) clearInterval(liveTimerRef.current); };
   }, [tab]);
