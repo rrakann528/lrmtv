@@ -20,6 +20,13 @@ function getApiCallbackBase(req: any): string {
   return `${getPublicOrigin(req)}/api`;
 }
 
+function getGoogleCallbackUrl(req: any): string {
+  // GOOGLE_CALLBACK_URL overrides everything — set this on Railway to:
+  // https://lrmtv.sbs/api/auth/google/callback
+  if (process.env.GOOGLE_CALLBACK_URL) return process.env.GOOGLE_CALLBACK_URL;
+  return `${getApiCallbackBase(req)}/auth/google/callback`;
+}
+
 function sendSuccessPage(res: any, token: string, redirectTo: string) {
   res.cookie("token", token, {
     httpOnly: true,
@@ -138,7 +145,7 @@ router.get("/auth/google", (req, res) => {
     res.status(503).json({ error: "Google OAuth غير مُفعَّل" });
     return;
   }
-  const callbackUrl = `${getApiCallbackBase(req)}/auth/google/callback`;
+  const callbackUrl = getGoogleCallbackUrl(req);
   console.log("[OAuth] Google redirect. callbackUrl:", callbackUrl);
   const client = new OAuth2Client(clientId, process.env.GOOGLE_CLIENT_SECRET, callbackUrl);
   const url = client.generateAuthUrl({
@@ -160,14 +167,24 @@ router.get("/auth/google/callback", async (req, res): Promise<void> => {
   }
 
   try {
-    const callbackUrl = `${getApiCallbackBase(req)}/auth/google/callback`;
+    const callbackUrl = getGoogleCallbackUrl(req);
+    console.log("[OAuth] Callback. callbackUrl:", callbackUrl);
     const client = new OAuth2Client(
       process.env.GOOGLE_CLIENT_ID,
       process.env.GOOGLE_CLIENT_SECRET,
       callbackUrl
     );
 
-    const { tokens } = await client.getToken(code);
+    let tokens;
+    try {
+      const result = await client.getToken(code);
+      tokens = result.tokens;
+    } catch (googleErr: any) {
+      console.error("[OAuth] getToken failed:", googleErr?.response?.data || googleErr?.message || googleErr);
+      sendErrorPage(res, "google_failed", origin);
+      return;
+    }
+
     client.setCredentials(tokens);
 
     const userInfoRes = await client.request<{
@@ -203,7 +220,7 @@ router.get("/auth/google/callback", async (req, res): Promise<void> => {
     console.log("[OAuth] Success. userId:", user.id, "redirecting to:", `${origin}/home`);
     sendSuccessPage(res, token, `${origin}/home`);
   } catch (err) {
-    console.error("[OAuth] Google error:", err);
+    console.error("[OAuth] Unexpected error:", err);
     sendErrorPage(res, "google_failed", origin);
   }
 });
