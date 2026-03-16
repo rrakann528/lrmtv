@@ -95,6 +95,12 @@ export function useSocket(slug: string | null) {
       window.location.href = '/';
     });
 
+    socket.on('room-frozen', () => {
+      socket.disconnect();
+      alert('هذه الغرفة مجمّدة مؤقتاً من قِبل الإدارة.');
+      window.location.href = '/home';
+    });
+
     socket.on('room-state', (state: {
       currentVideo: string | null;
       isPlaying: boolean;
