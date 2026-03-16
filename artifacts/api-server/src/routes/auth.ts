@@ -147,8 +147,16 @@ router.post("/auth/logout", (_req, res): void => {
 
 // ── Me ────────────────────────────────────────────────────────────────────────
 router.get("/auth/me", requireAuth, async (req: AuthRequest, res): Promise<void> => {
-  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
+  let [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
   if (!user) { res.status(404).json({ error: "Not found" }); return; }
+
+  // Auto-grant admin if ADMIN_EMAIL matches and not already admin
+  const adminEmail = process.env.ADMIN_EMAIL?.toLowerCase().trim();
+  if (adminEmail && user.email?.toLowerCase() === adminEmail && !user.isSiteAdmin) {
+    await db.update(usersTable).set({ isSiteAdmin: true }).where(eq(usersTable.id, user.id));
+    user = { ...user, isSiteAdmin: true };
+  }
+
   const freshToken = signToken(user.id, user.username);
   res.cookie("token", freshToken, COOKIE_OPTS);
   res.json({ ...userPublic(user), token: freshToken });
