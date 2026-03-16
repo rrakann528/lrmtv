@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
-import { Edit3, LogOut, Save, X, Bell, BellOff } from 'lucide-react';
+import { Edit3, LogOut, Save, X, Bell, BellOff, Shield } from 'lucide-react';
 import { Avatar } from '@/components/avatar';
 import { useAuth } from '@/hooks/use-auth';
 import { usePush } from '@/hooks/use-push';
@@ -301,6 +301,18 @@ export function ProfileTab() {
             </div>
           )}
         </div>
+
+        {/* Admin panel link — visible to site admins only */}
+        {user?.isSiteAdmin && (
+          <motion.button
+            whileTap={{ scale: 0.97 }}
+            onClick={() => setLocation('/admin')}
+            className="w-full flex items-center justify-center gap-2 py-3.5 bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 rounded-2xl font-semibold text-sm mt-4"
+          >
+            <Shield className="w-4 h-4" />
+            {lang === 'ar' ? 'لوحة الأدمن' : 'Admin Panel'}
+          </motion.button>
+        )}
 
         {/* Logout */}
         <motion.button
