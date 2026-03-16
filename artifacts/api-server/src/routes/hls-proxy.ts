@@ -228,8 +228,10 @@ router.get('/proxy/segment', async (req, res) => {
     }
 
     // Stream the segment directly to the browser without buffering it fully
-    // on the server — reduces latency for live streams significantly
-    const contentType   = upstreamRes.headers.get('content-type') ?? 'video/mp2t';
+    // on the server — reduces latency for live streams significantly.
+    // Some CDNs serve TS segments with wrong Content-Type (text/html, text/plain) — override to video/mp2t.
+    const upstreamCt    = upstreamRes.headers.get('content-type') ?? '';
+    const contentType   = (upstreamCt.startsWith('text/') || upstreamCt === '') ? 'video/mp2t' : upstreamCt;
     const contentLength = upstreamRes.headers.get('content-length');
     const responseHeaders: Record<string, string> = {
       ...CORS_HEADERS,
