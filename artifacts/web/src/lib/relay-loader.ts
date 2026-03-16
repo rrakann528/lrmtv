@@ -20,97 +20,97 @@ export function createRelayLoader() {
     destroy(): void;
   }) {
     private _aborted = false;
-    private _relayCleanup: (() => void) | null = null;
+    private _requestId: string | null = null;
+    private _timer: ReturnType<typeof setTimeout> | null = null;
 
-    abort() {
-      this._aborted = true;
-      this._relayCleanup?.();
-      super.abort();
+    private _clear(socket: Socket | null, onResp: (d: unknown) => void, onErr: (d: unknown) => void) {
+      if (this._timer) { clearTimeout(this._timer); this._timer = null; }
+      if (socket) { socket.off('relay:response', onResp); socket.off('relay:error', onErr); }
+      this._requestId = null;
     }
 
-    destroy() {
-      this._aborted = true;
-      this._relayCleanup?.();
-      super.destroy();
+    abort()   { this._aborted = true; this._cleanup(); super.abort(); }
+    destroy() { this._aborted = true; this._cleanup(); super.destroy(); }
+
+    private _cleanup() {
+      if (this._timer) { clearTimeout(this._timer); this._timer = null; }
+      this._requestId = null;
     }
 
-    load(context: Record<string, unknown>, config: unknown, callbacks: Record<string, (...args: unknown[]) => void>) {
-      const originalOnError = callbacks.onError as (
-        err: { code: number; text: string },
-        ctx: unknown,
-        res: unknown,
-        stats: unknown
+    load(
+      context: Record<string, unknown>,
+      config: unknown,
+      callbacks: Record<string, (...args: unknown[]) => void>,
+    ) {
+      const socket = getSocket();
+
+      // No socket → fall back to default loader (no relay available)
+      if (!socket?.connected) {
+        super.load(context, config, callbacks);
+        return;
+      }
+
+      const url = context.url as string;
+      const onErrCb = callbacks.onError as (
+        e: { code: number; text: string }, ctx: unknown, r: unknown, s: unknown
       ) => void;
 
-      const patchedCallbacks = {
-        ...callbacks,
-        onError: (
-          error: { code: number; text: string },
-          ctx: unknown,
-          response: unknown,
-          stats: unknown,
-        ) => {
-          const socket = getSocket();
-          const isCorsOrBlocked = error.code === 0 || error.code === 403 || error.code === 502;
-
-          if (!socket?.connected || !isCorsOrBlocked || this._aborted) {
-            originalOnError(error, ctx, response, stats);
-            return;
-          }
-
-          const url = context.url as string;
-          const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-          const cleanup = () => {
-            socket.off('relay:response', onResponse);
-            socket.off('relay:error', onRelayError);
-            clearTimeout(timer);
-          };
-
-          const onResponse = (data: { requestId: string; data: ArrayBuffer; contentType: string }) => {
-            if (data.requestId !== requestId) return;
-            cleanup();
-            if (this._aborted) return;
-            try {
-              // HLS.js expects a string for manifest/level/subtitle types, ArrayBuffer for fragments
-              const ctxType = (context.type as string) ?? '';
-              const isText = ctxType === 'manifest' || ctxType === 'level' ||
-                ctxType === 'audioTrack' || ctxType === 'subtitle' ||
-                (data.contentType ?? '').includes('mpegurl') ||
-                (data.contentType ?? '').includes('x-mpegurl');
-              const payload = isText
-                ? new TextDecoder('utf-8').decode(data.data)
-                : data.data;
-              (callbacks.onSuccess as (res: unknown, stats: unknown, ctx: unknown, nd: null) => void)(
-                { url, data: payload },
-                stats,
-                ctx,
-                null,
-              );
-            } catch {
-              originalOnError(error, ctx, response, stats);
-            }
-          };
-
-          const onRelayError = (err: { requestId: string; status: number }) => {
-            if (err.requestId !== requestId) return;
-            cleanup();
-            if (!this._aborted) originalOnError(error, ctx, response, stats);
-          };
-
-          const timer = setTimeout(() => {
-            cleanup();
-            if (!this._aborted) originalOnError(error, ctx, response, stats);
-          }, 15_000);
-
-          this._relayCleanup = cleanup;
-          socket.on('relay:response', onResponse);
-          socket.on('relay:error', onRelayError);
-          socket.emit('relay:fetch', { requestId, url });
-        },
+      const stats = {
+        trequest: performance.now(), tfirst: 0, tload: 0,
+        loaded: 0, total: 0, retry: 0, chunkCount: 0, bwEstimate: 0,
+        loading: { start: 0, first: 0, end: 0 },
+        parsing:  { start: 0, end: 0 },
+        buffering: { start: 0, first: 0, end: 0 },
       };
 
-      super.load(context, config, patchedCallbacks);
+      const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      this._requestId = requestId;
+
+      const onResponse = (data: { requestId: string; data: ArrayBuffer; contentType: string }) => {
+        if (data.requestId !== requestId) return;
+        this._clear(socket, onResponse, onRelayError);
+        if (this._aborted) return;
+
+        stats.tfirst = stats.tload = performance.now();
+        try {
+          // HLS.js needs a string for manifests/playlists and ArrayBuffer for media segments
+          const ctxType = (context.type as string) ?? '';
+          const isText = ctxType === 'manifest' || ctxType === 'level' ||
+            ctxType === 'audioTrack' || ctxType === 'subtitle' ||
+            String(data.contentType ?? '').includes('mpegurl') ||
+            String(data.contentType ?? '').includes('x-mpegurl');
+
+          const rawBuf = data.data instanceof ArrayBuffer
+            ? data.data
+            : (data.data as unknown as { buffer: ArrayBuffer }).buffer ?? data.data;
+
+          const payload = isText ? new TextDecoder('utf-8').decode(rawBuf) : rawBuf;
+          stats.loaded = stats.total = isText
+            ? (payload as string).length
+            : (rawBuf as ArrayBuffer).byteLength;
+
+          (callbacks.onSuccess as (r: unknown, s: unknown, c: unknown, n: null) => void)(
+            { url, data: payload }, stats, context, null,
+          );
+        } catch {
+          onErrCb({ code: 0, text: 'relay-loader parse error' }, context, null, stats);
+        }
+      };
+
+      const onRelayError = (err: { requestId: string; status: number }) => {
+        if (err.requestId !== requestId) return;
+        this._clear(socket, onResponse, onRelayError);
+        if (!this._aborted) onErrCb({ code: err.status || 502, text: `relay error ${err.status}` }, context, null, stats);
+      };
+
+      this._timer = setTimeout(() => {
+        this._clear(socket, onResponse, onRelayError);
+        if (!this._aborted) onErrCb({ code: 0, text: 'relay timeout' }, context, null, stats);
+      }, 15_000);
+
+      socket.on('relay:response', onResponse);
+      socket.on('relay:error', onRelayError);
+      socket.emit('relay:fetch', { requestId, url });
     }
   };
 }
