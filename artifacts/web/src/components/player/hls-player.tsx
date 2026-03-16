@@ -653,8 +653,9 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
               else { setError('ip-locked'); setStatusMsg(null); }
             }
           };
-          // Timeout: if native video doesn't load in 8 s move to next stage
-          // (iOS Safari often silently hangs on 403/CORS without firing an error event)
+          // Timeout: if native video doesn't load in 15 s move to next stage
+          // (iOS Safari often silently hangs on 403/CORS without firing an error event;
+          //  some IP-locked CDNs take >8s to respond on the first manifest request)
           let nativeDone = false;
           const onMetaWrapped = () => { if (nativeDone) return; nativeDone = true; clearTimeout(fallbackTimer); onMeta(); };
           const onErrWrapped  = () => { if (nativeDone) return; nativeDone = true; clearTimeout(fallbackTimer); onErr(); };
@@ -667,7 +668,7 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
               if (onFail) { onFail(); }
               else { setError('ip-locked'); setStatusMsg(null); }
             }
-          }, 8_000);
+          }, 15_000);
           video.addEventListener('loadedmetadata', onMetaWrapped, { once: true });
           video.addEventListener('error',          onErrWrapped,  { once: true });
         };
