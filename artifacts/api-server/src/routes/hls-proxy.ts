@@ -48,11 +48,15 @@ function candidateReferers(targetUrl: string): string[] {
  * Fetch a URL trying multiple Referer values until one succeeds (status 2xx).
  * Returns { response, referer } of the first successful attempt, or the last
  * failed response if nothing worked.
+ *
+ * @param clientIp  Real IP of the end-user (from req.ip). Forwarded to the CDN
+ *                  as X-Forwarded-For so IP-locked streams can be verified.
  */
 async function fetchWithRefererFallback(
   url: string,
   extraHeaders: Record<string, string> = {},
   timeoutMs = 10000,
+  clientIp?: string,
 ): Promise<{ response: Response; referer: string }> {
   const referers = candidateReferers(url);
   let last!: Response;
@@ -60,6 +64,10 @@ async function fetchWithRefererFallback(
   for (const referer of referers) {
     const headers: Record<string, string> = { ...BASE_HEADERS, ...extraHeaders };
     if (referer) headers['Referer'] = referer;
+    if (clientIp) {
+      headers['X-Forwarded-For'] = clientIp;
+      headers['X-Real-IP']       = clientIp;
+    }
 
     try {
       const response = await fetch(url, {
@@ -155,8 +163,10 @@ router.get('/proxy/manifest', async (req, res) => {
   try { targetUrl = decodeURIComponent(rawUrl); new URL(targetUrl); }
   catch { res.status(400).send('Invalid url'); return; }
 
+  const clientIp = (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() || req.ip || '';
+
   try {
-    const { response, referer } = await fetchWithRefererFallback(targetUrl, {}, 10000);
+    const { response, referer } = await fetchWithRefererFallback(targetUrl, {}, 10000, clientIp);
 
     if (!response.ok) {
       res.status(response.status).send('Upstream error');
@@ -197,6 +207,7 @@ router.get('/proxy/segment', async (req, res) => {
 
   const knownReferer = rawReferer ? decodeURIComponent(rawReferer) : '';
   const isPlaylist   = targetUrl.toLowerCase().includes('.m3u8');
+  const clientIp     = (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() || req.ip || '';
 
   try {
     let upstreamRes: Response;
@@ -207,12 +218,13 @@ router.get('/proxy/segment', async (req, res) => {
       const headers: Record<string, string> = { ...BASE_HEADERS };
       if (knownReferer) headers['Referer'] = knownReferer;
       if (req.headers.range) headers['Range'] = req.headers.range as string;
+      if (clientIp) { headers['X-Forwarded-For'] = clientIp; headers['X-Real-IP'] = clientIp; }
       upstreamRes = await fetch(targetUrl, { headers, redirect: 'follow', signal: AbortSignal.timeout(20000) });
     } else {
       // No known referer — try fallback chain
       const extra: Record<string, string> = {};
       if (req.headers.range) extra['Range'] = req.headers.range as string;
-      const result = await fetchWithRefererFallback(targetUrl, extra, 20000);
+      const result = await fetchWithRefererFallback(targetUrl, extra, 20000, clientIp);
       upstreamRes  = result.response;
       usedReferer  = result.referer;
     }
