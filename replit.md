@@ -1,146 +1,232 @@
 # LrmTV — Social Streaming Platform
 
-## Overview
+## المشروع / Overview
 
-LrmTV is a real-time collaborative video watching platform (like Watch2Gether, SyncTube). Users can create rooms, watch videos in perfect sync, chat, and interact — all with a bilingual Arabic/English interface.
+LrmTV منصة مشاهدة جماعية للفيديو بالوقت الفعلي (مثل Watch2Gether). يتشارك المستخدمون غرف لمشاهدة البث المباشر والمحتوى مع مزامنة تلقائية ودردشة ولوحة تحكم. الواجهة ثنائية اللغة عربي/إنجليزي.
 
-pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.
+---
+
+## Deployment (مهم جداً)
+
+- **Platform**: Railway
+- **Domain**: `lrmtv.sbs` (Hostinger DNS → Cloudflare → Railway)
+- **GitHub**: `rrakann528/LrmTV`
+- **BASE_URL**: `https://lrmtv.sbs`
+- **Admin panel**: `https://lrmtv.sbs/admin`
+- **Admin email**: `rrakann528@gmail.com`
+- **Dockerfile**: يبني الـ frontend بـ `BASE_PATH=/` ثم يشغّل `start.sh` اللي يشغّل `node migrate.cjs` ثم API server
+
+---
+
+## قاعدة رفع الكود — CRITICAL
+
+> **لا ترفع أبداً تلقائياً** — انتظر دائماً حتى يقول المستخدم: **"ارفع التحديث"** أو **"ارفع"**
+
+**طريقة الرفع:** GitHub API عبر curl (مو git push):
+```bash
+# 1. اجلب SHA الحالي للملف
+SHA=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+  "https://api.github.com/repos/rrakann528/LrmTV/contents/PATH" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['sha'])")
+
+# 2. ارفع بـ base64
+CONTENT=$(base64 -w 0 LOCAL_FILE)
+curl -s -X PUT -H "Authorization: token $GITHUB_TOKEN" -H "Content-Type: application/json" \
+  "https://api.github.com/repos/rrakann528/LrmTV/contents/PATH" \
+  -d "{\"message\":\"commit msg\",\"content\":\"$CONTENT\",\"sha\":\"$SHA\"}"
+```
+
+---
 
 ## Stack
 
-- **Monorepo tool**: pnpm workspaces
-- **Node.js version**: 24
-- **Package manager**: pnpm
-- **TypeScript version**: 5.9
-- **API framework**: Express 5 + Socket.io
+- **Monorepo**: pnpm workspaces
+- **Node.js**: 24 / **TypeScript**: 5.9 / **Package manager**: pnpm
+- **API**: Express 5 + Socket.io
 - **Database**: PostgreSQL + Drizzle ORM
-- **Validation**: Zod (`zod/v4`), `drizzle-zod`
+- **Validation**: Zod (v4) + drizzle-zod
 - **API codegen**: Orval (from OpenAPI spec)
 - **Build**: esbuild (CJS bundle)
 - **Frontend**: React + Vite + Tailwind CSS
-- **Video**: SmartPlayer (react-player v2 handles all sources: YouTube/Vimeo/Twitch embeds, HLS/M3U8, DASH/MPD, MP4/WebM)
-- **Real-time**: Socket.io (video sync, chat, user presence)
-- **State**: Zustand (client-side)
+- **Video**: SmartPlayer — HLS.js, dash.js, react-player (YouTube/Twitch/Vimeo), HTML5
+- **Real-time**: Socket.io (sync, chat, relay)
+- **State**: Zustand
 - **i18n**: Custom React context (Arabic RTL / English LTR)
+
+---
 
 ## Structure
 
-```text
+```
 artifacts-monorepo/
 ├── artifacts/
-│   ├── api-server/         # Express API + Socket.io server
+│   ├── api-server/
 │   │   └── src/
-│   │       ├── lib/socket.ts    # Socket.io event handlers
-│   │       └── routes/rooms.ts  # Room CRUD endpoints
-│   └── web/                # React + Vite frontend (LrmTV UI)
+│   │       ├── lib/socket.ts          ← Socket.io events (relay, sync, chat)
+│   │       ├── routes/admin.ts        ← 26 admin API endpoints
+│   │       └── routes/rooms.ts        ← Room CRUD
+│   └── web/
 │       └── src/
-│           ├── pages/landing.tsx  # Landing page
-│           ├── pages/room.tsx     # Room page with video player
-│           ├── pages/room/        # Chat, playlist, users panels
-│           ├── lib/i18n.tsx       # Bilingual i18n context
-│           ├── components/player/  # SmartPlayer (HLS, DASH, HTML5, embed switcher)
-│           ├── lib/detect-video-type.ts # URL → player type detector
-│           └── hooks/use-socket.ts # Socket.io client hook
+│           ├── pages/room.tsx         ← Room page + hooks
+│           ├── components/player/
+│           │   ├── hls-player.tsx     ← HLS fallback chain + HLS_CONFIG
+│           │   ├── smart-player.tsx   ← Player switcher
+│           │   └── player-controls.tsx
+│           ├── hooks/
+│           │   ├── use-relay-host.ts  ← Host-side Socket.IO relay (KEEP)
+│           │   └── use-socket.ts
+│           └── lib/
+│               └── relay-loader.ts   ← HLS.js custom loader → goes direct to relay
 ├── lib/
-│   ├── api-spec/           # OpenAPI spec + Orval codegen config
-│   ├── api-client-react/   # Generated React Query hooks
-│   ├── api-zod/            # Generated Zod schemas from OpenAPI
-│   └── db/                 # Drizzle ORM schema + DB connection
-│       └── src/schema/
-│           ├── rooms.ts
-│           ├── playlist-items.ts
-│           └── chat-messages.ts
-├── scripts/
-├── pnpm-workspace.yaml
-├── tsconfig.base.json
-└── tsconfig.json
+│   ├── api-spec/          ← OpenAPI spec + Orval codegen
+│   ├── api-client-react/  ← Generated React Query hooks
+│   ├── api-zod/           ← Generated Zod schemas
+│   └── db/
+│       └── src/schema/    ← rooms, users, playlist_items, chat_messages
+├── lib/db/migrate.cjs     ← DB migration (runs on start)
+└── scripts/
 ```
 
-## Database Schema
+---
 
-- **rooms**: id, slug, name, type (public/private), background, admin_socket_id, created_at
+## HLS Fallback Chain (بدون P2P — تم إزالته)
+
+```
+S1 HLS.js direct
+  → S2 Native HTML5 <video>
+    → S3 CF manifest proxy (Cloudflare Worker → manifest فقط)
+      → S4 CF full proxy (كل شيء عبر CF Worker)
+        → S5 API proxy (/api/proxy/manifest + /api/proxy/segment)
+          → S-Relay (Socket.IO relay عبر متصفح DJ)
+            → Error (ip-locked بعد 45 ثانية timeout)
+```
+
+**CF Worker URL**: `https://lrmtv-proxy.rrakann528.workers.dev`
+(يُضبط عبر `VITE_CF_PROXY_URL` في .env)
+
+---
+
+## relay-loader.ts — كيف يعمل
+
+- عند استدعاء `load()`: يتحقق من `socket.connected`
+- لو متصل: يرسل `relay:fetch` للسيرفر → السيرفر يوجهه لـ DJ → DJ يجيب الـ segment → يرجع للمشاهد
+- لو مو متصل: يستدعي `super.load()` مباشرة
+- ArrayBuffer يُحوّل لـ string بـ TextDecoder للـ manifests
+
+---
+
+## socket.ts — Relay System
+
+```
+RoomState.pendingRelays: Map<requestId, requesterSocketId>
+```
+- `relay:fetch` → يأخذ host socket ID من roomState.users → يرسل الطلب له
+- `relay:response` / `relay:error` → يحوّل الجواب للمشاهد الصح عبر pendingRelays
+
+---
+
+## Environment Variables (Railway)
+
+| Variable | Value/Source |
+|---|---|
+| `DATABASE_URL` | PostgreSQL على Railway |
+| `JWT_SECRET` | Secret قوي |
+| `ADMIN_EMAIL` | `rrakann528@gmail.com` |
+| `BASE_URL` | `https://lrmtv.sbs` |
+| `GOOGLE_CLIENT_ID` | Google OAuth |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth |
+| `GOOGLE_CALLBACK_URL` | `https://lrmtv.sbs/api/auth/google/callback` |
+
+---
+
+## Database Schema (الجداول الرئيسية)
+
+- **rooms**: id, slug, name, type (public/private), background, dj_socket_id
+- **users**: id, email, username, role (admin/user), google_id, password_hash
 - **playlist_items**: id, room_id, url, source_type, title, position, added_by
-- **chat_messages**: id, room_id, username, content, type (message/system/emoji), created_at
+- **chat_messages**: id, room_id, username, content, type, created_at
+- **room_members**: room_id, user_id, role (dj/viewer)
 
-## Key Features
+---
 
-- Room system with unique URLs
-- Video sync (play/pause/seek) via Socket.io with <300ms drift tolerance
-- Multi-source video support (YouTube, Vimeo, Twitch, MP4, M3U8)
-- Live chat with emoji picker and system notifications
-- Admin controls (lock player, grant DJ permissions)
-- Playlist management (add/remove/reorder)
-- WebRTC peer-to-peer video/audio calls (RTCPeerConnection, ICE, offer/answer signaling via Socket.io)
-- Bilingual UI (Arabic RTL / English LTR) with language toggle
-- Dark theme with glassmorphism UI
-- Customizable room lounge backgrounds
+## Socket.io Events الرئيسية
 
-## Socket.io Events
+| Event | وصف |
+|---|---|
+| `join-room` | دخول غرفة |
+| `video-sync` | مزامنة الفيديو (play/pause/seek/time) |
+| `chat-message` | رسالة دردشة |
+| `playlist-update` | تحديث قائمة التشغيل |
+| `relay:fetch` | طلب segment عبر الريلاي |
+| `relay:response` | جواب الريلاي |
+| `relay:error` | خطأ الريلاي |
+| `dj-backgrounding` | DJ أخفى الـ PWA |
+| `subtitle-sync` | مزامنة الترجمة |
+| `toggle-lock` | قفل/فتح التحكم |
+| `grant-dj` | منح صلاحية DJ |
 
-- `join-room`, `video-sync`, `chat-message`, `playlist-update`
-- `toggle-lock`, `grant-dj`, `change-background`
-- `webrtc-signal`, `toggle-media`
-- `user-joined`, `user-left`, `users-updated`
+---
 
-## TypeScript & Composite Projects
+## HLS_CONFIG المحسّن (hls-player.tsx)
 
-Every package extends `tsconfig.base.json` which sets `composite: true`. The root `tsconfig.json` lists all packages as project references.
+```javascript
+{
+  enableWorker: true,
+  lowLatencyMode: false,
+  startFragPrefetch: true,
+  liveSyncDurationCount: 3,       // 3 segments behind live
+  liveMaxLatencyDurationCount: 8,
+  maxLiveSyncPlaybackRate: 1.1,
+  backBufferLength: 60,           // buffer كبير
+  maxBufferLength: 60,
+  maxMaxBufferLength: 120,
+  manifestLoadingMaxRetry: 3,
+  manifestLoadingTimeOut: 10_000,
+  levelLoadingMaxRetry: 4,
+  levelLoadingTimeOut: 15_000,
+  fragLoadingMaxRetry: 6,
+  fragLoadingTimeOut: 20_000,     // مهم للـ relay
+  fragLoadingRetryDelay: 500,
+  startLevel: -1,
+  abrEwmaDefaultEstimate: 5_000_000,
+  abrBandWidthFactor: 0.8,
+  abrBandWidthUpFactor: 0.5,
+  testBandwidth: false,
+  progressive: true,
+  nudgeMaxRetry: 10,
+  nudgeOffset: 0.1,
+}
+```
 
-- **Always typecheck from the root** — run `pnpm run typecheck`
-- **`emitDeclarationOnly`** — we only emit `.d.ts` files during typecheck
+---
 
 ## Root Scripts
 
-- `pnpm run build` — runs `typecheck` first, then recursively runs `build` in all packages
-- `pnpm run typecheck` — runs `tsc --build --emitDeclarationOnly` using project references
+- `pnpm run build` — typecheck ثم build لكل الـ packages
+- `pnpm run typecheck` — `tsc --build --emitDeclarationOnly`
 
-## Packages
+---
 
-### `artifacts/api-server` (`@workspace/api-server`)
+## Email (Resend)
 
-Express 5 API server + Socket.io. Routes in `src/routes/`, socket handler in `src/lib/socket.ts`.
+`artifacts/api-server/src/lib/email.ts`
+- `RESEND_API_KEY` env var أو Replit connector
+- `FROM_EMAIL` اختياري
 
-### `artifacts/web` (`@workspace/web`)
+---
 
-React + Vite frontend. Landing page at `/`, room page at `/room/:slug`.
+## Video Link Extractor
 
-### `lib/db` (`@workspace/db`)
+`/api/extract` — Playwright + stealth لاستخراج روابط الفيديو المباشرة
+- env vars اختيارية: `PROXY_SERVER`, `PROXY_HOST`, `PROXY_PORT`, `PROXY_USERNAME`, `PROXY_PASSWORD`
 
-Database layer using Drizzle ORM with PostgreSQL. Tables: rooms, playlist_items, chat_messages.
+---
 
-### `lib/api-spec` (`@workspace/api-spec`)
+## ملاحظات مهمة
 
-OpenAPI 3.1 spec. Run codegen: `pnpm --filter @workspace/api-spec run codegen`
-
-## Email Configuration (Resend)
-
-Email is used for account verification codes and password reset. The email service is in `artifacts/api-server/src/lib/email.ts`.
-
-**Required env vars:**
-| Variable | Description |
-|---|---|
-| `RESEND_API_KEY` | API key from resend.com (free tier: 3000 emails/month) |
-| `FROM_EMAIL` | Sender address, e.g. `LrmTV <noreply@yourdomain.com>` (optional, has default) |
-
-**Note:** Resend is connected via Replit integration (connector: `resend`). Falls back to `RESEND_API_KEY` env var if connector not available. Without either, codes are printed to server logs only.
-
-## Video Link Extractor — Proxy & Anti-Bot Config
-
-The extractor (`/api/extract`) uses Playwright + stealth to scrape direct video URLs.
-To bypass IP bans (e.g. Webshare / ScrapingBee residential proxy), set these env vars:
-
-| Variable         | Example                              | Description                     |
-|------------------|--------------------------------------|---------------------------------|
-| `PROXY_SERVER`   | `http://proxy.webshare.io:80`        | Full proxy URL (overrides HOST) |
-| `PROXY_HOST`     | `proxy.webshare.io`                  | Used if PROXY_SERVER not set    |
-| `PROXY_PORT`     | `80`                                 | Port (default 80)               |
-| `PROXY_USERNAME` | `user123`                            | Proxy auth username             |
-| `PROXY_PASSWORD` | `pass456`                            | Proxy auth password             |
-
-**Anti-bot features active by default (no env vars needed):**
-- `slowMo: 100` — every browser action runs 100ms slower to avoid speed detection
-- Rotating User-Agent from a pool of 8 realistic Chrome/Firefox/Safari UAs
-- Extra headers: `Accept-Language`, `Sec-Ch-Ua-Platform: "Windows"`, `DNT: 1`
-- `locale: en-US`, `timezoneId: America/New_York` to mimic US browser
-- `playwright-extra` + stealth plugin (disables `navigator.webdriver`, canvas fingerprint, etc.)
-- `simulateHuman()` — 8 random mouse moves + scroll on Cloudflare challenge pages
+1. **P2P تم إزاله بالكامل** — لا `use-p2p-host.ts` ولا `use-p2p-viewer.ts` ولا `p2p-loader.ts`
+2. **الريلاي يعمل عبر Socket.IO فقط** — عبر `use-relay-host.ts` و `relay-loader.ts`
+3. **timeout الـ error**: 45 ثانية loading → يظهر خطأ `ip-locked`
+4. **الـ stall watchdog** يفحص كل 1 ثانية ويتدخل بعد 2 ثانية توقف
+5. **CF Worker** يحل CORS فقط — لا يحل IP blocking الحقيقي
+6. **TypeScript composite projects** — دائماً `typecheck` من الـ root
