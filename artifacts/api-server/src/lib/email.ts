@@ -1,9 +1,11 @@
 import nodemailer from "nodemailer";
 
+const smtpPort = Number(process.env.SMTP_PORT) || 587;
+
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || "smtp.hostinger.com",
-  port: Number(process.env.SMTP_PORT) || 465,
-  secure: true,
+  port: smtpPort,
+  secure: smtpPort === 465,
   connectionTimeout: 8000,
   greetingTimeout: 8000,
   socketTimeout: 10000,
