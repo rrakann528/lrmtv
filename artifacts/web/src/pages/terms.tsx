@@ -3,7 +3,7 @@ import { ArrowRight, Shield } from 'lucide-react';
 
 const LAST_UPDATED = '١ مارس ٢٠٢٦';
 const APP_NAME = 'LrmTV';
-const CONTACT_EMAIL = 'support@lrmtv.com';
+const CONTACT_EMAIL = 'support@lrmtv.sbs';
 
 export default function TermsPage() {
   const [, setLocation] = useLocation();
