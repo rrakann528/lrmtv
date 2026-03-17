@@ -152,6 +152,14 @@ CREATE INDEX IF NOT EXISTS idx_friendships_addressee ON friendships(addressee_id
 CREATE INDEX IF NOT EXISTS idx_chat_messages_room ON chat_messages(room_id);
 CREATE INDEX IF NOT EXISTS idx_playlist_items_room ON playlist_items(room_id);
 CREATE INDEX IF NOT EXISTS idx_login_attempts_created ON login_attempts(created_at);
+CREATE TABLE IF NOT EXISTS email_otps (
+  id SERIAL PRIMARY KEY,
+  email VARCHAR(255) NOT NULL,
+  code VARCHAR(6) NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_email_otps_email ON email_otps(email);
 `;
 
 export async function runMigrations(): Promise<void> {

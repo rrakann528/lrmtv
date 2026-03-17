@@ -1,9 +1,10 @@
 import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
-import { db, usersTable, loginAttemptsTable } from "@workspace/db";
+import { db, usersTable, loginAttemptsTable, pool } from "@workspace/db";
 import { requireAuth, signToken, type AuthRequest } from "../middlewares/auth";
 import { z } from "zod";
+import { sendOtpEmail } from "../lib/email";
 
 const router: IRouter = Router();
 
@@ -160,6 +161,66 @@ router.get("/auth/me", requireAuth, async (req: AuthRequest, res): Promise<void>
   const freshToken = signToken(user.id, user.username);
   res.cookie("token", freshToken, COOKIE_OPTS);
   res.json({ ...userPublic(user), token: freshToken });
+});
+
+// ── Send OTP ──────────────────────────────────────────────────────────────────
+router.post("/auth/send-otp", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  try {
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
+    if (!user) { res.status(404).json({ error: "المستخدم غير موجود" }); return; }
+    if (!user.email) { res.status(400).json({ error: "لا يوجد بريد إلكتروني مرتبط بالحساب" }); return; }
+    if (user.emailVerified) { res.json({ ok: true, alreadyVerified: true }); return; }
+
+    // Rate limit: max 3 OTPs per email per 10 minutes
+    const { rows } = await pool.query(
+      `SELECT COUNT(*) FROM email_otps WHERE email=$1 AND created_at > NOW() - INTERVAL '10 minutes'`,
+      [user.email]
+    );
+    if (parseInt(rows[0].count) >= 3) {
+      res.status(429).json({ error: "أرسلنا عدة رموز مؤخراً، انتظر 10 دقائق" }); return;
+    }
+
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    await pool.query(
+      `INSERT INTO email_otps (email, code, expires_at) VALUES ($1, $2, NOW() + INTERVAL '10 minutes')`,
+      [user.email, code]
+    );
+
+    await sendOtpEmail(user.email, code);
+    res.json({ ok: true });
+  } catch (err: any) {
+    console.error("[send-otp]", err?.message || err);
+    res.status(500).json({ error: "فشل إرسال البريد، تحقق من إعدادات SMTP" });
+  }
+});
+
+// ── Verify OTP ────────────────────────────────────────────────────────────────
+router.post("/auth/verify-otp", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  try {
+    const { code } = req.body;
+    if (!code || typeof code !== 'string') { res.status(400).json({ error: "الرمز مطلوب" }); return; }
+
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
+    if (!user) { res.status(404).json({ error: "المستخدم غير موجود" }); return; }
+    if (!user.email) { res.status(400).json({ error: "لا يوجد بريد إلكتروني" }); return; }
+    if (user.emailVerified) { res.json({ ok: true }); return; }
+
+    const { rows } = await pool.query(
+      `SELECT id FROM email_otps WHERE email=$1 AND code=$2 AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1`,
+      [user.email, code.trim()]
+    );
+    if (rows.length === 0) {
+      res.status(400).json({ error: "الرمز غير صحيح أو انتهت صلاحيته" }); return;
+    }
+
+    await pool.query(`DELETE FROM email_otps WHERE email=$1`, [user.email]);
+    await db.update(usersTable).set({ emailVerified: true }).where(eq(usersTable.id, user.id));
+
+    res.json({ ok: true });
+  } catch (err: any) {
+    console.error("[verify-otp]", err?.message || err);
+    res.status(500).json({ error: "خطأ داخلي" });
+  }
 });
 
 // ── Update Profile ────────────────────────────────────────────────────────────
