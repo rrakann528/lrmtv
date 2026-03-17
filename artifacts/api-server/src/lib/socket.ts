@@ -129,7 +129,7 @@ export function getActiveRooms(): { slug: string; userCount: number }[] {
 
 export function kickRoom(slug: string): void {
   if (!_io) return;
-  _io.to(`room:${slug}`).emit('room-deleted');
+  _io.to(slug).emit('room-deleted');
   rooms.delete(slug);
 }
 
@@ -162,8 +162,14 @@ export function broadcastSystemMessage(message: string): void {
 }
 
 export function freezeRoom(slug: string, frozen: boolean): void {
-  if (!_io || !frozen) return;
-  _io.to(slug).emit('room-frozen');
+  if (!_io) return;
+  // Update in-memory cache so join-room guard reflects the new state immediately
+  const roomState = rooms.get(slug);
+  if (roomState) roomState.isFrozen = frozen;
+  if (frozen) {
+    // Kick everyone currently in the room
+    _io.to(slug).emit('room-frozen');
+  }
 }
 
 function getRoomState(slug: string): RoomState | undefined {

@@ -217,7 +217,7 @@ router.patch("/admin/rooms/:slug/freeze", requireSiteAdmin, async (req, res): Pr
     if (!room) { res.status(404).json({ error: "الغرفة غير موجودة" }); return; }
     const newFrozen = !room.isFrozen;
     await db.update(roomsTable).set({ isFrozen: newFrozen }).where(eq(roomsTable.slug, slug));
-    if (newFrozen) freezeRoom(slug, true);
+    freezeRoom(slug, newFrozen); // update in-memory cache and kick users if freezing
     res.json({ isFrozen: newFrozen });
   } catch (err) { res.status(500).json({ error: "خطأ داخلي" }); }
 });
