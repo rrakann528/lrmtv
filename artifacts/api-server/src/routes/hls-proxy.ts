@@ -182,7 +182,18 @@ router.get('/proxy/check', async (req, res) => {
           signal: AbortSignal.timeout(8000),
         });
         httpStatus = response.status;
-        if (response.ok) { reachable = true; break; }
+        if (response.ok) {
+          // Verify the response is actually an HLS manifest, not an HTML error/challenge page
+          const ct = (response.headers.get('content-type') ?? '').toLowerCase();
+          const isHtmlBlock = ct.includes('text/html') || ct.includes('text/plain');
+          if (isHtmlBlock) {
+            // Could be a Cloudflare challenge or bot-protection page — treat as unreachable
+            const preview = Buffer.from(await response.arrayBuffer().catch(() => new ArrayBuffer(0)))
+              .toString('utf8', 0, 20);
+            if (!preview.startsWith('#EXTM3U')) { httpStatus = 403; break; }
+          }
+          reachable = true; break;
+        }
       } catch { httpStatus = 0; }
     }
 
