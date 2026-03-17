@@ -288,8 +288,11 @@ export default function RoomPage() {
     if (cameraDisabled && cameraOn) { setCameraOn(false); toggleMedia({ isCameraOff: true }); }
   }, [cameraDisabled]);
 
-  const handlePlay  = () => { if (!canControl) return; emitSync(playerRef.current?.getCurrentTime() || 0, true,  syncState.url); };
-  const handlePause = () => { if (!canControl) return; emitSync(playerRef.current?.getCurrentTime() || 0, false, syncState.url); };
+  const handlePlay  = () => { if (!canControl) return; emitSync(playerRef.current?.getCurrentTime() || syncState.time, true,  syncState.url); };
+  // Use syncState.time as fallback so we never send currentTime=0 when the player
+  // ref is null (e.g. component unmounting during tab close) — prevents all clients
+  // from being seeked back to the beginning when admin leaves.
+  const handlePause = () => { if (!canControl) return; emitSync(playerRef.current?.getCurrentTime() || syncState.time, false, syncState.url); };
   const handleSeek  = (s: number) => { if (isRemoteSeekRef.current || !canControl) return; emitSeek(s); };
 
   const copyUrl = () => {

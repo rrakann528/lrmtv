@@ -540,8 +540,11 @@ export function initSocketServer(httpServer: HttpServer): Server {
             // Swallow the browser-auto-pause — do NOT propagate it
             return;
           }
+          // Use max(client-reported, server-computed) to guard against browsers
+          // sending currentTime=0 when the page is closing mid-stream.
+          const safeTime = Math.max(data.currentTime, computedTime(roomState));
           roomState.isPlaying = false;
-          roomState.currentTime = data.currentTime;
+          roomState.currentTime = safeTime;
           roomState.lastSyncTimestamp = 0;
           roomState.lastPauseBy = socket.id;
           roomState.lastPauseAt = Date.now();
