@@ -55,16 +55,10 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <!-- Adcash Autotag — loaded after React to avoid render conflicts -->
-    <script>
-      window.addEventListener('load', function() {
-        var s = document.createElement('script');
-        s.src = '//api.adcash.com/autotag/ac-autotag.min.js';
-        s.onload = function() {
-          aclib.runAutoTag({ zoneId: 'ycvunbgwzo' });
-        };
-        document.body.appendChild(s);
-      });
+    <!-- Adcash Autotag -->
+    <script id="aclib" type="text/javascript" src="//acscdn.com/script/aclib.js"></script>
+    <script type="text/javascript">
+      aclib.runAutoTag({ zoneId: 'tf80ahdgu8' });
     </script>
   </body>
 </html>
