@@ -55,10 +55,7 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <!-- Adcash Autotag -->
-    <script id="aclib" type="text/javascript" src="//acscdn.com/script/aclib.js"></script>
-    <script type="text/javascript">
-      aclib.runAutoTag({ zoneId: 'tf80ahdgu8' });
-    </script>
+    <!-- Adcash library (init handled by AdBar component) -->
+    <script id="aclib" type="text/javascript" src="//acscdn.com/script/aclib.js" async></script>
   </body>
 </html>

@@ -10,6 +10,7 @@ import { ProfileTab } from './home/profile-tab';
 import { NotifBanner } from '@/components/notif-banner';
 import { useQuery } from '@tanstack/react-query';
 import { useUserSocket } from '@/hooks/use-user-socket';
+import AdBar from '@/components/ad-bar';
 
 type Tab = 'rooms' | 'friends' | 'profile';
 
@@ -19,8 +20,9 @@ const TABS: { id: Tab; label: string; Icon: typeof Tv }[] = [
   { id: 'profile', label: 'حسابي',    Icon: User },
 ];
 
-const HEADER_H = 56;
-const NAV_H    = 64;
+const HEADER_H  = 56;
+const NAV_H     = 64;
+const AD_BAR_H  = 52;
 
 export default function HomePage() {
   const [, setLocation] = useLocation();
@@ -134,7 +136,7 @@ export default function HomePage() {
           top: HEADER_H,
           left: 0,
           right: 0,
-          bottom: `calc(${NAV_H}px + env(safe-area-inset-bottom, 0px))`,
+          bottom: `calc(${NAV_H + AD_BAR_H}px + env(safe-area-inset-bottom, 0px))`,
         }}
       >
         <AnimatePresence mode="wait">
@@ -156,6 +158,9 @@ export default function HomePage() {
           </motion.div>
         </AnimatePresence>
       </div>
+
+      {/* ── Ad Bar (above bottom nav) ─────────────────────────────── */}
+      <AdBar bottom={NAV_H} />
 
       {/* ── Fixed Bottom Navigation ───────────────────────────────── */}
       <div
