@@ -2,7 +2,7 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import webpush from "web-push";
 import {
-  db, usersTable, roomsTable, playlistItemsTable,
+  db, usersTable, roomsTable, playlistItemsTable, chatMessagesTable,
   pushSubscriptionsTable, siteSettingsTable, bannedIpsTable,
   loginAttemptsTable,
 } from "@workspace/db";
@@ -10,6 +10,7 @@ import { eq, desc, count, asc, sql, and, lt } from "drizzle-orm";
 import { requireSiteAdmin, type AuthRequest } from "../middlewares/auth";
 import {
   broadcastSystemMessage, getActiveRoomsDetailed, getTotalActiveUsers, kickRoom, freezeRoom,
+  kickUserFromAllRooms, getUserActiveRooms, forceRoomVideoState,
 } from "../lib/socket";
 
 const router = Router();
@@ -95,7 +96,8 @@ router.get("/admin/users", requireSiteAdmin, async (_req, res): Promise<void> =>
     const users = await db.select({
       id: usersTable.id, username: usersTable.username, displayName: usersTable.displayName,
       email: usersTable.email, provider: usersTable.provider, isSiteAdmin: usersTable.isSiteAdmin,
-      isBanned: usersTable.isBanned, createdAt: usersTable.createdAt,
+      isBanned: usersTable.isBanned, isMuted: usersTable.isMuted, adminNote: usersTable.adminNote,
+      lastSeenAt: usersTable.lastSeenAt, createdAt: usersTable.createdAt,
     }).from(usersTable).orderBy(desc(usersTable.createdAt));
     res.json(users);
   } catch (err) { res.status(500).json({ error: "خطأ داخلي" }); }
@@ -402,6 +404,264 @@ router.get("/admin/backup", requireSiteAdmin, async (_req, res): Promise<void> =
   } catch (err) {
     res.status(500).json({ error: "خطأ داخلي" });
   }
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// USER — MUTE / NOTE / KICK / EXPORT
+// ══════════════════════════════════════════════════════════════════════════════
+
+router.patch("/admin/users/:id/mute", requireSiteAdmin, async (req: AuthRequest, res): Promise<void> => {
+  const targetId = parseInt(req.params.id, 10);
+  if (isNaN(targetId)) { res.status(400).json({ error: "معرف غير صالح" }); return; }
+  try {
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, targetId)).limit(1);
+    if (!user) { res.status(404).json({ error: "المستخدم غير موجود" }); return; }
+    const [updated] = await db.update(usersTable).set({ isMuted: !user.isMuted }).where(eq(usersTable.id, targetId)).returning();
+    res.json({ isMuted: updated.isMuted });
+  } catch (err) { res.status(500).json({ error: "خطأ داخلي" }); }
+});
+
+router.put("/admin/users/:id/note", requireSiteAdmin, async (req, res): Promise<void> => {
+  const targetId = parseInt(req.params.id, 10);
+  if (isNaN(targetId)) { res.status(400).json({ error: "معرف غير صالح" }); return; }
+  const { note } = req.body;
+  try {
+    await db.update(usersTable).set({ adminNote: String(note ?? "") }).where(eq(usersTable.id, targetId));
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: "خطأ داخلي" }); }
+});
+
+router.post("/admin/users/:id/kick", requireSiteAdmin, async (req, res): Promise<void> => {
+  const targetId = parseInt(req.params.id, 10);
+  if (isNaN(targetId)) { res.status(400).json({ error: "معرف غير صالح" }); return; }
+  const rooms = getUserActiveRooms(targetId);
+  kickUserFromAllRooms(targetId);
+  res.json({ ok: true, rooms });
+});
+
+router.get("/admin/users/:id/rooms-active", requireSiteAdmin, async (req, res): Promise<void> => {
+  const targetId = parseInt(req.params.id, 10);
+  if (isNaN(targetId)) { res.status(400).json({ error: "معرف غير صالح" }); return; }
+  res.json({ rooms: getUserActiveRooms(targetId) });
+});
+
+router.get("/admin/users/export", requireSiteAdmin, async (_req, res): Promise<void> => {
+  try {
+    const users = await db.select({
+      id: usersTable.id, username: usersTable.username, displayName: usersTable.displayName,
+      email: usersTable.email, provider: usersTable.provider, isSiteAdmin: usersTable.isSiteAdmin,
+      isBanned: usersTable.isBanned, isMuted: usersTable.isMuted, createdAt: usersTable.createdAt,
+    }).from(usersTable).orderBy(desc(usersTable.createdAt));
+    const header = "ID,Username,DisplayName,Email,Provider,IsAdmin,IsBanned,IsMuted,CreatedAt\n";
+    const rows = users.map(u =>
+      [u.id, u.username, `"${u.displayName ?? ''}"`, u.email ?? '', u.provider, u.isSiteAdmin, u.isBanned, u.isMuted, u.createdAt].join(',')
+    ).join('\n');
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", `attachment; filename="users-${new Date().toISOString().split('T')[0]}.csv"`);
+    res.send(header + rows);
+  } catch (err) { res.status(500).json({ error: "خطأ داخلي" }); }
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ROOM — RENAME / CHAT / PLAYLIST / FORCE-VIDEO / EXPORT
+// ══════════════════════════════════════════════════════════════════════════════
+
+router.patch("/admin/rooms/:slug/rename", requireSiteAdmin, async (req, res): Promise<void> => {
+  const { slug } = req.params;
+  const { name } = req.body;
+  if (!name?.trim()) { res.status(400).json({ error: "الاسم مطلوب" }); return; }
+  try {
+    const [updated] = await db.update(roomsTable).set({ name: name.trim() }).where(eq(roomsTable.slug, slug)).returning();
+    if (!updated) { res.status(404).json({ error: "الغرفة غير موجودة" }); return; }
+    res.json({ ok: true, name: updated.name });
+  } catch (err) { res.status(500).json({ error: "خطأ داخلي" }); }
+});
+
+router.get("/admin/rooms/:slug/chat", requireSiteAdmin, async (req, res): Promise<void> => {
+  const { slug } = req.params;
+  const limit = Math.min(parseInt(String(req.query.limit ?? '50'), 10), 200);
+  try {
+    const [room] = await db.select().from(roomsTable).where(eq(roomsTable.slug, slug)).limit(1);
+    if (!room) { res.status(404).json({ error: "الغرفة غير موجودة" }); return; }
+    const msgs = await db.select().from(chatMessagesTable)
+      .where(eq(chatMessagesTable.roomId, room.id))
+      .orderBy(desc(chatMessagesTable.createdAt)).limit(limit);
+    res.json(msgs.reverse());
+  } catch (err) { res.status(500).json({ error: "خطأ داخلي" }); }
+});
+
+router.delete("/admin/rooms/:slug/chat", requireSiteAdmin, async (req, res): Promise<void> => {
+  const { slug } = req.params;
+  try {
+    const [room] = await db.select().from(roomsTable).where(eq(roomsTable.slug, slug)).limit(1);
+    if (!room) { res.status(404).json({ error: "الغرفة غير موجودة" }); return; }
+    await db.delete(chatMessagesTable).where(eq(chatMessagesTable.roomId, room.id));
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: "خطأ داخلي" }); }
+});
+
+router.delete("/admin/rooms/:slug/playlist", requireSiteAdmin, async (req, res): Promise<void> => {
+  const { slug } = req.params;
+  try {
+    const [room] = await db.select().from(roomsTable).where(eq(roomsTable.slug, slug)).limit(1);
+    if (!room) { res.status(404).json({ error: "الغرفة غير موجودة" }); return; }
+    await db.delete(playlistItemsTable).where(eq(playlistItemsTable.roomId, room.id));
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: "خطأ داخلي" }); }
+});
+
+router.post("/admin/rooms/:slug/video", requireSiteAdmin, async (req, res): Promise<void> => {
+  const { slug } = req.params;
+  const { action } = req.body;
+  if (action !== 'play' && action !== 'pause') { res.status(400).json({ error: "action يجب أن يكون play أو pause" }); return; }
+  forceRoomVideoState(slug, action);
+  res.json({ ok: true });
+});
+
+router.get("/admin/rooms/export", requireSiteAdmin, async (_req, res): Promise<void> => {
+  try {
+    const rooms = await db.select({
+      id: roomsTable.id, slug: roomsTable.slug, name: roomsTable.name,
+      type: roomsTable.type, isFrozen: roomsTable.isFrozen,
+      creatorUserId: roomsTable.creatorUserId, createdAt: roomsTable.createdAt,
+    }).from(roomsTable).orderBy(desc(roomsTable.createdAt));
+    const header = "ID,Slug,Name,Type,IsFrozen,CreatorUserId,CreatedAt\n";
+    const rows = rooms.map(r =>
+      [r.id, r.slug, `"${r.name}"`, r.type, r.isFrozen, r.creatorUserId ?? '', r.createdAt].join(',')
+    ).join('\n');
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", `attachment; filename="rooms-${new Date().toISOString().split('T')[0]}.csv"`);
+    res.send(header + rows);
+  } catch (err) { res.status(500).json({ error: "خطأ داخلي" }); }
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// RECENT CHAT (global)
+// ══════════════════════════════════════════════════════════════════════════════
+
+router.get("/admin/recent-chat", requireSiteAdmin, async (req, res): Promise<void> => {
+  const limit = Math.min(parseInt(String(req.query.limit ?? '100'), 10), 500);
+  try {
+    const msgs = await db.execute(sql`
+      SELECT cm.id, cm.username, cm.content, cm.type, cm.created_at,
+             r.slug AS room_slug, r.name AS room_name
+      FROM chat_messages cm
+      JOIN rooms r ON r.id = cm.room_id
+      ORDER BY cm.created_at DESC
+      LIMIT ${limit}
+    `);
+    res.json(msgs.rows.reverse());
+  } catch (err) { res.status(500).json({ error: "خطأ داخلي" }); }
+});
+
+router.delete("/admin/chat/:id", requireSiteAdmin, async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "معرف غير صالح" }); return; }
+  try {
+    await db.delete(chatMessagesTable).where(eq(chatMessagesTable.id, id));
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: "خطأ داخلي" }); }
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SYSTEM INFO
+// ══════════════════════════════════════════════════════════════════════════════
+
+router.get("/admin/system", requireSiteAdmin, async (_req, res): Promise<void> => {
+  const mem = process.memoryUsage();
+  const uptime = process.uptime();
+  const [[{ totalMessages }], [{ totalUsers }], [{ totalRooms }]] = await Promise.all([
+    db.select({ totalMessages: count() }).from(chatMessagesTable),
+    db.select({ totalUsers: count() }).from(usersTable),
+    db.select({ totalRooms: count() }).from(roomsTable),
+  ]);
+  res.json({
+    node: process.version,
+    uptime: Math.floor(uptime),
+    memRss: Math.round(mem.rss / 1024 / 1024),
+    memHeap: Math.round(mem.heapUsed / 1024 / 1024),
+    memHeapTotal: Math.round(mem.heapTotal / 1024 / 1024),
+    totalMessages,
+    totalUsers,
+    totalRooms,
+    activeRooms: getActiveRoomsDetailed().length,
+    activeUsers: getTotalActiveUsers(),
+    platform: process.platform,
+    env: process.env.NODE_ENV || 'unknown',
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PUSH SUBSCRIBERS
+// ══════════════════════════════════════════════════════════════════════════════
+
+router.get("/admin/push-subscribers", requireSiteAdmin, async (_req, res): Promise<void> => {
+  try {
+    const subs = await db.execute(sql`
+      SELECT ps.id, ps.endpoint, ps.created_at, u.username, u.id AS user_id
+      FROM push_subscriptions ps
+      JOIN users u ON u.id = ps.user_id
+      ORDER BY ps.created_at DESC
+    `);
+    res.json(subs.rows);
+  } catch (err) { res.status(500).json({ error: "خطأ داخلي" }); }
+});
+
+router.delete("/admin/push-subscribers/:id", requireSiteAdmin, async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "معرف غير صالح" }); return; }
+  try {
+    await db.delete(pushSubscriptionsTable).where(eq(pushSubscriptionsTable.id, id));
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: "خطأ داخلي" }); }
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WORD FILTER (stored in site_settings as JSON)
+// ══════════════════════════════════════════════════════════════════════════════
+
+router.get("/admin/word-filter", requireSiteAdmin, async (_req, res): Promise<void> => {
+  try {
+    const val = await getSetting("word_filter", "[]");
+    res.json(JSON.parse(val));
+  } catch { res.json([]); }
+});
+
+router.post("/admin/word-filter", requireSiteAdmin, async (req, res): Promise<void> => {
+  const { word } = req.body;
+  if (!word?.trim()) { res.status(400).json({ error: "الكلمة مطلوبة" }); return; }
+  try {
+    const val = await getSetting("word_filter", "[]");
+    const list: string[] = JSON.parse(val);
+    const w = word.trim().toLowerCase();
+    if (!list.includes(w)) list.push(w);
+    await setSetting("word_filter", JSON.stringify(list));
+    res.json(list);
+  } catch { res.status(500).json({ error: "خطأ داخلي" }); }
+});
+
+router.delete("/admin/word-filter/:word", requireSiteAdmin, async (req, res): Promise<void> => {
+  try {
+    const val = await getSetting("word_filter", "[]");
+    const list: string[] = JSON.parse(val);
+    const filtered = list.filter(w => w !== decodeURIComponent(req.params.word));
+    await setSetting("word_filter", JSON.stringify(filtered));
+    res.json(filtered);
+  } catch { res.status(500).json({ error: "خطأ داخلي" }); }
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ENHANCED STATS
+// ══════════════════════════════════════════════════════════════════════════════
+
+router.get("/admin/stats/enhanced", requireSiteAdmin, async (_req, res): Promise<void> => {
+  try {
+    const [[{ totalMessages }], providers] = await Promise.all([
+      db.select({ totalMessages: count() }).from(chatMessagesTable),
+      db.execute(sql`SELECT provider, COUNT(*)::int AS cnt FROM users GROUP BY provider ORDER BY cnt DESC`),
+    ]);
+    res.json({ totalMessages, providers: providers.rows });
+  } catch (err) { res.status(500).json({ error: "خطأ داخلي" }); }
 });
 
 export default router;

@@ -161,6 +161,44 @@ export function broadcastSystemMessage(message: string): void {
   }
 }
 
+export function kickUserFromAllRooms(userId: number): void {
+  if (!_io) return;
+  for (const [, state] of rooms) {
+    for (const [socketId, user] of state.users) {
+      if (user.userId === userId) {
+        _io.to(socketId).emit('kicked');
+      }
+    }
+  }
+}
+
+export function getUserActiveRooms(userId: number): string[] {
+  const result: string[] = [];
+  for (const [slug, state] of rooms) {
+    for (const [, user] of state.users) {
+      if (user.userId === userId) { result.push(slug); break; }
+    }
+  }
+  return result;
+}
+
+export function forceRoomVideoState(slug: string, action: 'play' | 'pause'): void {
+  if (!_io) return;
+  const state = rooms.get(slug);
+  if (!state) return;
+  state.isPlaying = action === 'play';
+  state.lastSyncTimestamp = Date.now();
+  _io.to(slug).emit('video-sync', {
+    action,
+    currentTime: computedTime(state),
+    url: state.currentVideo,
+    isPlaying: state.isPlaying,
+    isLive: state.isLive,
+    from: 'server',
+    serverTs: Date.now(),
+  });
+}
+
 export function freezeRoom(slug: string, frozen: boolean): void {
   if (!_io) return;
   // Update in-memory cache so join-room guard reflects the new state immediately

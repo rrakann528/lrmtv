@@ -3,110 +3,122 @@ import { useLocation } from 'wouter';
 import {
   Users, Home, BarChart3, Trash2, Ban, CheckCircle, Shield,
   RefreshCw, LogOut, ChevronLeft, Bell, Settings, Lock,
-  Database, Send, Eye, EyeOff, Snowflake, Globe, Play,
-  List, AlertTriangle, Download, Edit3, X, Check, Plus,
+  Database, Send, Eye, Snowflake, Globe, Play, Pause,
+  List, Download, Edit3, X, Check, Plus, MessageSquare,
+  Volume2, VolumeX, Server, Activity, UserX, FileText,
+  Copy, ExternalLink, StopCircle, Clock, Filter, Wifi,
+  ChevronDown, ChevronUp, AlertTriangle, Hash, Zap,
 } from 'lucide-react';
 import { useAuth, apiFetch } from '@/hooks/use-auth';
 import { cn } from '@/lib/utils';
 
-type Tab = 'dashboard' | 'users' | 'rooms' | 'notifications' | 'settings' | 'security' | 'backup';
+type Tab = 'dashboard' | 'users' | 'rooms' | 'chat' | 'notifications' | 'settings' | 'security' | 'system';
+type UserFilter = 'all' | 'admin' | 'banned' | 'muted';
+type RoomFilter = 'all' | 'active' | 'frozen' | 'public' | 'private';
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-interface Stats {
-  totalUsers: number; totalRooms: number; bannedUsers: number;
-  totalBannedIps: number; activeRooms: number; activeUsers: number;
-}
-interface LiveStats {
-  totalActiveUsers: number; totalActiveRooms: number;
-  topRooms: { slug: string; userCount: number; isPlaying: boolean }[];
-}
+interface Stats { totalUsers: number; totalRooms: number; bannedUsers: number; totalBannedIps: number; activeRooms: number; activeUsers: number; }
+interface LiveStats { totalActiveUsers: number; totalActiveRooms: number; topRooms: { slug: string; userCount: number; isPlaying: boolean }[]; }
+interface EnhancedStats { totalMessages: number; providers: { provider: string; cnt: number }[]; }
+interface SystemInfo { node: string; uptime: number; memRss: number; memHeap: number; memHeapTotal: number; totalMessages: number; totalUsers: number; totalRooms: number; activeRooms: number; activeUsers: number; platform: string; env: string; }
 interface RegRow { day: string; count: number; }
-interface AdminUser {
-  id: number; username: string; displayName: string | null;
-  email: string | null; provider: string; isSiteAdmin: boolean; isBanned: boolean; createdAt: string;
-}
-interface AdminRoom {
-  id: number; slug: string; name: string; type: string;
-  isFrozen: boolean; creatorUserId: number | null; createdAt: string; activeUsers?: number;
-}
+interface AdminUser { id: number; username: string; displayName: string | null; email: string | null; provider: string; isSiteAdmin: boolean; isBanned: boolean; isMuted?: boolean; adminNote?: string; createdAt: string; }
+interface AdminRoom { id: number; slug: string; name: string; type: string; isFrozen: boolean; creatorUserId: number | null; createdAt: string; activeUsers?: number; }
 interface PlaylistItem { id: number; url: string; title: string; sourceType: string; }
 interface BannedIp { id: number; ip: string; reason: string; createdAt: string; }
 interface LoginAttempt { id: number; identifier: string; ip: string; createdAt: string; }
-interface SiteSettings {
-  maintenance_mode: string; registration_enabled: string; announcement: string;
-  welcome_message: string; max_rooms_per_user: string; max_room_members: string;
-}
+interface SiteSettings { maintenance_mode: string; registration_enabled: string; announcement: string; welcome_message: string; max_rooms_per_user: string; max_room_members: string; }
+interface ChatMsg { id: number; username: string; content: string; type: string; created_at: string; room_slug?: string; room_name?: string; }
+interface PushSub { id: number; endpoint: string; created_at: string; username: string; user_id: number; }
 
-// ── Mini bar chart ────────────────────────────────────────────────────────────
 function RegChart({ data }: { data: RegRow[] }) {
   if (!data.length) return <div className="text-white/30 text-center py-8 text-sm">لا توجد بيانات</div>;
   const max = Math.max(...data.map(d => d.count), 1);
   return (
-    <div className="flex items-end gap-1 h-24 w-full">
+    <div className="flex items-end gap-0.5 h-20 w-full">
       {data.map(d => (
-        <div key={d.day} className="flex-1 flex flex-col items-center gap-0.5 group relative" title={`${d.day}: ${d.count}`}>
-          <div className="bg-cyan-500/70 rounded-sm w-full transition-all" style={{ height: `${(d.count / max) * 100}%`, minHeight: d.count > 0 ? 2 : 0 }} />
+        <div key={d.day} className="flex-1 flex flex-col items-center group relative" title={`${d.day}: ${d.count}`}>
+          <div className="bg-cyan-500/60 hover:bg-cyan-400/80 rounded-sm w-full transition-all" style={{ height: `${(d.count / max) * 100}%`, minHeight: d.count > 0 ? 2 : 0 }} />
         </div>
       ))}
     </div>
   );
 }
 
-// ── Inline edit cell ──────────────────────────────────────────────────────────
-function EditableField({ value, onSave }: { value: string; onSave: (v: string) => Promise<void> }) {
+function EditableField({ value, onSave, placeholder }: { value: string; onSave: (v: string) => Promise<void>; placeholder?: string }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(value);
   const [saving, setSaving] = useState(false);
+  useEffect(() => { setVal(value); }, [value]);
   return editing ? (
     <span className="flex items-center gap-1">
-      <input autoFocus value={val} onChange={e => setVal(e.target.value)}
-        className="bg-white/10 border border-cyan-500/40 rounded px-1.5 py-0.5 text-xs w-28 outline-none" />
+      <input autoFocus value={val} onChange={e => setVal(e.target.value)} placeholder={placeholder}
+        className="bg-white/10 border border-cyan-500/40 rounded px-1.5 py-0.5 text-xs w-32 outline-none" />
       <button onClick={async () => { setSaving(true); await onSave(val); setSaving(false); setEditing(false); }}
-        className="text-green-400 hover:text-green-300"><Check className="w-3.5 h-3.5" /></button>
-      <button onClick={() => { setVal(value); setEditing(false); }} className="text-white/40 hover:text-white/70"><X className="w-3.5 h-3.5" /></button>
+        disabled={saving} className="text-green-400 hover:text-green-300"><Check className="w-3.5 h-3.5" /></button>
+      <button onClick={() => { setVal(value); setEditing(false); }} className="text-white/40"><X className="w-3.5 h-3.5" /></button>
     </span>
   ) : (
     <span className="cursor-pointer hover:text-cyan-300 flex items-center gap-1 group" onClick={() => setEditing(true)}>
-      {value || <span className="text-white/30 italic text-xs">—</span>}
+      {value || <span className="text-white/30 italic text-xs">{placeholder || '—'}</span>}
       <Edit3 className="w-3 h-3 opacity-0 group-hover:opacity-50 flex-shrink-0" />
     </span>
   );
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
+function StatCard({ label, value, color, icon: Icon, sub }: { label: string; value: number | string | undefined; color: string; icon: React.ElementType; sub?: string }) {
+  return (
+    <div className="bg-white/5 rounded-xl p-3 flex flex-col items-center gap-1 border border-white/8">
+      <Icon className={cn("w-4 h-4", color)} />
+      <span className={cn("text-xl font-bold", color)}>{value ?? '—'}</span>
+      <span className="text-white/40 text-[10px] text-center leading-tight">{label}</span>
+      {sub && <span className="text-white/25 text-[9px]">{sub}</span>}
+    </div>
+  );
+}
+
 export default function AdminPage() {
   const { user, logout } = useAuth();
   const [, navigate] = useLocation();
   const [tab, setTab] = useState<Tab>('dashboard');
   const [loading, setLoading] = useState(false);
 
-  // Data states
   const [stats, setStats] = useState<Stats | null>(null);
   const [liveStats, setLiveStats] = useState<LiveStats | null>(null);
+  const [enhancedStats, setEnhancedStats] = useState<EnhancedStats | null>(null);
+  const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [regData, setRegData] = useState<RegRow[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [rooms, setRooms] = useState<AdminRoom[]>([]);
   const [playlist, setPlaylist] = useState<{ slug: string; items: PlaylistItem[] } | null>(null);
+  const [roomChat, setRoomChat] = useState<{ slug: string; msgs: ChatMsg[] } | null>(null);
+  const [globalChat, setGlobalChat] = useState<ChatMsg[]>([]);
   const [bannedIps, setBannedIps] = useState<BannedIp[]>([]);
   const [loginAttempts, setLoginAttempts] = useState<LoginAttempt[]>([]);
   const [settings, setSettings] = useState<SiteSettings | null>(null);
+  const [editSettings, setEditSettings] = useState<Partial<SiteSettings>>({});
+  const [wordFilter, setWordFilter] = useState<string[]>([]);
+  const [pushSubs, setPushSubs] = useState<PushSub[]>([]);
 
-  // Form states
   const [search, setSearch] = useState('');
+  const [userFilter, setUserFilter] = useState<UserFilter>('all');
+  const [roomFilter, setRoomFilter] = useState<RoomFilter>('all');
   const [pushTitle, setPushTitle] = useState('');
   const [pushBody, setPushBody] = useState('');
   const [pushUserId, setPushUserId] = useState('');
   const [broadcastMsg, setBroadcastMsg] = useState('');
   const [newIp, setNewIp] = useState('');
   const [newIpReason, setNewIpReason] = useState('');
-  const [editSettings, setEditSettings] = useState<Partial<SiteSettings>>({});
+  const [newWord, setNewWord] = useState('');
+  const [renameSlug, setRenameSlug] = useState('');
+  const [renameVal, setRenameVal] = useState('');
   const [resetPwUser, setResetPwUser] = useState<number | null>(null);
   const [resetPwVal, setResetPwVal] = useState('');
+  const [noteUser, setNoteUser] = useState<AdminUser | null>(null);
+  const [noteVal, setNoteVal] = useState('');
   const [feedback, setFeedback] = useState<{ msg: string; ok: boolean } | null>(null);
 
   const liveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Guard
   useEffect(() => {
     if (user === null) { navigate('/auth'); return; }
     if (user && !user.isSiteAdmin) { navigate('/home'); return; }
@@ -121,18 +133,22 @@ export default function AdminPage() {
     setLoading(true);
     try {
       if (what === 'dashboard') {
-        const [s, l, r] = await Promise.all([
+        const [s, l, r, e] = await Promise.all([
           apiFetch('/admin/stats').then(r => r.ok ? r.json() : null),
           apiFetch('/admin/stats/live').then(r => r.ok ? r.json() : null),
           apiFetch('/admin/stats/registrations').then(r => r.ok ? r.json() : []),
+          apiFetch('/admin/stats/enhanced').then(r => r.ok ? r.json() : null),
         ]);
-        setStats(s); setLiveStats(l); setRegData(r);
+        setStats(s); setLiveStats(l); setRegData(r); setEnhancedStats(e);
       } else if (what === 'users') {
         const r = await apiFetch('/admin/users');
         if (r.ok) setUsers(await r.json());
       } else if (what === 'rooms') {
         const r = await apiFetch('/admin/rooms');
         if (r.ok) setRooms(await r.json());
+      } else if (what === 'chat') {
+        const r = await apiFetch('/admin/recent-chat');
+        if (r.ok) setGlobalChat(await r.json());
       } else if (what === 'security') {
         const [b, l] = await Promise.all([
           apiFetch('/admin/banned-ips').then(r => r.ok ? r.json() : []),
@@ -140,52 +156,71 @@ export default function AdminPage() {
         ]);
         setBannedIps(b); setLoginAttempts(l);
       } else if (what === 'settings') {
-        const r = await apiFetch('/admin/settings');
-        if (r.ok) { const s = await r.json(); setSettings(s); setEditSettings(s); }
+        const [r, w] = await Promise.all([
+          apiFetch('/admin/settings').then(r => r.ok ? r.json() : null),
+          apiFetch('/admin/word-filter').then(r => r.ok ? r.json() : []),
+        ]);
+        if (r) { setSettings(r); setEditSettings(r); }
+        setWordFilter(w);
+      } else if (what === 'system') {
+        const [sys, subs] = await Promise.all([
+          apiFetch('/admin/system').then(r => r.ok ? r.json() : null),
+          apiFetch('/admin/push-subscribers').then(r => r.ok ? r.json() : []),
+        ]);
+        setSystemInfo(sys); setPushSubs(subs);
       }
-    } catch (e) {
-      console.error('[Admin] load error:', e);
-    } finally { setLoading(false); }
+    } catch (e) { console.error('[Admin] load error:', e); }
+    finally { setLoading(false); }
   }, []);
 
   useEffect(() => {
     if (!user?.isSiteAdmin) return;
     load(tab);
-    setSearch('');
-    setPlaylist(null);
+    setSearch(''); setPlaylist(null); setRoomChat(null);
   }, [tab, user?.isSiteAdmin, load]);
 
-  // Live stats refresh
   useEffect(() => {
     if (tab !== 'dashboard') { if (liveTimerRef.current) clearInterval(liveTimerRef.current); return; }
     liveTimerRef.current = setInterval(async () => {
-      try {
-        const r = await apiFetch('/admin/stats/live');
-        if (r.ok) setLiveStats(await r.json());
-      } catch {}
+      try { const r = await apiFetch('/admin/stats/live'); if (r.ok) setLiveStats(await r.json()); } catch {}
     }, 15_000);
     return () => { if (liveTimerRef.current) clearInterval(liveTimerRef.current); };
   }, [tab]);
 
   if (!user?.isSiteAdmin) return null;
 
-  // ── Filters ────────────────────────────────────────────────────────────────
-  const filteredUsers = users.filter(u =>
-    u.username.toLowerCase().includes(search.toLowerCase()) ||
-    (u.email ?? '').toLowerCase().includes(search.toLowerCase()) ||
-    (u.displayName ?? '').toLowerCase().includes(search.toLowerCase())
-  );
-  const filteredRooms = rooms.filter(r =>
-    r.name.toLowerCase().includes(search.toLowerCase()) ||
-    r.slug.toLowerCase().includes(search.toLowerCase())
-  );
-  const filteredIps = bannedIps.filter(b => b.ip.includes(search) || (b.reason ?? '').includes(search));
-  const filteredAttempts = loginAttempts.filter(a => a.identifier.includes(search) || a.ip.includes(search));
+  // ── Filters ───────────────────────────────────────────────────────────────
+  const filteredUsers = users.filter(u => {
+    const q = search.toLowerCase();
+    const matchSearch = !q || u.username.toLowerCase().includes(q) || (u.email ?? '').toLowerCase().includes(q) || (u.displayName ?? '').toLowerCase().includes(q);
+    const matchFilter = userFilter === 'all' || (userFilter === 'admin' && u.isSiteAdmin) || (userFilter === 'banned' && u.isBanned) || (userFilter === 'muted' && u.isMuted);
+    return matchSearch && matchFilter;
+  });
 
-  // ── Actions ────────────────────────────────────────────────────────────────
+  const activeRoomSlugs = new Set(liveStats?.topRooms.map(r => r.slug) ?? []);
+  const filteredRooms = rooms.filter(r => {
+    const q = search.toLowerCase();
+    const matchSearch = !q || r.name.toLowerCase().includes(q) || r.slug.toLowerCase().includes(q);
+    const matchFilter = roomFilter === 'all'
+      || (roomFilter === 'active' && (r.activeUsers ?? 0) > 0)
+      || (roomFilter === 'frozen' && r.isFrozen)
+      || (roomFilter === 'public' && r.type === 'public')
+      || (roomFilter === 'private' && r.type === 'private');
+    return matchSearch && matchFilter;
+  });
+
+  const filteredIps = bannedIps.filter(b => b.ip.includes(search) || (b.reason ?? '').includes(search));
+  const filteredChat = globalChat.filter(m => !search || m.username.includes(search) || m.content.includes(search) || (m.room_slug ?? '').includes(search));
+  const filteredSubs = pushSubs.filter(s => !search || s.username.includes(search));
+
+  // ── User Actions ──────────────────────────────────────────────────────────
   const banToggle = async (u: AdminUser) => {
     const r = await apiFetch(`/admin/users/${u.id}/ban`, { method: 'PATCH' });
     if (r.ok) { const d = await r.json(); setUsers(p => p.map(x => x.id === u.id ? { ...x, isBanned: d.isBanned } : x)); }
+  };
+  const muteToggle = async (u: AdminUser) => {
+    const r = await apiFetch(`/admin/users/${u.id}/mute`, { method: 'PATCH' });
+    if (r.ok) { const d = await r.json(); setUsers(p => p.map(x => x.id === u.id ? { ...x, isMuted: d.isMuted } : x)); showFeedback(d.isMuted ? 'تم كتم المستخدم' : 'تم رفع الكتم'); }
   };
   const adminToggle = async (u: AdminUser) => {
     const r = await apiFetch(`/admin/users/${u.id}/admin`, { method: 'PATCH' });
@@ -194,7 +229,16 @@ export default function AdminPage() {
   const deleteUser = async (u: AdminUser) => {
     if (!confirm(`حذف "${u.username}" نهائياً؟`)) return;
     const r = await apiFetch(`/admin/users/${u.id}`, { method: 'DELETE' });
-    if (r.ok) setUsers(p => p.filter(x => x.id !== u.id));
+    if (r.ok) { setUsers(p => p.filter(x => x.id !== u.id)); showFeedback('تم الحذف'); }
+  };
+  const kickUser = async (u: AdminUser) => {
+    const r = await apiFetch(`/admin/users/${u.id}/kick`, { method: 'POST' });
+    if (r.ok) { const d = await r.json(); showFeedback(d.rooms.length > 0 ? `تم الطرد من ${d.rooms.length} غرفة` : 'المستخدم غير متصل'); }
+  };
+  const saveNote = async () => {
+    if (!noteUser) return;
+    const r = await apiFetch(`/admin/users/${noteUser.id}/note`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note: noteVal }) });
+    if (r.ok) { setUsers(p => p.map(x => x.id === noteUser!.id ? { ...x, adminNote: noteVal } : x)); showFeedback('تم حفظ الملاحظة'); setNoteUser(null); }
   };
   const resetPw = async () => {
     if (!resetPwUser || resetPwVal.length < 6) return;
@@ -206,6 +250,9 @@ export default function AdminPage() {
     await apiFetch(`/admin/users/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [field]: value }) });
     setUsers(p => p.map(x => x.id === id ? { ...x, [field]: value } : x));
   };
+  const exportUsers = () => { window.open('/api/admin/users/export', '_blank'); };
+
+  // ── Room Actions ──────────────────────────────────────────────────────────
   const freezeToggle = async (r: AdminRoom) => {
     const res = await apiFetch(`/admin/rooms/${r.slug}/freeze`, { method: 'PATCH' });
     if (res.ok) { const d = await res.json(); setRooms(p => p.map(x => x.slug === r.slug ? { ...x, isFrozen: d.isFrozen } : x)); }
@@ -218,11 +265,44 @@ export default function AdminPage() {
     const res = await apiFetch(`/admin/rooms/${r.slug}/playlist`);
     if (res.ok) setPlaylist({ slug: r.slug, items: await res.json() });
   };
+  const clearPlaylist = async (r: AdminRoom) => {
+    if (!confirm(`مسح قائمة التشغيل في "${r.name}"؟`)) return;
+    const res = await apiFetch(`/admin/rooms/${r.slug}/playlist`, { method: 'DELETE' });
+    if (res.ok) { showFeedback('تم مسح قائمة التشغيل'); setPlaylist(null); }
+  };
+  const viewChat = async (r: AdminRoom) => {
+    const res = await apiFetch(`/admin/rooms/${r.slug}/chat`);
+    if (res.ok) setRoomChat({ slug: r.slug, msgs: await res.json() });
+  };
+  const clearChat = async (r: AdminRoom) => {
+    if (!confirm(`مسح محادثة "${r.name}" نهائياً؟`)) return;
+    const res = await apiFetch(`/admin/rooms/${r.slug}/chat`, { method: 'DELETE' });
+    if (res.ok) { showFeedback('تم مسح المحادثة'); setRoomChat(null); }
+  };
+  const renameRoom = async () => {
+    if (!renameSlug || !renameVal.trim()) return;
+    const res = await apiFetch(`/admin/rooms/${renameSlug}/rename`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: renameVal.trim() }) });
+    if (res.ok) { const d = await res.json(); setRooms(p => p.map(x => x.slug === renameSlug ? { ...x, name: d.name } : x)); showFeedback('تم إعادة التسمية'); setRenameSlug(''); setRenameVal(''); }
+    else showFeedback('فشل', false);
+  };
+  const forceVideo = async (r: AdminRoom, action: 'play' | 'pause') => {
+    const res = await apiFetch(`/admin/rooms/${r.slug}/video`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }) });
+    if (res.ok) showFeedback(action === 'play' ? 'تم تشغيل الفيديو' : 'تم إيقاف الفيديو');
+  };
   const deleteRoom = async (r: AdminRoom) => {
     if (!confirm(`حذف "${r.name}" نهائياً؟`)) return;
     const res = await apiFetch(`/admin/rooms/${r.slug}`, { method: 'DELETE' });
-    if (res.ok) setRooms(p => p.filter(x => x.slug !== r.slug));
+    if (res.ok) { setRooms(p => p.filter(x => x.slug !== r.slug)); showFeedback('تم حذف الغرفة'); }
   };
+  const exportRooms = () => { window.open('/api/admin/rooms/export', '_blank'); };
+
+  // ── Chat Actions ──────────────────────────────────────────────────────────
+  const deleteMsg = async (id: number) => {
+    const r = await apiFetch(`/admin/chat/${id}`, { method: 'DELETE' });
+    if (r.ok) { setGlobalChat(p => p.filter(m => m.id !== id)); showFeedback('تم حذف الرسالة'); }
+  };
+
+  // ── Notifications ─────────────────────────────────────────────────────────
   const sendPushAll = async () => {
     if (!pushTitle || !pushBody) return;
     const r = await apiFetch('/admin/push/all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: pushTitle, body: pushBody }) });
@@ -244,11 +324,24 @@ export default function AdminPage() {
     if (r.ok) { showFeedback('تم الإرسال لجميع الغرف النشطة'); setBroadcastMsg(''); }
     else showFeedback('فشل', false);
   };
+
+  // ── Settings ──────────────────────────────────────────────────────────────
   const saveSettings = async () => {
     const r = await apiFetch('/admin/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(editSettings) });
     if (r.ok) { showFeedback('تم حفظ الإعدادات'); setSettings(editSettings as SiteSettings); }
     else showFeedback('فشل الحفظ', false);
   };
+  const addWord = async () => {
+    if (!newWord.trim()) return;
+    const r = await apiFetch('/admin/word-filter', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ word: newWord.trim() }) });
+    if (r.ok) { setWordFilter(await r.json()); setNewWord(''); }
+  };
+  const removeWord = async (w: string) => {
+    const r = await apiFetch(`/admin/word-filter/${encodeURIComponent(w)}`, { method: 'DELETE' });
+    if (r.ok) setWordFilter(await r.json());
+  };
+
+  // ── Security ──────────────────────────────────────────────────────────────
   const addBannedIp = async () => {
     if (!newIp.trim()) return;
     const r = await apiFetch('/admin/banned-ips', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ip: newIp.trim(), reason: newIpReason }) });
@@ -264,31 +357,44 @@ export default function AdminPage() {
     const r = await apiFetch('/admin/login-attempts', { method: 'DELETE' });
     if (r.ok) { showFeedback('تم المسح'); load('security'); }
   };
-  const downloadBackup = () => {
-    const a = document.createElement('a');
-    a.href = '/api/admin/backup';
-    a.click();
+
+  // ── System ────────────────────────────────────────────────────────────────
+  const deletePushSub = async (id: number) => {
+    const r = await apiFetch(`/admin/push-subscribers/${id}`, { method: 'DELETE' });
+    if (r.ok) { setPushSubs(p => p.filter(x => x.id !== id)); showFeedback('تم الحذف'); }
+  };
+  const downloadBackup = () => { window.open('/api/admin/backup', '_blank'); };
+
+  const formatUptime = (s: number) => {
+    const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+    return `${d > 0 ? d + 'ي ' : ''}${h}س ${m}د`;
+  };
+  const roomAge = (d: string) => {
+    const days = Math.floor((Date.now() - new Date(d).getTime()) / 86400000);
+    return days === 0 ? 'اليوم' : `${days} يوم`;
   };
 
   const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
-    { id: 'dashboard',     label: 'الرئيسية',      icon: BarChart3 },
-    { id: 'users',         label: 'المستخدمون',    icon: Users },
-    { id: 'rooms',         label: 'الغرف',          icon: Home },
-    { id: 'notifications', label: 'الإشعارات',     icon: Bell },
-    { id: 'settings',      label: 'الإعدادات',     icon: Settings },
-    { id: 'security',      label: 'الأمان',         icon: Lock },
-    { id: 'backup',        label: 'النسخ الاحتياطي', icon: Database },
+    { id: 'dashboard',     label: 'الرئيسية',    icon: BarChart3 },
+    { id: 'users',         label: 'المستخدمون',  icon: Users },
+    { id: 'rooms',         label: 'الغرف',        icon: Home },
+    { id: 'chat',          label: 'المحادثات',   icon: MessageSquare },
+    { id: 'notifications', label: 'الإشعارات',   icon: Bell },
+    { id: 'settings',      label: 'الإعدادات',   icon: Settings },
+    { id: 'security',      label: 'الأمان',       icon: Lock },
+    { id: 'system',        label: 'النظام',       icon: Server },
   ];
+
+  const inputCls = "w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-cyan-500/50";
+  const btnCls = (color: string) => `flex items-center gap-2 px-4 py-2 ${color} font-semibold rounded-xl text-sm transition-colors`;
 
   return (
     <div className="min-h-screen bg-[#0D0D0E] text-white flex flex-col" dir="rtl">
 
       {/* Feedback toast */}
       {feedback && (
-        <div className={cn(
-          "fixed top-4 left-1/2 -translate-x-1/2 z-50 px-5 py-2.5 rounded-xl text-sm font-semibold shadow-xl transition-all",
-          feedback.ok ? "bg-green-500/90 text-white" : "bg-red-500/90 text-white"
-        )}>
+        <div className={cn("fixed top-4 left-1/2 -translate-x-1/2 z-50 px-5 py-2.5 rounded-xl text-sm font-semibold shadow-xl transition-all",
+          feedback.ok ? "bg-green-500/90 text-white" : "bg-red-500/90 text-white")}>
           {feedback.msg}
         </div>
       )}
@@ -298,12 +404,42 @@ export default function AdminPage() {
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setResetPwUser(null)}>
           <div className="bg-[#1a1a1b] rounded-2xl p-6 w-full max-w-sm border border-white/10" onClick={e => e.stopPropagation()}>
             <h3 className="font-bold mb-4">إعادة تعيين كلمة المرور</h3>
-            <input type="password" placeholder="كلمة المرور الجديدة (6+ أحرف)"
-              value={resetPwVal} onChange={e => setResetPwVal(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-cyan-500/50 mb-3" />
+            <input type="password" placeholder="كلمة المرور الجديدة (6+ أحرف)" value={resetPwVal} onChange={e => setResetPwVal(e.target.value)}
+              className={cn(inputCls, "mb-3")} />
             <div className="flex gap-2">
               <button onClick={resetPw} className="flex-1 bg-cyan-500 hover:bg-cyan-400 text-black font-semibold py-2 rounded-xl text-sm">حفظ</button>
-              <button onClick={() => setResetPwUser(null)} className="flex-1 bg-white/10 hover:bg-white/15 py-2 rounded-xl text-sm">إلغاء</button>
+              <button onClick={() => setResetPwUser(null)} className="flex-1 bg-white/10 py-2 rounded-xl text-sm">إلغاء</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Admin note modal */}
+      {noteUser && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setNoteUser(null)}>
+          <div className="bg-[#1a1a1b] rounded-2xl p-6 w-full max-w-sm border border-white/10" onClick={e => e.stopPropagation()}>
+            <h3 className="font-bold mb-1">ملاحظة أدمن — @{noteUser.username}</h3>
+            <p className="text-white/40 text-xs mb-3">مرئية للأدمن فقط</p>
+            <textarea value={noteVal} onChange={e => setNoteVal(e.target.value)} rows={4} placeholder="اكتب ملاحظة..."
+              className={cn(inputCls, "resize-none mb-3")} />
+            <div className="flex gap-2">
+              <button onClick={saveNote} className="flex-1 bg-cyan-500 hover:bg-cyan-400 text-black font-semibold py-2 rounded-xl text-sm">حفظ</button>
+              <button onClick={() => setNoteUser(null)} className="flex-1 bg-white/10 py-2 rounded-xl text-sm">إلغاء</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rename room modal */}
+      {renameSlug && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setRenameSlug('')}>
+          <div className="bg-[#1a1a1b] rounded-2xl p-6 w-full max-w-sm border border-white/10" onClick={e => e.stopPropagation()}>
+            <h3 className="font-bold mb-4">إعادة تسمية /{renameSlug}</h3>
+            <input value={renameVal} onChange={e => setRenameVal(e.target.value)} placeholder="الاسم الجديد"
+              className={cn(inputCls, "mb-3")} onKeyDown={e => e.key === 'Enter' && renameRoom()} autoFocus />
+            <div className="flex gap-2">
+              <button onClick={renameRoom} className="flex-1 bg-cyan-500 hover:bg-cyan-400 text-black font-semibold py-2 rounded-xl text-sm">حفظ</button>
+              <button onClick={() => setRenameSlug('')} className="flex-1 bg-white/10 py-2 rounded-xl text-sm">إلغاء</button>
             </div>
           </div>
         </div>
@@ -314,19 +450,17 @@ export default function AdminPage() {
         <div className="flex items-center gap-2">
           <Shield className="w-5 h-5 text-cyan-400" />
           <span className="font-bold text-cyan-400 text-lg">لوحة الأدمن</span>
+          {liveStats && <span className="text-[10px] text-green-400 bg-green-500/10 rounded-full px-2 py-0.5">{liveStats.totalActiveUsers} متصل</span>}
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => load(tab)}
-            className="p-1.5 text-white/40 hover:text-white/80 transition-colors rounded-lg hover:bg-white/5">
+          <button onClick={() => load(tab)} className="p-1.5 text-white/40 hover:text-white/80 rounded-lg hover:bg-white/5">
             <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
           </button>
-          <button onClick={() => navigate('/home')}
-            className="flex items-center gap-1 px-3 py-1.5 text-white/60 hover:text-white rounded-lg hover:bg-white/5 text-sm transition-colors">
+          <button onClick={() => navigate('/home')} className="flex items-center gap-1 px-3 py-1.5 text-white/60 hover:text-white rounded-lg hover:bg-white/5 text-sm">
             <ChevronLeft className="w-4 h-4" />الرئيسية
           </button>
-          <button onClick={() => { logout(); navigate('/auth'); }}
-            className="flex items-center gap-1 px-3 py-1.5 text-red-400 hover:text-red-300 rounded-lg hover:bg-red-500/10 text-sm transition-colors">
-            <LogOut className="w-4 h-4" />خروج
+          <button onClick={() => { logout(); navigate('/auth'); }} className="flex items-center gap-1 px-3 py-1.5 text-red-400 hover:text-red-300 rounded-lg hover:bg-red-500/10 text-sm">
+            <LogOut className="w-4 h-4" />
           </button>
         </div>
       </header>
@@ -335,46 +469,69 @@ export default function AdminPage() {
       <div className="flex border-b border-white/10 bg-black/20 overflow-x-auto no-scrollbar">
         {TABS.map(({ id, label, icon: Icon }) => (
           <button key={id} onClick={() => setTab(id)}
-            className={cn(
-              "flex items-center gap-1.5 px-4 py-3 text-xs font-medium whitespace-nowrap transition-colors flex-shrink-0",
-              tab === id ? "border-b-2 border-cyan-400 text-cyan-400" : "text-white/50 hover:text-white/80"
-            )}>
+            className={cn("flex items-center gap-1.5 px-4 py-3 text-xs font-medium whitespace-nowrap transition-colors flex-shrink-0",
+              tab === id ? "border-b-2 border-cyan-400 text-cyan-400" : "text-white/50 hover:text-white/80")}>
             <Icon className="w-3.5 h-3.5" />{label}
           </button>
         ))}
       </div>
 
-      {/* Content */}
       <div className="flex-1 p-4 max-w-5xl mx-auto w-full space-y-4">
 
-        {/* ══════════════════════════════════ DASHBOARD ══════════════════════════ */}
+        {/* ══════════════════ DASHBOARD ══════════════════════════════════════ */}
         {tab === 'dashboard' && (
           <div className="space-y-4">
-            {/* Stat cards */}
-            <div className="grid grid-cols-3 gap-3">
-              {[
-                { label: 'المستخدمون', value: stats?.totalUsers, color: 'text-cyan-400', icon: Users },
-                { label: 'الغرف', value: stats?.totalRooms, color: 'text-violet-400', icon: Home },
-                { label: 'محظورون', value: stats?.bannedUsers, color: 'text-red-400', icon: Ban },
-                { label: 'نشطون الآن', value: liveStats?.totalActiveUsers, color: 'text-green-400', icon: Users },
-                { label: 'غرف نشطة', value: liveStats?.totalActiveRooms, color: 'text-orange-400', icon: Home },
-                { label: 'IPs محظورة', value: stats?.totalBannedIps, color: 'text-yellow-400', icon: Lock },
-              ].map(({ label, value, color, icon: Icon }) => (
-                <div key={label} className="bg-white/5 rounded-xl p-3 flex flex-col items-center gap-1 border border-white/8">
-                  <Icon className={cn("w-5 h-5", color)} />
-                  <span className={cn("text-2xl font-bold", color)}>{value ?? '—'}</span>
-                  <span className="text-white/40 text-[10px] text-center">{label}</span>
-                </div>
-              ))}
+            {/* Quick actions */}
+            <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3">
+              <div className="text-xs text-amber-400 font-semibold mb-2 flex items-center gap-1.5"><Zap className="w-3.5 h-3.5" />إجراءات سريعة</div>
+              <div className="flex flex-wrap gap-2">
+                <button onClick={async () => { const v = settings?.maintenance_mode === 'true' ? 'false' : 'true'; await apiFetch('/admin/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ maintenance_mode: v }) }); showFeedback(v === 'true' ? 'تم تفعيل الصيانة' : 'تم إلغاء الصيانة'); }}
+                  className="text-xs px-3 py-1.5 bg-amber-500/20 text-amber-400 rounded-lg hover:bg-amber-500/30">
+                  {settings?.maintenance_mode === 'true' ? '✅ إلغاء الصيانة' : '🔧 وضع الصيانة'}
+                </button>
+                <button onClick={async () => { const v = settings?.registration_enabled === 'false' ? 'true' : 'false'; await apiFetch('/admin/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ registration_enabled: v }) }); showFeedback(v === 'true' ? 'تم تفعيل التسجيل' : 'تم إيقاف التسجيل'); }}
+                  className="text-xs px-3 py-1.5 bg-blue-500/20 text-blue-400 rounded-lg hover:bg-blue-500/30">
+                  {settings?.registration_enabled === 'false' ? '✅ تفعيل التسجيل' : '🚫 إيقاف التسجيل'}
+                </button>
+                <button onClick={() => setTab('notifications')} className="text-xs px-3 py-1.5 bg-violet-500/20 text-violet-400 rounded-lg hover:bg-violet-500/30">
+                  📣 بث رسالة
+                </button>
+                <button onClick={downloadBackup} className="text-xs px-3 py-1.5 bg-green-500/20 text-green-400 rounded-lg hover:bg-green-500/30">
+                  💾 نسخ احتياطي
+                </button>
+              </div>
             </div>
 
-            {/* Registrations chart */}
+            {/* Stats grid */}
+            <div className="grid grid-cols-3 gap-2">
+              <StatCard label="المستخدمون" value={stats?.totalUsers} color="text-cyan-400" icon={Users} />
+              <StatCard label="الغرف" value={stats?.totalRooms} color="text-violet-400" icon={Home} />
+              <StatCard label="الرسائل" value={enhancedStats?.totalMessages?.toLocaleString()} color="text-blue-400" icon={MessageSquare} />
+              <StatCard label="نشطون الآن" value={liveStats?.totalActiveUsers} color="text-green-400" icon={Wifi} />
+              <StatCard label="غرف نشطة" value={liveStats?.totalActiveRooms} color="text-orange-400" icon={Activity} />
+              <StatCard label="محظورون" value={stats?.bannedUsers} color="text-red-400" icon={Ban} />
+            </div>
+
+            {/* Registration chart */}
             <div className="bg-white/5 rounded-xl p-4 border border-white/8">
-              <div className="text-xs text-white/50 mb-3 flex items-center gap-1.5">
-                <BarChart3 className="w-3.5 h-3.5" />تسجيلات آخر 30 يوم
-              </div>
+              <div className="text-xs text-white/50 mb-3 flex items-center gap-1.5"><BarChart3 className="w-3.5 h-3.5" />تسجيلات آخر 30 يوم</div>
               <RegChart data={regData} />
             </div>
+
+            {/* Provider breakdown */}
+            {enhancedStats?.providers && enhancedStats.providers.length > 0 && (
+              <div className="bg-white/5 rounded-xl p-4 border border-white/8">
+                <div className="text-xs text-white/50 mb-3">مصادر التسجيل</div>
+                <div className="flex gap-3 flex-wrap">
+                  {enhancedStats.providers.map(p => (
+                    <div key={p.provider} className="flex items-center gap-1.5 text-sm">
+                      <span className="text-white/60">{p.provider}</span>
+                      <span className="text-cyan-400 font-bold">{p.cnt}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Top active rooms */}
             {liveStats?.topRooms && liveStats.topRooms.length > 0 && (
@@ -383,10 +540,11 @@ export default function AdminPage() {
                 <div className="space-y-2">
                   {liveStats.topRooms.map(r => (
                     <div key={r.slug} className="flex items-center justify-between text-sm">
-                      <span className="text-white/80">/{r.slug}</span>
+                      <span className="text-white/80 font-mono text-xs">/{r.slug}</span>
                       <div className="flex items-center gap-2">
                         {r.isPlaying && <Play className="w-3 h-3 text-green-400" />}
-                        <span className="text-cyan-400 font-semibold">{r.userCount} مستخدم</span>
+                        <span className="text-cyan-400 font-semibold text-xs">{r.userCount} مستخدم</span>
+                        <button onClick={() => window.open(`/room/${r.slug}`, '_blank')} className="text-white/30 hover:text-white/70"><ExternalLink className="w-3 h-3" /></button>
                       </div>
                     </div>
                   ))}
@@ -396,50 +554,71 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* ══════════════════════════════════ USERS ══════════════════════════════ */}
+        {/* ══════════════════ USERS ══════════════════════════════════════════ */}
         {tab === 'users' && (
           <div className="space-y-3">
-            <input type="text" placeholder="بحث باسم المستخدم أو البريد..."
-              value={search} onChange={e => setSearch(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-cyan-500/50" />
+            <div className="flex gap-2">
+              <input type="text" placeholder="بحث..." value={search} onChange={e => setSearch(e.target.value)} className={cn(inputCls, "flex-1")} />
+              <button onClick={exportUsers} className="flex items-center gap-1 px-3 py-2 bg-green-500/20 text-green-400 rounded-xl text-xs hover:bg-green-500/30 flex-shrink-0">
+                <Download className="w-3.5 h-3.5" />CSV
+              </button>
+            </div>
+            {/* Filter chips */}
+            <div className="flex gap-1.5 flex-wrap">
+              {(['all', 'admin', 'banned', 'muted'] as UserFilter[]).map(f => (
+                <button key={f} onClick={() => setUserFilter(f)}
+                  className={cn("px-3 py-1 rounded-full text-xs transition-colors",
+                    userFilter === f ? "bg-cyan-500/30 text-cyan-400" : "bg-white/5 text-white/40 hover:text-white/70")}>
+                  {f === 'all' ? `الكل (${users.length})` : f === 'admin' ? 'أدمن' : f === 'banned' ? 'محظور' : 'مكتوم'}
+                </button>
+              ))}
+            </div>
             <div className="text-xs text-white/40">{filteredUsers.length} مستخدم</div>
             <div className="space-y-2">
               {filteredUsers.map(u => (
-                <div key={u.id} className={cn(
-                  "bg-white/5 rounded-xl px-4 py-3 border",
-                  u.isBanned ? "border-red-500/30" : "border-white/8"
-                )}>
+                <div key={u.id} className={cn("bg-white/5 rounded-xl px-4 py-3 border",
+                  u.isBanned ? "border-red-500/30" : u.isMuted ? "border-orange-500/20" : "border-white/8")}>
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <EditableField value={u.displayName || u.username}
-                          onSave={v => editUserField(u.id, 'displayName', v)} />
-                        <span className="text-white/40 text-xs">@
-                          <EditableField value={u.username} onSave={v => editUserField(u.id, 'username', v)} />
-                        </span>
+                        <EditableField value={u.displayName || u.username} onSave={v => editUserField(u.id, 'displayName', v)} />
+                        <span className="text-white/40 text-xs">@<EditableField value={u.username} onSave={v => editUserField(u.id, 'username', v)} /></span>
                         {u.isSiteAdmin && <Shield className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />}
                         {u.isBanned && <span className="text-[10px] bg-red-500/20 text-red-400 rounded px-1.5 py-0.5">محظور</span>}
+                        {u.isMuted && <span className="text-[10px] bg-orange-500/20 text-orange-400 rounded px-1.5 py-0.5">مكتوم</span>}
                         {u.id === user!.id && <span className="text-[10px] text-cyan-400/60">أنت</span>}
+                        <span className="text-[10px] text-white/25">#{u.id}</span>
                       </div>
                       <div className="text-xs text-white/30 mt-0.5 truncate">
-                        <EditableField value={u.email || ''} onSave={v => editUserField(u.id, 'email', v)} />
+                        <EditableField value={u.email || ''} onSave={v => editUserField(u.id, 'email', v)} placeholder="بريد إلكتروني" />
                         {' · '}{u.provider} · {new Date(u.createdAt).toLocaleDateString('ar')}
                       </div>
+                      {u.adminNote && <div className="text-[10px] text-amber-400/70 mt-1 flex items-center gap-1"><FileText className="w-3 h-3" />{u.adminNote}</div>}
                     </div>
                     {u.id !== user!.id && (
-                      <div className="flex items-center gap-1 flex-shrink-0">
+                      <div className="flex items-center gap-1 flex-shrink-0 flex-wrap justify-end">
                         <button onClick={() => adminToggle(u)} title={u.isSiteAdmin ? 'سحب الأدمن' : 'منح أدمن'}
-                          className={cn("p-1.5 rounded-lg transition-colors text-[10px]",
-                            u.isSiteAdmin ? "bg-cyan-500/20 text-cyan-400" : "bg-white/5 text-white/40 hover:text-white/70")}>
+                          className={cn("p-1.5 rounded-lg transition-colors", u.isSiteAdmin ? "bg-cyan-500/20 text-cyan-400" : "bg-white/5 text-white/40 hover:text-white/70")}>
                           <Shield className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={() => muteToggle(u)} title={u.isMuted ? 'رفع الكتم' : 'كتم الشات'}
+                          className={cn("p-1.5 rounded-lg transition-colors", u.isMuted ? "bg-orange-500/20 text-orange-400" : "bg-white/5 text-white/40 hover:text-white/70")}>
+                          {u.isMuted ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+                        </button>
+                        <button onClick={() => { setNoteUser(u); setNoteVal(u.adminNote || ''); }} title="ملاحظة أدمن"
+                          className="p-1.5 rounded-lg bg-white/5 text-white/40 hover:text-amber-400 transition-colors">
+                          <FileText className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={() => kickUser(u)} title="طرد من الغرف"
+                          className="p-1.5 rounded-lg bg-white/5 text-white/40 hover:text-yellow-400 transition-colors">
+                          <UserX className="w-3.5 h-3.5" />
                         </button>
                         <button onClick={() => setResetPwUser(u.id)} title="إعادة تعيين كلمة المرور"
                           className="p-1.5 rounded-lg bg-white/5 text-white/40 hover:text-white/70 transition-colors">
                           <Lock className="w-3.5 h-3.5" />
                         </button>
                         <button onClick={() => banToggle(u)} title={u.isBanned ? 'رفع الحظر' : 'حظر'}
-                          className={cn("p-1.5 rounded-lg transition-colors",
-                            u.isBanned ? "bg-green-500/10 text-green-400" : "bg-orange-500/10 text-orange-400")}>
+                          className={cn("p-1.5 rounded-lg transition-colors", u.isBanned ? "bg-green-500/10 text-green-400" : "bg-orange-500/10 text-orange-400")}>
                           {u.isBanned ? <CheckCircle className="w-3.5 h-3.5" /> : <Ban className="w-3.5 h-3.5" />}
                         </button>
                         <button onClick={() => deleteUser(u)} title="حذف"
@@ -456,9 +635,30 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* ══════════════════════════════════ ROOMS ══════════════════════════════ */}
+        {/* ══════════════════ ROOMS ══════════════════════════════════════════ */}
         {tab === 'rooms' && (
           <div className="space-y-3">
+            {/* Room chat viewer */}
+            {roomChat && (
+              <div className="bg-white/5 rounded-xl p-4 border border-violet-500/20">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-sm font-medium flex items-center gap-1.5"><MessageSquare className="w-4 h-4 text-violet-400" />محادثة /{roomChat.slug}</span>
+                  <button onClick={() => setRoomChat(null)} className="text-white/40 hover:text-white/70"><X className="w-4 h-4" /></button>
+                </div>
+                {roomChat.msgs.length === 0 ? <div className="text-white/30 text-sm">لا توجد رسائل</div> : (
+                  <div className="space-y-1.5 max-h-52 overflow-y-auto">
+                    {roomChat.msgs.map(m => (
+                      <div key={m.id} className="flex items-start gap-2 text-xs">
+                        <span className="text-cyan-400 flex-shrink-0">{m.username}</span>
+                        <span className="text-white/60 flex-1 break-all">{m.content}</span>
+                        <span className="text-white/25 flex-shrink-0">{new Date(m.created_at).toLocaleTimeString('ar')}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {/* Playlist viewer */}
             {playlist && (
               <div className="bg-white/5 rounded-xl p-4 border border-cyan-500/20">
                 <div className="flex items-center justify-between mb-3">
@@ -470,7 +670,7 @@ export default function AdminPage() {
                     {playlist.items.map(item => (
                       <div key={item.id} className="text-xs flex items-center gap-2 text-white/60">
                         <Play className="w-3 h-3 text-cyan-400 flex-shrink-0" />
-                        <span className="truncate">{item.title}</span>
+                        <span className="truncate flex-1">{item.title}</span>
                         <span className="text-white/30 flex-shrink-0">{item.sourceType}</span>
                       </div>
                     ))}
@@ -478,47 +678,61 @@ export default function AdminPage() {
                 )}
               </div>
             )}
-            <input type="text" placeholder="بحث..."
-              value={search} onChange={e => setSearch(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-cyan-500/50" />
+            <div className="flex gap-2">
+              <input type="text" placeholder="بحث..." value={search} onChange={e => setSearch(e.target.value)} className={cn(inputCls, "flex-1")} />
+              <button onClick={exportRooms} className="flex items-center gap-1 px-3 py-2 bg-green-500/20 text-green-400 rounded-xl text-xs hover:bg-green-500/30 flex-shrink-0">
+                <Download className="w-3.5 h-3.5" />CSV
+              </button>
+            </div>
+            {/* Filter chips */}
+            <div className="flex gap-1.5 flex-wrap">
+              {(['all', 'active', 'frozen', 'public', 'private'] as RoomFilter[]).map(f => (
+                <button key={f} onClick={() => setRoomFilter(f)}
+                  className={cn("px-3 py-1 rounded-full text-xs transition-colors",
+                    roomFilter === f ? "bg-cyan-500/30 text-cyan-400" : "bg-white/5 text-white/40 hover:text-white/70")}>
+                  {f === 'all' ? `الكل (${rooms.length})` : f === 'active' ? 'نشطة' : f === 'frozen' ? 'مجمّدة' : f === 'public' ? 'عامة' : 'خاصة'}
+                </button>
+              ))}
+            </div>
             <div className="text-xs text-white/40">{filteredRooms.length} غرفة</div>
             <div className="space-y-2">
               {filteredRooms.map(r => (
-                <div key={r.slug} className={cn(
-                  "flex items-center justify-between gap-3 bg-white/5 rounded-xl px-4 py-3 border",
-                  r.isFrozen ? "border-blue-500/30" : "border-white/8"
-                )}>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-medium truncate">{r.name}</span>
-                      <button onClick={() => typeToggle(r)}
-                        className={cn("text-[10px] rounded px-1.5 py-0.5 transition-colors",
-                          r.type === 'public' ? "bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30" : "bg-violet-500/20 text-violet-400 hover:bg-violet-500/30")}>
-                        {r.type === 'public' ? 'عامة' : 'خاصة'}
-                      </button>
-                      {r.isFrozen && <span className="text-[10px] bg-blue-500/20 text-blue-400 rounded px-1.5 py-0.5">مجمّدة</span>}
-                      {(r.activeUsers ?? 0) > 0 && <span className="text-[10px] text-green-400">{r.activeUsers} نشط</span>}
+                <div key={r.slug} className={cn("bg-white/5 rounded-xl px-4 py-3 border", r.isFrozen ? "border-blue-500/30" : "border-white/8")}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium truncate">{r.name}</span>
+                        <button onClick={() => typeToggle(r)}
+                          className={cn("text-[10px] rounded px-1.5 py-0.5 transition-colors",
+                            r.type === 'public' ? "bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30" : "bg-violet-500/20 text-violet-400 hover:bg-violet-500/30")}>
+                          {r.type === 'public' ? 'عامة' : 'خاصة'}
+                        </button>
+                        {r.isFrozen && <span className="text-[10px] bg-blue-500/20 text-blue-400 rounded px-1.5 py-0.5">مجمّدة</span>}
+                        {(r.activeUsers ?? 0) > 0 && <span className="text-[10px] text-green-400 font-semibold">{r.activeUsers} نشط</span>}
+                      </div>
+                      <div className="text-xs text-white/30 mt-0.5 flex items-center gap-2">
+                        <span>/{r.slug}</span>
+                        <span>·</span>
+                        <Clock className="w-3 h-3" />
+                        <span>{roomAge(r.createdAt)}</span>
+                      </div>
                     </div>
-                    <div className="text-xs text-white/30 mt-0.5">/{r.slug}</div>
-                  </div>
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    <button onClick={() => viewPlaylist(r)} title="عرض قائمة التشغيل"
-                      className="p-1.5 rounded-lg bg-white/5 text-white/40 hover:text-white/70 transition-colors">
-                      <List className="w-3.5 h-3.5" />
-                    </button>
-                    <button onClick={() => window.open(`/room/${r.slug}`, '_blank')} title="دخول الغرفة"
-                      className="p-1.5 rounded-lg bg-white/5 text-white/40 hover:text-white/70 transition-colors">
-                      <Eye className="w-3.5 h-3.5" />
-                    </button>
-                    <button onClick={() => freezeToggle(r)} title={r.isFrozen ? 'إلغاء التجميد' : 'تجميد'}
-                      className={cn("p-1.5 rounded-lg transition-colors",
-                        r.isFrozen ? "bg-blue-500/20 text-blue-400" : "bg-white/5 text-white/40 hover:text-white/70")}>
-                      <Snowflake className="w-3.5 h-3.5" />
-                    </button>
-                    <button onClick={() => deleteRoom(r)} title="حذف"
-                      className="p-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors">
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center gap-1 flex-shrink-0 flex-wrap justify-end">
+                      <button onClick={() => viewPlaylist(r)} title="قائمة التشغيل" className="p-1.5 rounded-lg bg-white/5 text-white/40 hover:text-cyan-400 transition-colors"><List className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => viewChat(r)} title="عرض المحادثة" className="p-1.5 rounded-lg bg-white/5 text-white/40 hover:text-violet-400 transition-colors"><MessageSquare className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => clearChat(r)} title="مسح المحادثة" className="p-1.5 rounded-lg bg-white/5 text-white/40 hover:text-orange-400 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => clearPlaylist(r)} title="مسح قائمة التشغيل" className="p-1.5 rounded-lg bg-white/5 text-white/40 hover:text-red-400 transition-colors"><StopCircle className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => { setRenameSlug(r.slug); setRenameVal(r.name); }} title="إعادة التسمية" className="p-1.5 rounded-lg bg-white/5 text-white/40 hover:text-white/70 transition-colors"><Edit3 className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => forceVideo(r, 'play')} title="تشغيل إجباري" className="p-1.5 rounded-lg bg-green-500/10 text-green-400 hover:bg-green-500/20 transition-colors"><Play className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => forceVideo(r, 'pause')} title="إيقاف إجباري" className="p-1.5 rounded-lg bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20 transition-colors"><Pause className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => window.open(`/room/${r.slug}`, '_blank')} title="دخول" className="p-1.5 rounded-lg bg-white/5 text-white/40 hover:text-white/70 transition-colors"><ExternalLink className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => { navigator.clipboard.writeText(`https://lrmtv.sbs/room/${r.slug}`); showFeedback('تم نسخ الرابط'); }} title="نسخ الرابط" className="p-1.5 rounded-lg bg-white/5 text-white/40 hover:text-white/70 transition-colors"><Copy className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => freezeToggle(r)} title={r.isFrozen ? 'إلغاء التجميد' : 'تجميد'}
+                        className={cn("p-1.5 rounded-lg transition-colors", r.isFrozen ? "bg-blue-500/20 text-blue-400" : "bg-white/5 text-white/40 hover:text-white/70")}>
+                        <Snowflake className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={() => deleteRoom(r)} title="حذف" className="p-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -527,95 +741,127 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* ══════════════════════════════════ NOTIFICATIONS ══════════════════════ */}
+        {/* ══════════════════ CHAT MONITOR ══════════════════════════════════ */}
+        {tab === 'chat' && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-white/60">آخر {globalChat.length} رسالة من جميع الغرف</span>
+              <button onClick={() => load('chat')} className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1">
+                <RefreshCw className="w-3 h-3" />تحديث
+              </button>
+            </div>
+            <input type="text" placeholder="بحث في الرسائل..." value={search} onChange={e => setSearch(e.target.value)} className={inputCls} />
+            <div className="space-y-1.5">
+              {filteredChat.map(m => (
+                <div key={m.id} className={cn("flex items-start gap-2 px-3 py-2 rounded-xl border text-xs group",
+                  m.type === 'system' ? "bg-white/3 border-white/5" : "bg-white/5 border-white/8")}>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={cn("font-semibold", m.type === 'system' ? "text-white/40" : "text-cyan-400")}>{m.username}</span>
+                      {m.room_slug && <span className="text-white/25 text-[10px]">في /{m.room_slug}</span>}
+                      <span className="text-white/20 text-[10px]">{new Date(m.created_at).toLocaleString('ar')}</span>
+                    </div>
+                    <p className="text-white/70 mt-0.5 break-all">{m.content}</p>
+                  </div>
+                  <button onClick={() => deleteMsg(m.id)} className="opacity-0 group-hover:opacity-100 p-1 text-red-400/60 hover:text-red-400 flex-shrink-0 transition-all">
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+              {filteredChat.length === 0 && !loading && <div className="text-center text-white/30 py-10">لا توجد رسائل</div>}
+            </div>
+          </div>
+        )}
+
+        {/* ══════════════════ NOTIFICATIONS ══════════════════════════════════ */}
         {tab === 'notifications' && (
           <div className="space-y-4">
-            {/* Broadcast to all rooms */}
             <div className="bg-white/5 rounded-xl p-4 border border-white/8">
               <div className="text-sm font-semibold mb-3 flex items-center gap-2"><Globe className="w-4 h-4 text-cyan-400" />رسالة نظام لجميع الغرف النشطة</div>
-              <textarea value={broadcastMsg} onChange={e => setBroadcastMsg(e.target.value)}
-                placeholder="اكتب رسالة النظام..."
+              <textarea value={broadcastMsg} onChange={e => setBroadcastMsg(e.target.value)} placeholder="اكتب رسالة النظام..."
                 className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-cyan-500/50 resize-none h-20 mb-3" />
-              <button onClick={sendBroadcast}
-                className="flex items-center gap-2 px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-black font-semibold rounded-xl text-sm transition-colors">
+              <button onClick={sendBroadcast} className={btnCls("bg-cyan-500 hover:bg-cyan-400 text-black")}>
                 <Send className="w-4 h-4" />إرسال للكل
               </button>
             </div>
-
-            {/* Push to all */}
             <div className="bg-white/5 rounded-xl p-4 border border-white/8">
               <div className="text-sm font-semibold mb-3 flex items-center gap-2"><Bell className="w-4 h-4 text-violet-400" />إشعار Push لجميع المشتركين</div>
-              <input value={pushTitle} onChange={e => setPushTitle(e.target.value)} placeholder="العنوان"
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-cyan-500/50 mb-2" />
-              <input value={pushBody} onChange={e => setPushBody(e.target.value)} placeholder="النص"
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-cyan-500/50 mb-3" />
-              <button onClick={sendPushAll}
-                className="flex items-center gap-2 px-4 py-2 bg-violet-500 hover:bg-violet-400 text-white font-semibold rounded-xl text-sm transition-colors">
+              <input value={pushTitle} onChange={e => setPushTitle(e.target.value)} placeholder="العنوان" className={cn(inputCls, "mb-2")} />
+              <input value={pushBody} onChange={e => setPushBody(e.target.value)} placeholder="النص" className={cn(inputCls, "mb-3")} />
+              <button onClick={sendPushAll} className={btnCls("bg-violet-500 hover:bg-violet-400 text-white")}>
                 <Bell className="w-4 h-4" />إرسال للكل
               </button>
             </div>
-
-            {/* Push to specific user */}
             <div className="bg-white/5 rounded-xl p-4 border border-white/8">
               <div className="text-sm font-semibold mb-3 flex items-center gap-2"><Users className="w-4 h-4 text-orange-400" />إشعار Push لمستخدم محدد</div>
-              <input value={pushUserId} onChange={e => setPushUserId(e.target.value)} placeholder="ID المستخدم"
-                type="number"
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-cyan-500/50 mb-2" />
-              <input value={pushTitle} onChange={e => setPushTitle(e.target.value)} placeholder="العنوان"
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-cyan-500/50 mb-2" />
-              <input value={pushBody} onChange={e => setPushBody(e.target.value)} placeholder="النص"
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-cyan-500/50 mb-3" />
-              <button onClick={sendPushUser}
-                className="flex items-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-400 text-white font-semibold rounded-xl text-sm transition-colors">
+              <input value={pushUserId} onChange={e => setPushUserId(e.target.value)} placeholder="ID المستخدم" type="number" className={cn(inputCls, "mb-2")} />
+              <input value={pushTitle} onChange={e => setPushTitle(e.target.value)} placeholder="العنوان" className={cn(inputCls, "mb-2")} />
+              <input value={pushBody} onChange={e => setPushBody(e.target.value)} placeholder="النص" className={cn(inputCls, "mb-3")} />
+              <button onClick={sendPushUser} className={btnCls("bg-orange-500 hover:bg-orange-400 text-white")}>
                 <Send className="w-4 h-4" />إرسال
               </button>
             </div>
           </div>
         )}
 
-        {/* ══════════════════════════════════ SETTINGS ═══════════════════════════ */}
+        {/* ══════════════════ SETTINGS ═══════════════════════════════════════ */}
         {tab === 'settings' && (
           <div className="space-y-4">
             {settings ? (
               <>
                 {[
-                  { key: 'maintenance_mode', label: 'وضع الصيانة', type: 'toggle', desc: 'يمنع الوصول لغير الأدمن' },
-                  { key: 'registration_enabled', label: 'السماح بالتسجيل', type: 'toggle', desc: 'السماح لمستخدمين جدد بالتسجيل' },
-                  { key: 'announcement', label: 'إعلان الموقع', type: 'text', desc: 'يظهر في الصفحة الرئيسية (اتركه فارغاً لإخفائه)' },
-                  { key: 'welcome_message', label: 'رسالة الترحيب', type: 'text', desc: 'تظهر في صفحة الهبوط' },
-                  { key: 'max_rooms_per_user', label: 'الحد الأقصى للغرف لكل مستخدم', type: 'number', desc: '' },
-                  { key: 'max_room_members', label: 'الحد الأقصى لأعضاء الغرفة', type: 'number', desc: '' },
+                  { key: 'maintenance_mode',    label: 'وضع الصيانة',             type: 'toggle', desc: 'يمنع الوصول لغير الأدمن' },
+                  { key: 'registration_enabled', label: 'السماح بالتسجيل',         type: 'toggle', desc: 'السماح لمستخدمين جدد بالتسجيل' },
+                  { key: 'announcement',         label: 'إعلان الموقع',             type: 'text',   desc: 'يظهر في الصفحة الرئيسية' },
+                  { key: 'welcome_message',      label: 'رسالة الترحيب',            type: 'text',   desc: 'تظهر في صفحة الهبوط' },
+                  { key: 'max_rooms_per_user',   label: 'الحد الأقصى للغرف/مستخدم', type: 'number', desc: '' },
+                  { key: 'max_room_members',     label: 'الحد الأقصى لأعضاء الغرفة', type: 'number', desc: '' },
                 ].map(({ key, label, type, desc }) => (
                   <div key={key} className="bg-white/5 rounded-xl p-4 border border-white/8">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-4">
                       <div>
                         <div className="text-sm font-medium">{label}</div>
                         {desc && <div className="text-xs text-white/40 mt-0.5">{desc}</div>}
                       </div>
                       {type === 'toggle' ? (
-                        <button
-                          onClick={() => setEditSettings(p => ({ ...p, [key]: p[key as keyof SiteSettings] === 'true' ? 'false' : 'true' }))}
-                          className={cn("w-12 h-6 rounded-full transition-colors relative",
-                            editSettings[key as keyof SiteSettings] === 'true' ? "bg-cyan-500" : "bg-white/20"
-                          )}>
+                        <button onClick={() => setEditSettings(p => ({ ...p, [key]: p[key as keyof SiteSettings] === 'true' ? 'false' : 'true' }))}
+                          className={cn("w-12 h-6 rounded-full transition-colors relative flex-shrink-0",
+                            editSettings[key as keyof SiteSettings] === 'true' ? "bg-cyan-500" : "bg-white/20")}>
                           <span className={cn("absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
                             editSettings[key as keyof SiteSettings] === 'true' ? "right-1" : "left-1")} />
                         </button>
                       ) : (
-                        <input
-                          type={type}
-                          value={editSettings[key as keyof SiteSettings] ?? ''}
+                        <input type={type} value={editSettings[key as keyof SiteSettings] ?? ''}
                           onChange={e => setEditSettings(p => ({ ...p, [key]: e.target.value }))}
-                          className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-cyan-500/50 w-40 text-right"
-                        />
+                          className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-cyan-500/50 w-32 text-right" />
                       )}
                     </div>
                   </div>
                 ))}
-                <button onClick={saveSettings}
-                  className="w-full flex items-center justify-center gap-2 py-3 bg-cyan-500 hover:bg-cyan-400 text-black font-bold rounded-xl transition-colors">
+                <button onClick={saveSettings} className={cn(btnCls("bg-cyan-500 hover:bg-cyan-400 text-black"), "w-full justify-center py-3")}>
                   <Check className="w-4 h-4" />حفظ الإعدادات
                 </button>
+
+                {/* Word filter */}
+                <div className="bg-white/5 rounded-xl p-4 border border-white/8">
+                  <div className="text-sm font-semibold mb-3 flex items-center gap-2"><Filter className="w-4 h-4 text-orange-400" />فلتر الكلمات المحظورة</div>
+                  <div className="flex gap-2 mb-3">
+                    <input value={newWord} onChange={e => setNewWord(e.target.value)} placeholder="كلمة محظورة"
+                      className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-500/50"
+                      onKeyDown={e => e.key === 'Enter' && addWord()} />
+                    <button onClick={addWord} className="p-2 bg-orange-500/20 text-orange-400 hover:bg-orange-500/30 rounded-lg flex-shrink-0"><Plus className="w-4 h-4" /></button>
+                  </div>
+                  {wordFilter.length === 0 ? <p className="text-white/30 text-xs">لا توجد كلمات محظورة</p> : (
+                    <div className="flex flex-wrap gap-2">
+                      {wordFilter.map(w => (
+                        <span key={w} className="flex items-center gap-1 px-2 py-1 bg-red-500/10 text-red-400 rounded-lg text-xs">
+                          {w}
+                          <button onClick={() => removeWord(w)} className="hover:text-red-300"><X className="w-3 h-3" /></button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </>
             ) : (
               <div className="text-center text-white/30 py-10">جاري التحميل...</div>
@@ -623,81 +869,111 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* ══════════════════════════════════ SECURITY ═══════════════════════════ */}
+        {/* ══════════════════ SECURITY ═══════════════════════════════════════ */}
         {tab === 'security' && (
           <div className="space-y-4">
-            {/* Banned IPs */}
             <div className="bg-white/5 rounded-xl p-4 border border-white/8">
-              <div className="text-sm font-semibold mb-3 flex items-center gap-2"><Lock className="w-4 h-4 text-red-400" />عناوين IP المحظورة</div>
+              <div className="text-sm font-semibold mb-3 flex items-center gap-2"><Lock className="w-4 h-4 text-red-400" />عناوين IP المحظورة ({bannedIps.length})</div>
               <div className="flex gap-2 mb-3">
                 <input value={newIp} onChange={e => setNewIp(e.target.value)} placeholder="عنوان IP"
-                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-cyan-500/50" />
-                <input value={newIpReason} onChange={e => setNewIpReason(e.target.value)} placeholder="السبب (اختياري)"
-                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-cyan-500/50" />
-                <button onClick={addBannedIp}
-                  className="p-2 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded-lg transition-colors flex-shrink-0">
-                  <Plus className="w-4 h-4" />
-                </button>
+                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-500/50" />
+                <input value={newIpReason} onChange={e => setNewIpReason(e.target.value)} placeholder="السبب"
+                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-500/50" />
+                <button onClick={addBannedIp} className="p-2 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded-lg flex-shrink-0"><Plus className="w-4 h-4" /></button>
               </div>
-              <input type="text" placeholder="بحث..." value={search} onChange={e => setSearch(e.target.value)}
-                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-cyan-500/50 mb-2" />
-              <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                {filteredIps.map(ip => (
-                  <div key={ip.id} className="flex items-center justify-between text-sm bg-white/5 rounded-lg px-3 py-2">
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="بحث في IPs..." className={cn(inputCls, "mb-3 text-xs")} />
+              <div className="space-y-1.5 max-h-64 overflow-y-auto">
+                {filteredIps.map(b => (
+                  <div key={b.id} className="flex items-center justify-between gap-2 py-1.5">
                     <div>
-                      <span className="text-red-400 font-mono">{ip.ip}</span>
-                      {ip.reason && <span className="text-white/40 text-xs mr-2">{ip.reason}</span>}
+                      <span className="text-sm font-mono text-red-400">{b.ip}</span>
+                      {b.reason && <span className="text-xs text-white/40 mr-2">{b.reason}</span>}
                     </div>
-                    <button onClick={() => removeBannedIp(ip.id)} className="text-white/40 hover:text-red-400 transition-colors">
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    <button onClick={() => removeBannedIp(b.id)} className="p-1 text-white/30 hover:text-red-400"><X className="w-3.5 h-3.5" /></button>
                   </div>
                 ))}
-                {filteredIps.length === 0 && <div className="text-white/30 text-sm text-center py-3">لا توجد IPs محظورة</div>}
+                {filteredIps.length === 0 && <p className="text-white/30 text-sm">لا توجد IPs محظورة</p>}
               </div>
             </div>
 
-            {/* Login attempts */}
             <div className="bg-white/5 rounded-xl p-4 border border-white/8">
               <div className="flex items-center justify-between mb-3">
-                <div className="text-sm font-semibold flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4 text-yellow-400" />محاولات دخول فاشلة
-                </div>
-                <button onClick={clearLoginAttempts} className="text-xs text-white/40 hover:text-red-400 transition-colors">مسح القديمة</button>
+                <div className="text-sm font-semibold flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-yellow-400" />محاولات تسجيل الدخول الفاشلة ({loginAttempts.length})</div>
+                <button onClick={clearLoginAttempts} className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1"><Trash2 className="w-3 h-3" />مسح القديم</button>
               </div>
-              <input type="text" placeholder="بحث..." value={search} onChange={e => setSearch(e.target.value)}
-                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-cyan-500/50 mb-2" />
-              <div className="space-y-1.5 max-h-56 overflow-y-auto">
-                {filteredAttempts.slice(0, 100).map(a => (
-                  <div key={a.id} className="flex items-center justify-between text-xs bg-white/5 rounded-lg px-3 py-2">
-                    <span className="text-white/70">{a.identifier}</span>
-                    <span className="text-red-400 font-mono">{a.ip}</span>
-                    <span className="text-white/30">{new Date(a.createdAt).toLocaleString('ar')}</span>
+              <div className="space-y-1 max-h-64 overflow-y-auto">
+                {loginAttempts.slice(0, 50).map(a => (
+                  <div key={a.id} className="flex items-center gap-2 text-xs py-1 border-b border-white/5">
+                    <span className="text-white/60 flex-1 truncate">{a.identifier}</span>
+                    <span className="text-white/30 font-mono flex-shrink-0">{a.ip}</span>
+                    <span className="text-white/20 flex-shrink-0">{new Date(a.createdAt).toLocaleDateString('ar')}</span>
+                    <button onClick={() => { setNewIp(a.ip); setNewIpReason(`محاولة تسجيل دخول: ${a.identifier}`); }} title="حظر هذا IP"
+                      className="text-white/20 hover:text-red-400 flex-shrink-0"><Ban className="w-3 h-3" /></button>
                   </div>
                 ))}
-                {filteredAttempts.length === 0 && <div className="text-white/30 text-sm text-center py-3">لا توجد محاولات</div>}
+                {loginAttempts.length === 0 && <p className="text-white/30 text-sm">لا توجد محاولات</p>}
               </div>
             </div>
           </div>
         )}
 
-        {/* ══════════════════════════════════ BACKUP ═════════════════════════════ */}
-        {tab === 'backup' && (
+        {/* ══════════════════ SYSTEM ════════════════════════════════════════ */}
+        {tab === 'system' && (
           <div className="space-y-4">
-            <div className="bg-white/5 rounded-xl p-6 border border-white/8 text-center space-y-4">
-              <Database className="w-12 h-12 text-cyan-400 mx-auto" />
-              <div>
-                <div className="font-bold text-lg mb-1">تصدير قاعدة البيانات</div>
-                <div className="text-white/50 text-sm">يصدّر بيانات المستخدمين، الغرف، الإعدادات، وIPs المحظورة كملف JSON</div>
+            {/* Server info */}
+            {systemInfo && (
+              <div className="bg-white/5 rounded-xl p-4 border border-white/8">
+                <div className="text-sm font-semibold mb-3 flex items-center gap-2"><Server className="w-4 h-4 text-cyan-400" />معلومات الخادم</div>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  {[
+                    { label: 'وقت التشغيل', value: formatUptime(systemInfo.uptime) },
+                    { label: 'Node.js', value: systemInfo.node },
+                    { label: 'البيئة', value: systemInfo.env },
+                    { label: 'النظام', value: systemInfo.platform },
+                    { label: 'RAM المستخدمة', value: `${systemInfo.memRss} MB` },
+                    { label: 'Heap المستخدمة', value: `${systemInfo.memHeap} / ${systemInfo.memHeapTotal} MB` },
+                    { label: 'المستخدمون النشطون', value: systemInfo.activeUsers },
+                    { label: 'الغرف النشطة', value: systemInfo.activeRooms },
+                    { label: 'إجمالي المستخدمين', value: systemInfo.totalUsers },
+                    { label: 'إجمالي الغرف', value: systemInfo.totalRooms },
+                    { label: 'إجمالي الرسائل', value: systemInfo.totalMessages?.toLocaleString() },
+                  ].map(({ label, value }) => (
+                    <div key={label} className="flex justify-between items-center py-1.5 border-b border-white/5">
+                      <span className="text-white/50 text-xs">{label}</span>
+                      <span className="text-white/90 text-xs font-medium">{value}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <button onClick={downloadBackup}
-                className="flex items-center gap-2 px-6 py-3 bg-cyan-500 hover:bg-cyan-400 text-black font-bold rounded-xl mx-auto transition-colors">
-                <Download className="w-5 h-5" />تحميل النسخة الاحتياطية
-              </button>
+            )}
+
+            {/* Push subscribers */}
+            <div className="bg-white/5 rounded-xl p-4 border border-white/8">
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-sm font-semibold flex items-center gap-2"><Bell className="w-4 h-4 text-violet-400" />مشتركو Push ({pushSubs.length})</div>
+              </div>
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="بحث..." className={cn(inputCls, "mb-3 text-xs")} />
+              <div className="space-y-1.5 max-h-64 overflow-y-auto">
+                {filteredSubs.map(s => (
+                  <div key={s.id} className="flex items-center justify-between gap-2 text-xs py-1">
+                    <div>
+                      <span className="text-white/80">@{s.username}</span>
+                      <span className="text-white/30 mr-2 text-[10px]">{new Date(s.created_at).toLocaleDateString('ar')}</span>
+                    </div>
+                    <button onClick={() => deletePushSub(s.id)} className="text-white/20 hover:text-red-400"><X className="w-3.5 h-3.5" /></button>
+                  </div>
+                ))}
+                {filteredSubs.length === 0 && <p className="text-white/30 text-sm">لا يوجد مشتركون</p>}
+              </div>
             </div>
-            <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-4 text-sm text-yellow-300/80">
-              <AlertTriangle className="w-4 h-4 inline ml-2" />
-              النسخة الاحتياطية تحتوي على بيانات حساسة. احتفظ بها في مكان آمن.
+
+            {/* Backup */}
+            <div className="bg-white/5 rounded-xl p-4 border border-white/8">
+              <div className="text-sm font-semibold mb-3 flex items-center gap-2"><Database className="w-4 h-4 text-green-400" />النسخ الاحتياطي</div>
+              <p className="text-white/40 text-xs mb-3">تنزيل نسخة احتياطية تشمل: المستخدمين، الغرف، الإعدادات، IPs المحظورة</p>
+              <button onClick={downloadBackup} className={btnCls("bg-green-500/20 text-green-400 hover:bg-green-500/30")}>
+                <Download className="w-4 h-4" />تنزيل النسخة الاحتياطية
+              </button>
             </div>
           </div>
         )}

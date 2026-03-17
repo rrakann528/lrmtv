@@ -16,6 +16,10 @@ export const usersTable = pgTable("users", {
   emailVerified: boolean("email_verified").notNull().default(false),
   isSiteAdmin: boolean("is_site_admin").notNull().default(false),
   isBanned: boolean("is_banned").notNull().default(false),
+  isMuted: boolean("is_muted").notNull().default(false),
+  adminNote: text("admin_note").default(""),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+  lastIp: text("last_ip"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

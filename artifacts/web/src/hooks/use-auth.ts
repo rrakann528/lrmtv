@@ -9,6 +9,8 @@ export interface AuthUser {
   avatarUrl: string | null;
   email?: string | null;
   emailVerified?: boolean;
+  isSiteAdmin?: boolean;
+  isBanned?: boolean;
 }
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');

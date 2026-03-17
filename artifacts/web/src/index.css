@@ -126,6 +126,9 @@
 }
 
 @layer utilities {
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
   .glass-panel {
     @apply bg-black/40 backdrop-blur-xl border border-white/10 shadow-2xl;
   }
