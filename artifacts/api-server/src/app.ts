@@ -15,7 +15,7 @@ import {
   pathGuard,
   securityHeaders,
 } from "./middlewares/security";
-import { getCachedSetting, refreshSettingsCache } from "./lib/settings";
+import { getCachedSetting, refreshSettingsCache } from "./lib/socket";
 
 // ── Cache banned IPs in memory (refresh every 30s) ───────────────────────────
 let _bannedIps = new Set<string>();

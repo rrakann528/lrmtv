@@ -1,9 +1,8 @@
 import { Router, type IRouter } from "express";
 import { eq, desc, asc, and, count } from "drizzle-orm";
 import { db, roomsTable, playlistItemsTable, chatMessagesTable, roomInvitesTable } from "@workspace/db";
-import { getActiveRooms, kickRoom } from "../lib/socket";
+import { getActiveRooms, kickRoom, getCachedSetting } from "../lib/socket";
 import { requireAuth, type AuthRequest } from "../middlewares/auth";
-import { getCachedSetting } from "../lib/settings";
 import {
   CreateRoomBody,
   GetRoomParams,

@@ -1,8 +1,24 @@
 import { Server as HttpServer } from "http";
 import { Server, Socket } from "socket.io";
-import { db, chatMessagesTable, roomsTable, playlistItemsTable, roomInvitesTable, usersTable } from "@workspace/db";
+import { db, chatMessagesTable, roomsTable, playlistItemsTable, roomInvitesTable, usersTable, siteSettingsTable } from "@workspace/db";
 import { eq, notInArray, inArray } from "drizzle-orm";
-import { getCachedSetting } from "./settings";
+
+// ── In-memory settings cache (shared across the process) ─────────────────────
+let _settingsMap = new Map<string, string>();
+
+export async function refreshSettingsCache(): Promise<void> {
+  try {
+    const rows = await db.select().from(siteSettingsTable);
+    _settingsMap = new Map(rows.map(s => [s.key, s.value]));
+  } catch { /* DB not ready yet */ }
+}
+
+export function getCachedSetting(key: string, fallback = ""): string {
+  return _settingsMap.get(key) ?? fallback;
+}
+
+refreshSettingsCache();
+setInterval(refreshSettingsCache, 60_000);
 
 interface RoomUser {
   socketId: string;

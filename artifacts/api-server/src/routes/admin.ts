@@ -11,9 +11,8 @@ import { requireSiteAdmin, type AuthRequest } from "../middlewares/auth";
 import {
   broadcastSystemMessage, getActiveRoomsDetailed, getTotalActiveUsers, kickRoom, freezeRoom,
   kickUserFromAllRooms, getUserActiveRooms, forceRoomVideoState, sendRoomAnnouncement,
-  updateRoomCreator, siteMuteUser,
+  updateRoomCreator, siteMuteUser, refreshSettingsCache,
 } from "../lib/socket";
-import { refreshSettingsCache } from "../lib/settings";
 
 const router = Router();
 
