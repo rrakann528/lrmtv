@@ -652,14 +652,16 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           video.addEventListener('error',          onErrWrapped,  { once: true });
         };
 
-        // S5 — API server manifest proxy (server-side fetch bypasses CORS; segments routed via /api/proxy/segment)
-        const s5_apiProxy = () => {
+        // S5 — CF Worker full proxy: manifest + ALL segments rewritten to go through Cloudflare
+        // (mode=full tells the Worker to rewrite segment URLs back to itself)
+        const s5_cfFullProxy = () => {
           if (cancelled) return;
+          if (!CF_PROXY) { setError('ip-locked'); setStatusMsg(null); return; }
+          const cfUrl = `${CF_PROXY}?url=${encodeURIComponent(src)}&ref=${encodeURIComponent(src)}&mode=full`;
           setStatusMsg('hls-proxy');
-          const proxyUrl = `/api/proxy/manifest?url=${encodeURIComponent(src)}`;
           const hls = makeHls(() => { setError('ip-locked'); setStatusMsg(null); });
           hlsRef.current = hls;
-          hls.loadSource(proxyUrl);
+          hls.loadSource(cfUrl);
           hls.attachMedia(video);
         };
 
@@ -667,9 +669,9 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         const s4_cfFullProxy = () => {
           if (cancelled) return;
           const cfUrl = buildCfUrl(src);
-          if (!cfUrl) { s5_apiProxy(); return; }
+          if (!cfUrl) { s5_cfFullProxy(); return; }
           setStatusMsg('hls-proxy');
-          const hls = makeHls(() => s5_apiProxy());
+          const hls = makeHls(() => s5_cfFullProxy());
           hlsRef.current = hls;
           hls.loadSource(cfUrl);
           hls.attachMedia(video);
@@ -687,15 +689,15 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           hls.attachMedia(video);
         };
 
-        // HTTP src on HTTPS page → browser blocks it as mixed content → skip straight to API proxy
+        // HTTP src on HTTPS page → browser blocks it as mixed content → skip straight to CF full proxy
         if (src.startsWith('http:') && window.location.protocol === 'https:') {
-          s5_apiProxy();
+          s5_cfFullProxy();
           return;
         }
 
         // S1 — HLS.js direct (best features: adaptive bitrate, quality switching)
-        // On failure: Safari → S2 native → S3/S5 proxy → sRelay
-        //             Chrome → S3/S5 proxy → sRelay
+        // On failure: Safari → S2 native → S3 CF-manifest → S4 CF-full → S5 CF-full+rewrite
+        //             Chrome → S3 CF-manifest → S4 CF-full → S5 CF-full+rewrite
         setStatusMsg('hls-direct');
         if (Hls.isSupported()) {
           const canNativeHls = video.canPlayType('application/vnd.apple.mpegurl') !== '';
