@@ -475,6 +475,8 @@ export default function RoomPage() {
           <div className="w-full aspect-video md:aspect-auto md:flex-grow relative bg-black">
             {syncState.url ? (
               <>
+                {/* Hide player (including YouTube iframe) while pre-roll is active */}
+                <div style={{ visibility: showPreRoll ? 'hidden' : 'visible', position: 'absolute', inset: 0 }}>
                 <SmartPlayer
                   ref={playerRef}
                   url={syncState.url}
@@ -496,6 +498,7 @@ export default function RoomPage() {
                   onSubtitleApplied={emitSubtitleSync}
                   externalSubtitle={subtitleSync}
                 />
+                </div>{/* end visibility wrapper */}
                 {/* IP-lock warning — shown to DJ only when server can't reach the stream */}
                 {ipLockWarning && isDJ && (
                   <div className="absolute top-2 left-2 right-2 z-40 flex items-start gap-2 bg-red-900/90 border border-red-500/70 text-red-100 text-sm rounded-xl px-3 py-2 backdrop-blur-sm shadow-lg">
