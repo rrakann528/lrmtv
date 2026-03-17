@@ -443,7 +443,7 @@ export default function RoomPage() {
                 {!watcherReady && syncState.url && (
                   <div
                     className="absolute inset-0 z-30 flex items-center justify-center bg-black/75 cursor-pointer select-none"
-                    onClick={() => { requestSync(); setWatcherReady(true); }}
+                    onClick={() => { setWatcherReady(true); }}
                   >
                     <div className="text-center space-y-4">
                       <div className="w-24 h-24 rounded-full bg-white/15 backdrop-blur-md flex items-center justify-center mx-auto border-2 border-white/30 hover:bg-white/25 transition-colors">
