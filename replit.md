@@ -42,7 +42,7 @@ node scripts/push-to-github.mjs "رسالة التعديل"
 - **Build**: esbuild (CJS bundle)
 - **Frontend**: React + Vite + Tailwind CSS
 - **Video**: SmartPlayer — HLS.js, dash.js, react-player (YouTube/Twitch/Vimeo), HTML5
-- **Real-time**: Socket.io (sync, chat, relay)
+- **Real-time**: Socket.io (sync, chat)
 - **State**: Zustand
 - **i18n**: Custom React context (Arabic RTL / English LTR)
 
@@ -55,7 +55,7 @@ artifacts-monorepo/
 ├── artifacts/
 │   ├── api-server/
 │   │   └── src/
-│   │       ├── lib/socket.ts          ← Socket.io events (relay, sync, chat)
+│   │       ├── lib/socket.ts          ← Socket.io events (sync, chat)
 │   │       ├── routes/admin.ts        ← 26 admin API endpoints
 │   │       └── routes/rooms.ts        ← Room CRUD
 │   └── web/
@@ -66,10 +66,8 @@ artifacts-monorepo/
 │           │   ├── smart-player.tsx   ← Player switcher
 │           │   └── player-controls.tsx
 │           ├── hooks/
-│           │   ├── use-relay-host.ts  ← Host-side Socket.IO relay (KEEP)
 │           │   └── use-socket.ts
 │           └── lib/
-│               └── relay-loader.ts   ← HLS.js custom loader → goes direct to relay
 ├── lib/
 │   ├── api-spec/          ← OpenAPI spec + Orval codegen
 │   ├── api-client-react/  ← Generated React Query hooks
@@ -82,7 +80,7 @@ artifacts-monorepo/
 
 ---
 
-## HLS Fallback Chain (بدون P2P — تم إزالته)
+## HLS Fallback Chain
 
 ```
 S1 HLS.js direct
@@ -90,31 +88,11 @@ S1 HLS.js direct
     → S3 CF manifest proxy (Cloudflare Worker → manifest فقط)
       → S4 CF full proxy (كل شيء عبر CF Worker)
         → S5 API proxy (/api/proxy/manifest + /api/proxy/segment)
-          → S-Relay (Socket.IO relay عبر متصفح DJ)
-            → Error (ip-locked بعد 45 ثانية timeout)
+          → Error (ip-locked)
 ```
 
 **CF Worker URL**: `https://lrmtv-proxy.rrakann528.workers.dev`
 (يُضبط عبر `VITE_CF_PROXY_URL` في .env)
-
----
-
-## relay-loader.ts — كيف يعمل
-
-- عند استدعاء `load()`: يتحقق من `socket.connected`
-- لو متصل: يرسل `relay:fetch` للسيرفر → السيرفر يوجهه لـ DJ → DJ يجيب الـ segment → يرجع للمشاهد
-- لو مو متصل: يستدعي `super.load()` مباشرة
-- ArrayBuffer يُحوّل لـ string بـ TextDecoder للـ manifests
-
----
-
-## socket.ts — Relay System
-
-```
-RoomState.pendingRelays: Map<requestId, requesterSocketId>
-```
-- `relay:fetch` → يأخذ host socket ID من roomState.users → يرسل الطلب له
-- `relay:response` / `relay:error` → يحوّل الجواب للمشاهد الصح عبر pendingRelays
 
 ---
 
@@ -150,9 +128,6 @@ RoomState.pendingRelays: Map<requestId, requesterSocketId>
 | `video-sync` | مزامنة الفيديو (play/pause/seek/time) |
 | `chat-message` | رسالة دردشة |
 | `playlist-update` | تحديث قائمة التشغيل |
-| `relay:fetch` | طلب segment عبر الريلاي |
-| `relay:response` | جواب الريلاي |
-| `relay:error` | خطأ الريلاي |
 | `dj-backgrounding` | DJ أخفى الـ PWA |
 | `subtitle-sync` | مزامنة الترجمة |
 | `toggle-lock` | قفل/فتح التحكم |
@@ -178,7 +153,7 @@ RoomState.pendingRelays: Map<requestId, requesterSocketId>
   levelLoadingMaxRetry: 4,
   levelLoadingTimeOut: 15_000,
   fragLoadingMaxRetry: 6,
-  fragLoadingTimeOut: 20_000,     // مهم للـ relay
+  fragLoadingTimeOut: 20_000,     // مهلة سخية لروابط بطيئة
   fragLoadingRetryDelay: 500,
   startLevel: 0,               // start at lowest quality for faster initial load
   abrEwmaDefaultEstimate: 1_000_000,  // 1 Mbps default (conservative, upgrades fast)
@@ -217,9 +192,7 @@ RoomState.pendingRelays: Map<requestId, requesterSocketId>
 
 ## ملاحظات مهمة
 
-1. **P2P تم إزاله بالكامل** — لا `use-p2p-host.ts` ولا `use-p2p-viewer.ts` ولا `p2p-loader.ts`
-2. **الريلاي يعمل عبر Socket.IO فقط** — عبر `use-relay-host.ts` و `relay-loader.ts`
-3. **timeout الـ error**: 45 ثانية loading → يظهر خطأ `ip-locked`
-4. **الـ stall watchdog** يفحص كل 1 ثانية ويتدخل بعد 2 ثانية توقف
-5. **CF Worker** يحل CORS فقط — لا يحل IP blocking الحقيقي
-6. **TypeScript composite projects** — دائماً `typecheck` من الـ root
+1. **P2P والـ Relay تم إزالتهم بالكامل** — المشغل يعتمد الآن على سلسلة fallback مباشرة فقط
+2. **الـ stall watchdog** يفحص كل 1 ثانية ويتدخل بعد 2 ثانية توقف
+3. **CF Worker** يحل CORS فقط — لا يحل IP blocking الحقيقي
+4. **TypeScript composite projects** — دائماً `typecheck` من الـ root

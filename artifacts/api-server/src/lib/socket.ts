@@ -53,8 +53,6 @@ interface RoomState {
   lastPauseAt?: number;
   /** DJ signalled they are backgrounding/closing — ignore their next pause */
   djBackgrounding?: { socketId: string; at: number };
-  /** Room-level relay pending map: requestId → requester socketId */
-  pendingRelays: Map<string, string>;
 }
 
 const EMPTY_ROOM_TTL_MS = 10 * 60 * 1000; // 10 minutes
@@ -197,7 +195,6 @@ function createRoomState(slug: string, roomId: number, roomName: string): RoomSt
     isLive: false,
     subtitle: null,
     allowGuestEntry: true,
-    pendingRelays: new Map(),
   };
   rooms.set(slug, state);
   return state;
@@ -216,8 +213,6 @@ export function initSocketServer(httpServer: HttpServer): Server {
       methods: ["GET", "POST"],
     },
     path: "/api/socket.io",
-    // HLS .ts segments can be 1-5 MB — raise limit so relay doesn't silently drop them
-    maxHttpBufferSize: 10 * 1024 * 1024, // 10 MB
   });
   _io = io;
 
@@ -739,53 +734,6 @@ export function initSocketServer(httpServer: HttpServer): Server {
         isPlaying: roomState.isPlaying,
         from: "server",
       });
-    });
-
-    // ── Relay: forward viewer's segment requests to the DJ's browser ────────────
-    // Viewer emits relay:fetch → server finds DJ socket → forwards relay:fetch to DJ.
-    // DJ's use-relay-host hook fetches the URL and replies with relay:response/relay:error.
-    // Server routes the reply back to the correct viewer via pendingRelays map.
-    socket.on("relay:fetch", (data: { requestId: string; url: string }) => {
-      if (!currentRoomSlug || !data?.requestId || !data?.url) return;
-      const roomState = getRoomState(currentRoomSlug);
-      if (!roomState) return;
-
-      // Find the DJ's socket ID
-      let djSocketId: string | undefined;
-      for (const [sid, u] of roomState.users.entries()) {
-        if (u.isDJ || u.isAdmin) { djSocketId = sid; break; }
-      }
-
-      const djSocket = djSocketId ? io.sockets.sockets.get(djSocketId) : null;
-      if (!djSocket?.connected) {
-        socket.emit("relay:error", { requestId: data.requestId, status: 503 });
-        return;
-      }
-
-      // Store pending so we can route DJ's response back to this viewer
-      roomState.pendingRelays.set(data.requestId, socket.id);
-      djSocket.emit("relay:fetch", { requestId: data.requestId, url: data.url });
-    });
-
-    // DJ responds to relay:fetch — route back to the waiting viewer
-    socket.on("relay:response", (data: { requestId: string; data: unknown; contentType: string }) => {
-      if (!currentRoomSlug) return;
-      const roomState = getRoomState(currentRoomSlug);
-      if (!roomState) return;
-      const viewerSocketId = roomState.pendingRelays.get(data.requestId);
-      if (!viewerSocketId) return;
-      roomState.pendingRelays.delete(data.requestId);
-      io.sockets.sockets.get(viewerSocketId)?.emit("relay:response", data);
-    });
-
-    socket.on("relay:error", (data: { requestId: string; status: number }) => {
-      if (!currentRoomSlug) return;
-      const roomState = getRoomState(currentRoomSlug);
-      if (!roomState) return;
-      const viewerSocketId = roomState.pendingRelays.get(data.requestId);
-      if (!viewerSocketId) return;
-      roomState.pendingRelays.delete(data.requestId);
-      io.sockets.sockets.get(viewerSocketId)?.emit("relay:error", data);
     });
 
     socket.on("subtitle-sync", (data: SubtitleSync) => {

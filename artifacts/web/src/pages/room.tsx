@@ -12,7 +12,6 @@ import { DraggableCam } from '@/components/draggable-cam';
 import { useI18n } from '@/lib/i18n';
 import { useUserSession } from '@/hooks/use-user-session';
 import { useSocket } from '@/hooks/use-socket';
-import { useRelayHost } from '@/hooks/use-relay-host';
 import { useWebRTC } from '@/hooks/use-webrtc';
 import { useAuth, apiFetch } from '@/hooks/use-auth';
 import { useGetRoom, useAddPlaylistItem, getGetRoomPlaylistQueryKey } from '@workspace/api-client-react';
@@ -95,10 +94,6 @@ export default function RoomPage() {
   const isAdmin    = you?.isAdmin || false;
   const isGuest    = !you?.userId;
   const canControl = isDJ || allowGuestControl;
-
-  // Activate relay host: when this client is the DJ/admin, handle relay:fetch
-  // requests from other room members whose IPs are blocked by the CDN.
-  useRelayHost(socket ?? null, isDJ || isAdmin);
 
   // Tell the server when the DJ hides/closes the PWA so it can swallow
   // the browser-auto-pause and keep the room playing for other viewers.
@@ -433,7 +428,6 @@ export default function RoomPage() {
                 lang={lang as 'en' | 'ar'}
                 onSubtitleApplied={emitSubtitleSync}
                 externalSubtitle={subtitleSync}
-                socket={socket ?? null}
               />
             ) : (
               <div className="absolute inset-0 flex flex-col items-center justify-center text-white/40 gap-3">
