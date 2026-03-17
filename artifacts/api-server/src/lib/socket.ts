@@ -802,19 +802,27 @@ export function initSocketServer(httpServer: HttpServer): Server {
         io.to(currentRoomSlug).emit("users-updated", { users: Array.from(roomState.users.values()) });
       }
 
-      // When the user who last paused disconnects (app closed, tab closed, network lost),
-      // restore play so the room never freezes for remaining viewers.
-      // This covers admins/DJs whose browser auto-pauses on close, AND guests who had
-      // allowGuestControl=true and left mid-session (their auto-pause would otherwise
-      // lock the room because the restore logic would never fire for non-admin users).
-      const wasDjBackgrounding =
-        roomState.djBackgrounding?.socketId === socket.id;
-      if (
-        roomState.users.size > 0 &&
+      // Keep the room playing when a DJ/admin disconnects.
+      // A browser auto-pause (tab close, navigation) arrives within ~2s of disconnect.
+      // An intentional pause the admin did a while ago (>3s) should be respected.
+      const wasDjBackgrounding = roomState.djBackgrounding?.socketId === socket.id;
+      const isAdminOrDj = user?.isAdmin || user?.isDJ;
+
+      // Detect browser auto-pause: pause by this user within the last 3 seconds
+      const AUTO_PAUSE_WINDOW = 3000;
+      const wasAutoPaused =
         !roomState.isPlaying &&
+        roomState.lastPauseBy === socket.id &&
+        roomState.lastPauseAt != null &&
+        (Date.now() - roomState.lastPauseAt) < AUTO_PAUSE_WINDOW;
+
+      const shouldRestorePlay =
+        roomState.users.size > 0 &&
         roomState.currentVideo &&
-        (roomState.lastPauseBy === socket.id || wasDjBackgrounding)
-      ) {
+        (isAdminOrDj || roomState.lastPauseBy === socket.id) &&
+        (wasDjBackgrounding || wasAutoPaused);
+
+      if (shouldRestorePlay && !roomState.isPlaying) {
         roomState.isPlaying = true;
         roomState.lastSyncTimestamp = Date.now();
         roomState.djBackgrounding = undefined;

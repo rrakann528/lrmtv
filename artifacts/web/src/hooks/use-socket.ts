@@ -278,6 +278,8 @@ export function useSocket(slug: string | null) {
     });
 
     return () => {
+      // Signal server before disconnecting so browser auto-pause is swallowed
+      socket.emit('dj-backgrounding');
       socket.disconnect();
     };
   }, [slug, username]);
