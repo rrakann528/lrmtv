@@ -11,6 +11,7 @@ import dmRouter from "./dm";
 import storageRouter from "./storage";
 import subtitlesRouter from "./subtitles";
 import adminRouter from "./admin";
+import vastProxyRouter from "./vast-proxy";
 
 const router: IRouter = Router();
 
@@ -26,5 +27,6 @@ router.use(youtubeSearchRouter);
 router.use(storageRouter);
 router.use(subtitlesRouter);
 router.use(adminRouter);
+router.use(vastProxyRouter);
 
 export default router;
