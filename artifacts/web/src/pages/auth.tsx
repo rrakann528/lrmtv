@@ -38,8 +38,8 @@ export default function AuthPage() {
   const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   useEffect(() => {
-    if (!loading && user) setLocation('/home');
-  }, [user, loading]);
+    if (!loading && user && step !== 'otp') setLocation('/home');
+  }, [user, loading, step]);
 
   useEffect(() => {
     if (resendCooldown <= 0) return;
@@ -72,11 +72,11 @@ export default function AuthPage() {
       const { token: _t, ...userData } = data;
 
       if (mode === 'register' && !userData.emailVerified) {
+        // Show OTP screen first — then send in background
         setPendingUser(userData);
-        // Send OTP automatically
-        await apiFetch('/auth/send-otp', { method: 'POST' });
         setStep('otp');
         setResendCooldown(60);
+        apiFetch('/auth/send-otp', { method: 'POST' }).catch(() => {});
       } else {
         setUser(userData);
         setLocation('/home');
