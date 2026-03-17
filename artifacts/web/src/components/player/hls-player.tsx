@@ -265,10 +265,10 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           if (hls) {
             // Kick HLS.js to resume fetching segments (browser may have frozen it)
             try { hls.startLoad(); } catch { /* ignore if not attached */ }
-            // For live: jump to live edge if we've drifted more than 8 s behind
+            // For live: jump to live edge if we've drifted more than 4 s behind
             if (isLiveRef.current) {
               const edge = hls.liveSyncPosition;
-              if (edge && isFinite(edge) && video.currentTime < edge - 8) {
+              if (edge && isFinite(edge) && video.currentTime < edge - 4) {
                 video.currentTime = edge;
               }
             }
@@ -323,9 +323,19 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
       // Network fetch stalled → kick HLS/native to restart
       const onStalled  = () => {
         if (cancelled) return;
-        showBuffering();
-        if (hlsRef.current) { try { hlsRef.current.startLoad(); } catch { /* ignore */ } }
-        else if (!video.paused) { video.load(); video.play().catch(() => {}); }
+        const hls = hlsRef.current;
+        if (hls) {
+          if (isLiveRef.current) {
+            // Live: snap to live edge so we don't resume from a stale position
+            const edge = hls.liveSyncPosition;
+            const loadPos = (edge && isFinite(edge)) ? edge : -1;
+            try { hls.stopLoad(); hls.startLoad(loadPos); } catch { /* ignore */ }
+          } else {
+            try { hls.startLoad(); } catch { /* ignore */ }
+          }
+        } else if (!video.paused) {
+          video.load(); video.play().catch(() => {});
+        }
       };
 
       video.addEventListener('canplay',  onCanPlay);
@@ -383,15 +393,18 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         startPosition: startPos,
         startFragPrefetch: true,
 
-        // ── Live latency — 3 segments behind for stability ───────────────────
-        liveSyncDurationCount:       3,
-        liveMaxLatencyDurationCount: 8,
-        maxLiveSyncPlaybackRate:     1.1,
+        // ── Live latency — 2 segments behind for low-latency edge tracking ──
+        // liveSyncDurationCount=2  → stay closer to edge (was 3)
+        // liveMaxLatencyDurationCount=5 → trigger catch-up sooner (was 8)
+        // maxLiveSyncPlaybackRate=1.15 → smooth speed-up catch-up (was 1.1)
+        liveSyncDurationCount:       2,
+        liveMaxLatencyDurationCount: 5,
+        maxLiveSyncPlaybackRate:     1.15,
 
-        // ── Buffer — generous to absorb network jitter ───────────────────────
-        backBufferLength:   60,
-        maxBufferLength:    60,
-        maxMaxBufferLength: 120,
+        // ── Buffer — generous for VOD; live streams self-trim via backBuffer ─
+        backBufferLength:   30,
+        maxBufferLength:    30,
+        maxMaxBufferLength: 60,
 
         // ── Retry / timeout — generous for slow CDNs ─────────────────────────
         manifestLoadingMaxRetry:   3,
@@ -490,12 +503,32 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         if (stallWatchdog) clearInterval(stallWatchdog);
         let lastTime = -1;
         let stalledFor = 0;
+        let edgeTick = 0; // for periodic live-edge drift correction
+
         stallWatchdog = setInterval(() => {
           if (cancelled || !video || video.paused || video.ended) return;
           const now = video.currentTime;
+          const hls = hlsRef.current;
+
+          // ── Periodic live-edge drift correction (every 10 s while playing) ─
+          edgeTick++;
+          if (isLiveRef.current && edgeTick >= 10 && hls) {
+            edgeTick = 0;
+            const edge = hls.liveSyncPosition;
+            // If we've drifted more than 12 s behind the live edge, snap forward.
+            // HLS.js normally handles this via maxLiveSyncPlaybackRate speed-up,
+            // but if it drifted too far (e.g. after a network hiccup), snap it.
+            if (edge && isFinite(edge) && now < edge - 12) {
+              video.currentTime = edge;
+            }
+          } else if (!isLiveRef.current) {
+            edgeTick = 0; // don't accumulate for VOD
+          }
+
+          // ── Stall detection: currentTime not advancing + not enough buffer ─
           if (now === lastTime && video.readyState < 3) {
             stalledFor += 1;
-            if (stalledFor >= 2) {  // 2 s of true stall → act immediately
+            if (stalledFor >= 2) {  // 2 s of true stall → act
               stalledFor = 0;
               const buf = video.buffered;
               const ahead = buf.length > 0 ? buf.end(buf.length - 1) - now : 0;
@@ -504,27 +537,34 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
                 isInternalNudgeRef.current = true;
                 video.currentTime = now + 0.1;
                 setTimeout(() => { isInternalNudgeRef.current = false; }, 200);
-              } else if (hlsRef.current) {
-                // No buffer — force HLS.js to reload segments from current position
-                try {
-                  hlsRef.current.stopLoad();
-                  hlsRef.current.startLoad(now);
-                } catch { /* ignore */ }
+              } else if (hls) {
+                if (isLiveRef.current) {
+                  // Live: reload from live edge, not the stale current position
+                  const edge = hls.liveSyncPosition;
+                  const loadPos = (edge && isFinite(edge)) ? edge : -1;
+                  try { hls.stopLoad(); hls.startLoad(loadPos); } catch { /* ignore */ }
+                } else {
+                  // VOD: reload from where we stopped
+                  try { hls.stopLoad(); hls.startLoad(now); } catch { /* ignore */ }
+                }
               } else if (dashRef.current) {
                 // DASH auto-recovers
               } else {
-                // Native video — reload from current position
-                const t = video.currentTime;
-                video.load();
-                video.currentTime = t;
-                video.play().catch(() => {});
+                // Native video
+                if (isLiveRef.current) {
+                  // Live: just reload — native live streams always start at edge
+                  video.load(); video.play().catch(() => {});
+                } else {
+                  const t = video.currentTime;
+                  video.load(); video.currentTime = t; video.play().catch(() => {});
+                }
               }
             }
           } else {
             stalledFor = 0;
           }
           lastTime = now;
-        }, 1000);  // Check every 1 s instead of 2 s for faster stall detection
+        }, 1000);
       };
 
       // ── HLS instance factory with built-in error recovery ────────────────
