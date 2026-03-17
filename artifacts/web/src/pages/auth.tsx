@@ -37,9 +37,19 @@ export default function AuthPage() {
   const [pendingUser, setPendingUser] = useState<any>(null);
   const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
 
+  // Redirect to home only if email is verified (or user has no email — old accounts)
   useEffect(() => {
-    if (!loading && user && step !== 'otp') setLocation('/home');
-  }, [user, loading, step]);
+    if (!loading && user && step !== 'otp') {
+      if (!user.email || user.emailVerified !== false) {
+        setLocation('/home');
+      } else {
+        // Unverified email — force OTP step
+        setPendingUser(user);
+        setStep('otp');
+        apiFetch('/auth/send-otp', { method: 'POST' }).catch(() => {});
+      }
+    }
+  }, [user, loading]);
 
   useEffect(() => {
     if (resendCooldown <= 0) return;

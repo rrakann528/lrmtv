@@ -17,6 +17,15 @@ const transporter = nodemailer.createTransport({
 
 const EMAIL_TIMEOUT_MS = 12000;
 
+export async function verifySmtp(): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await transporter.verify();
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+}
+
 export async function sendOtpEmail(to: string, code: string): Promise<void> {
   const from = process.env.SMTP_FROM || "LrmTV <support@lrmtv.sbs>";
 

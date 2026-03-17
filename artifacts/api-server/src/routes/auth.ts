@@ -4,7 +4,7 @@ import bcrypt from "bcryptjs";
 import { db, usersTable, loginAttemptsTable, pool } from "@workspace/db";
 import { requireAuth, signToken, type AuthRequest } from "../middlewares/auth";
 import { z } from "zod";
-import { sendOtpEmail } from "../lib/email";
+import { sendOtpEmail, verifySmtp } from "../lib/email";
 
 const router: IRouter = Router();
 
@@ -161,6 +161,14 @@ router.get("/auth/me", requireAuth, async (req: AuthRequest, res): Promise<void>
   const freshToken = signToken(user.id, user.username);
   res.cookie("token", freshToken, COOKIE_OPTS);
   res.json({ ...userPublic(user), token: freshToken });
+});
+
+// ── SMTP health check (admin only) ────────────────────────────────────────────
+router.get("/auth/smtp-check", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
+  if (!user?.isSiteAdmin) { res.status(403).json({ error: "Forbidden" }); return; }
+  const result = await verifySmtp();
+  res.json({ ...result, port: process.env.SMTP_PORT || "587(default)", host: process.env.SMTP_HOST || "smtp.hostinger.com(default)" });
 });
 
 // ── Send OTP ──────────────────────────────────────────────────────────────────

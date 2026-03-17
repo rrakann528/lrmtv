@@ -1,11 +1,12 @@
-import { Suspense, lazy, Component, useEffect, useState, type ReactNode } from "react";
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import { Suspense, lazy, Component, useEffect, useState, type ReactNode, type ComponentType } from "react";
+import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 
 import { I18nProvider } from "@/lib/i18n";
 import PwaInstallBanner from "@/components/pwa-install-banner";
 import InviteBanner from "@/components/invite-banner";
+import { useAuth } from "@/hooks/use-auth";
 
 const LandingPage = lazy(() => import("@/pages/landing"));
 const HomePage    = lazy(() => import("@/pages/home"));
@@ -97,17 +98,32 @@ function SiteAnnouncementBanner() {
   );
 }
 
+// Redirect to /auth if user has unverified email
+function VerifiedRoute({ component: Comp }: { component: ComponentType<any> }) {
+  const { user, loading } = useAuth();
+  const [, setLocation] = useLocation();
+
+  useEffect(() => {
+    if (!loading && user && user.email && user.emailVerified === false) {
+      setLocation('/auth');
+    }
+  }, [user, loading]);
+
+  if (loading) return <PageLoader />;
+  return <Comp />;
+}
+
 function Router() {
   return (
     <Suspense fallback={<PageLoader />}>
       <Switch>
         <Route path="/"           component={LandingPage} />
-        <Route path="/home"       component={HomePage} />
+        <Route path="/home"       component={() => <VerifiedRoute component={HomePage} />} />
         <Route path="/auth"       component={AuthPage} />
-        <Route path="/room/:slug" component={RoomPage} />
+        <Route path="/room/:slug" component={() => <VerifiedRoute component={RoomPage} />} />
         <Route path="/terms"      component={TermsPage} />
         <Route path="/privacy"    component={PrivacyPage} />
-        <Route path="/admin"      component={AdminPage} />
+        <Route path="/admin"      component={() => <VerifiedRoute component={AdminPage} />} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>
