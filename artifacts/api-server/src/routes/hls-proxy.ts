@@ -267,4 +267,70 @@ router.get('/proxy/segment', async (req, res) => {
 
 router.options('/proxy/segment', (_req, res) => { res.set(CORS_HEADERS).sendStatus(204); });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/proxy/video?url=<encoded>[&referer=<encoded>]
+//
+// Streams a direct video file (MP4, WebM, …) through the server so
+// browser CORS and hotlink-protection restrictions are bypassed.
+// Supports Range requests so the browser can seek inside the video.
+// ─────────────────────────────────────────────────────────────────────────────
+router.get('/proxy/video', async (req, res) => {
+  const rawUrl     = req.query.url     as string | undefined;
+  const rawReferer = req.query.referer as string | undefined;
+  if (!rawUrl) { res.status(400).send('Missing url'); return; }
+
+  let targetUrl: string;
+  try { targetUrl = decodeURIComponent(rawUrl); new URL(targetUrl); }
+  catch { res.status(400).send('Invalid url'); return; }
+
+  try {
+    let upstreamRes: Response;
+
+    if (rawReferer) {
+      const knownReferer = decodeURIComponent(rawReferer);
+      const headers: Record<string, string> = { ...BASE_HEADERS, Referer: knownReferer };
+      if (req.headers.range) headers['Range'] = req.headers.range as string;
+      upstreamRes = await fetch(targetUrl, { headers, redirect: 'follow', signal: AbortSignal.timeout(20000) });
+    } else {
+      const extra: Record<string, string> = {};
+      if (req.headers.range) extra['Range'] = req.headers.range as string;
+      const result = await fetchWithRefererFallback(targetUrl, extra, 20000);
+      upstreamRes  = result.response;
+    }
+
+    if (!upstreamRes.ok && upstreamRes.status !== 206) {
+      res.status(upstreamRes.status).send('Upstream error');
+      return;
+    }
+
+    const contentType   = upstreamRes.headers.get('content-type') ?? 'video/mp4';
+    const contentLength = upstreamRes.headers.get('content-length');
+    const contentRange  = upstreamRes.headers.get('content-range');
+
+    const responseHeaders: Record<string, string> = {
+      ...CORS_HEADERS,
+      'Content-Type':  contentType,
+      'Accept-Ranges': 'bytes',
+      'Cache-Control': 'no-store',
+    };
+    if (contentLength) responseHeaders['Content-Length'] = contentLength;
+    if (contentRange)  responseHeaders['Content-Range']  = contentRange;
+
+    res.status(upstreamRes.status === 206 ? 206 : 200).set(responseHeaders);
+
+    if (upstreamRes.body) {
+      const readable = Readable.fromWeb(upstreamRes.body as Parameters<typeof Readable.fromWeb>[0]);
+      readable.pipe(res);
+      readable.on('error', () => { try { res.destroy(); } catch { /* ignore */ } });
+    } else {
+      res.end();
+    }
+  } catch (err: any) {
+    console.error('[proxy/video] error:', err?.message);
+    if (!res.headersSent) res.status(502).send('Video proxy error');
+  }
+});
+
+router.options('/proxy/video', (_req, res) => { res.set(CORS_HEADERS).sendStatus(204); });
+
 export default router;
