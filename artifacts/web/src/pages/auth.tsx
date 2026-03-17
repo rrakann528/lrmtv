@@ -142,11 +142,6 @@ export default function AuthPage() {
     } catch { setOtpError('فشل إعادة الإرسال'); }
   }
 
-  async function skipVerification() {
-    setUser({ ...pendingUser });
-    setLocation('/home');
-  }
-
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-background">
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -216,19 +211,13 @@ export default function AuthPage() {
                   </button>
                 </form>
 
-                <div className="flex flex-col gap-2 text-center">
+                <div className="text-center">
                   <button
                     onClick={resendOtp}
                     disabled={resendCooldown > 0}
                     className="text-sm text-cyan-400 hover:text-cyan-300 disabled:text-white/30 transition"
                   >
                     {resendCooldown > 0 ? `إعادة الإرسال خلال ${resendCooldown}ث` : 'إعادة إرسال الرمز'}
-                  </button>
-                  <button
-                    onClick={skipVerification}
-                    className="text-xs text-white/20 hover:text-white/40 transition"
-                  >
-                    تخطي الآن
                   </button>
                 </div>
               </div>
