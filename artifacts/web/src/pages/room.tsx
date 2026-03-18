@@ -29,7 +29,7 @@ import { UserProfileSheet } from '@/components/user-profile-sheet';
 import { SmartPlayer, type SmartPlayerHandle } from '@/components/player/smart-player';
 
 import PreRollAd from '@/components/pre-roll-ad';
-import AdBar from '@/components/ad-bar';
+
 import YoutubeSearch from '@/components/youtube-search';
 
 function detectSourceType(url: string): 'youtube' | 'vimeo' | 'twitch' | 'mp4' | 'm3u8' | 'other' {
@@ -603,11 +603,6 @@ export default function RoomPage() {
           // md+: fixed-width sidebar with left border
           'md:flex-grow-0 md:w-72 lg:w-96 md:shrink-0 md:border-s border-white/10',
         )}>
-
-          {/* ── Banner ad — always visible, shrink-0 ─────────────────── */}
-          <div className="shrink-0">
-            <AdBar inline />
-          </div>
 
           {/* ── YouTube search + direct URL — only for users with control ── */}
           {canControl && (
