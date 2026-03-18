@@ -46,6 +46,8 @@ interface RoomState {
   roomId: number;
   roomName: string;
   users: Map<string, RoomUser>;
+  bannedUserIds: Set<number>;
+  bannedUsernames: Set<string>;
   currentVideo: string | null;
   isPlaying: boolean;
   currentTime: number;
@@ -313,6 +315,8 @@ function createRoomState(slug: string, roomId: number, roomName: string): RoomSt
     roomId,
     roomName,
     users: new Map(),
+    bannedUserIds: new Set<number>(),
+    bannedUsernames: new Set<string>(),
     currentVideo: null,
     isPlaying: false,
     currentTime: 0,
@@ -404,6 +408,16 @@ export function initSocketServer(httpServer: HttpServer): Server {
       // Block if room is frozen — use cached state (updated by admin actions)
       if (roomState.isFrozen) {
         socket.emit("room-frozen");
+        return;
+      }
+
+      // Block banned users
+      if (userId && roomState.bannedUserIds.has(userId)) {
+        socket.emit("kicked");
+        return;
+      }
+      if (!userId && roomState.bannedUsernames.has(username.toLowerCase())) {
+        socket.emit("kicked");
         return;
       }
 
@@ -798,6 +812,13 @@ export function initSocketServer(httpServer: HttpServer): Server {
       if (!target || target.isAdmin) return;
 
       io.to(data.targetSocketId).emit("kicked");
+
+      // Add to ban list so they cannot rejoin
+      if (target.userId) {
+        roomState.bannedUserIds.add(target.userId);
+      } else {
+        roomState.bannedUsernames.add(target.username.toLowerCase());
+      }
 
       roomState.users.delete(data.targetSocketId);
       const kickMsg = { username: "system", content: `${target.username} was kicked / ${target.username} تم طرده`, type: "system" as const, roomId: roomState.roomId };
