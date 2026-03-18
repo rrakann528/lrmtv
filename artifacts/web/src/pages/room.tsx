@@ -27,7 +27,6 @@ import FriendsPanel from './room/friends-panel';
 import { RoomSettingsSheet } from './room/room-settings-sheet';
 import { UserProfileSheet } from '@/components/user-profile-sheet';
 import { SmartPlayer, type SmartPlayerHandle } from '@/components/player/smart-player';
-import PreRollAd from '@/components/pre-roll-ad';
 import AdBar from '@/components/ad-bar';
 import YoutubeSearch from '@/components/youtube-search';
 
@@ -77,8 +76,6 @@ export default function RoomPage() {
   const [copied, setCopied]     = useState(false);
   const [isSeeking]             = useState(false);
   const [playerReady, setPlayerReady] = useState(false);
-  const [showPreRoll, setShowPreRoll] = useState(false);
-
   // "Click to Watch" gate — non-DJs must click before the player activates.
   // DJs are always ready (computed: isDJ || watcherReadyState) so they
   // never see the overlay, even during the first render before room-state arrives.
@@ -203,16 +200,10 @@ export default function RoomPage() {
   useEffect(() => { syncPlayingRef.current = syncState.playing; }, [syncState.playing]);
 
   // Reset player state whenever the video URL changes.
-  // Everyone (DJ + watcher) sees the pre-roll ad when a new video loads.
   useEffect(() => {
     setPlayerReady(false);
     readyTimeRef.current = 0;
     setWatcherReadyState(false);
-    if (syncState.url) {
-      setShowPreRoll(true); // show pre-roll for everyone
-    } else {
-      setShowPreRoll(false);
-    }
   }, [syncState.url]);
 
   // Sync effect — thresholds by source:
@@ -476,12 +467,10 @@ export default function RoomPage() {
           <div className="w-full aspect-video md:aspect-auto md:flex-grow relative bg-black">
             {syncState.url ? (
               <>
-                {/* Hide player (including YouTube iframe) while pre-roll is active */}
-                <div style={{ visibility: showPreRoll ? 'hidden' : 'visible', position: 'absolute', inset: 0 }}>
                 <SmartPlayer
                   ref={playerRef}
                   url={syncState.url}
-                  playing={syncState.playing && watcherReady && !showPreRoll}
+                  playing={syncState.playing && watcherReady}
                   controls={canControl && watcherReady}
                   canControl={canControl && watcherReady}
                   initialTime={syncState.time}
@@ -499,7 +488,6 @@ export default function RoomPage() {
                   onSubtitleApplied={emitSubtitleSync}
                   externalSubtitle={subtitleSync}
                 />
-                </div>{/* end visibility wrapper */}
                 {/* IP-lock warning — shown to DJ only when server can't reach the stream */}
                 {ipLockWarning && isDJ && (
                   <div className="absolute top-2 left-2 right-2 z-40 flex items-start gap-2 bg-red-900/90 border border-red-500/70 text-red-100 text-sm rounded-xl px-3 py-2 backdrop-blur-sm shadow-lg">
@@ -512,16 +500,11 @@ export default function RoomPage() {
                   </div>
                 )}
 
-                {/* Pre-roll ad — shown for everyone when a new video loads */}
-                {showPreRoll && (
-                  <PreRollAd onDone={() => { setShowPreRoll(false); setWatcherReadyState(true); }} />
-                )}
-
                 {/* "Click to Watch" overlay — shown to non-DJs joining a live session */}
-                {!watcherReady && !showPreRoll && syncState.url && (
+                {!watcherReady && syncState.url && (
                   <div
                     className="absolute inset-0 z-30 flex items-center justify-center bg-black/75 cursor-pointer select-none"
-                    onClick={() => { setShowPreRoll(true); }}
+                    onClick={() => { setWatcherReadyState(true); }}
                   >
                     <div className="text-center space-y-4">
                       <div className="w-24 h-24 rounded-full bg-white/15 backdrop-blur-md flex items-center justify-center mx-auto border-2 border-white/30 hover:bg-white/25 transition-colors">
