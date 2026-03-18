@@ -28,8 +28,7 @@ import { RoomSettingsSheet } from './room/room-settings-sheet';
 import { UserProfileSheet } from '@/components/user-profile-sheet';
 import { SmartPlayer, type SmartPlayerHandle } from '@/components/player/smart-player';
 
-import PreRollAd from '@/components/pre-roll-ad';
-import AdBanner from '@/components/ad-banner';
+
 import YoutubeSearch from '@/components/youtube-search';
 
 function detectSourceType(url: string): 'youtube' | 'vimeo' | 'twitch' | 'mp4' | 'm3u8' | 'other' {
@@ -78,7 +77,7 @@ export default function RoomPage() {
   const [copied, setCopied]     = useState(false);
   const [isSeeking]             = useState(false);
   const [playerReady, setPlayerReady] = useState(false);
-  const [showPreRoll, setShowPreRoll] = useState(false);
+
   const [needsClickToWatch, setNeedsClickToWatch] = useState(false);
 
   // "Click to Watch" gate — non-DJs must click before the player activates.
@@ -214,7 +213,6 @@ export default function RoomPage() {
     setPlayerReady(false);
     readyTimeRef.current = 0;
     setWatcherReadyState(false);
-    setShowPreRoll(syncState.url ? isDJRef.current : false);
     setNeedsClickToWatch(false);
   }, [syncState.url]);
 
@@ -479,11 +477,11 @@ export default function RoomPage() {
           <div className="w-full aspect-video md:aspect-auto md:flex-grow relative bg-black">
             {syncState.url ? (
               <>
-                <div style={{ visibility: showPreRoll ? 'hidden' : 'visible', position: 'absolute', inset: 0 }}>
+                <div style={{ position: 'absolute', inset: 0 }}>
                 <SmartPlayer
                   ref={playerRef}
                   url={syncState.url}
-                  playing={syncState.playing && watcherReady && !showPreRoll && !needsClickToWatch}
+                  playing={syncState.playing && watcherReady && !needsClickToWatch}
                   controls={canControl && watcherReady}
                   canControl={canControl && watcherReady}
                   initialTime={syncState.time}
@@ -502,13 +500,6 @@ export default function RoomPage() {
                   externalSubtitle={subtitleSync}
                 />
                 </div>
-                {/* Pre-roll ad */}
-                {showPreRoll && (
-                  <PreRollAd onDone={() => {
-                    setShowPreRoll(false);
-                    setNeedsClickToWatch(true);
-                  }} />
-                )}
                 {/* IP-lock warning — shown to DJ only when server can't reach the stream */}
                 {ipLockWarning && isDJ && (
                   <div className="absolute top-2 left-2 right-2 z-40 flex items-start gap-2 bg-red-900/90 border border-red-500/70 text-red-100 text-sm rounded-xl px-3 py-2 backdrop-blur-sm shadow-lg">
@@ -522,17 +513,13 @@ export default function RoomPage() {
                 )}
 
                 {/* "Click to Watch" overlay — shown before watching or after ad */}
-                {(needsClickToWatch || (!watcherReady && !showPreRoll && syncState.url)) && (
+                {(needsClickToWatch || (!watcherReady && syncState.url)) && (
                   <div
                     className="absolute inset-0 z-30 flex items-center justify-center bg-black/75 cursor-pointer select-none"
                     onClick={() => {
-                      if (needsClickToWatch) {
-                        setNeedsClickToWatch(false);
-                        setWatcherReadyState(true);
-                        setTimeout(() => { playerRef.current?.seekTo(syncState.time); }, 300);
-                      } else {
-                        setShowPreRoll(true);
-                      }
+                      setNeedsClickToWatch(false);
+                      setWatcherReadyState(true);
+                      setTimeout(() => { playerRef.current?.seekTo(syncState.time); }, 300);
                     }}
                   >
                     <div className="text-center space-y-4">
@@ -603,11 +590,6 @@ export default function RoomPage() {
           // md+: fixed-width sidebar with left border
           'md:flex-grow-0 md:w-72 lg:w-96 md:shrink-0 md:border-s border-white/10',
         )}>
-
-          {/* ── Banner ad ─────────────────────────────────────────────── */}
-          <div className="shrink-0">
-            <AdBanner inline />
-          </div>
 
           {/* ── YouTube search + direct URL — only for users with control ── */}
           {canControl && (

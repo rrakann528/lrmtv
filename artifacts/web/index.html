@@ -25,46 +25,11 @@
 
     <style>html,body,#root{background:#0a0a0a;margin:0;padding:0}</style>
 
-    <!-- Ad setup: must run BEFORE aclib.js loads -->
-    <script>
-      /* ── Suppress all aclib/ad-network errors so Vite overlay never fires ── */
-      window.onerror = function() { return true; };
-      window.addEventListener('unhandledrejection', function(e) { e.preventDefault(); });
-
-      /* ── Globals aclib expects on the page ── */
-      var ua = navigator.userAgent;
-      window.isIos     = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
-      window.isSafari  = /^((?!chrome|android).)*safari/i.test(ua);
-      window.isAndroid = /android/i.test(ua);
-
-      /* ── Smart pop-under protection ──
-           Block window.open for external URLs UNLESS the last click/touch
-           was directly inside an element marked [data-ad-zone].
-           This means banner ad clicks still open their landing page,
-           but clicking chat / buttons / video NEVER opens a pop-under.        ── */
-      (function() {
-        var _open = window.open.bind(window);
-        var _inAdZone = false;
-
-        function trackZone(e) {
-          _inAdZone = !!(e.target && e.target.closest && e.target.closest('[data-ad-zone]'));
-        }
-        document.addEventListener('mousedown',  trackZone, true);
-        document.addEventListener('touchstart', trackZone, { capture: true, passive: true });
-
-        window.open = function(url, name, features) {
-          if (!url || url === '' || url === 'about:blank') return _open(url, name, features);
-          try {
-            if (new URL(url, location.href).origin === location.origin) return _open(url, name, features);
-          } catch(_) {}
-          if (_inAdZone) return _open(url, name, features);
-          return null; // block pop-under
-        };
-      })();
+    <!-- Adcash AutoTag -->
+    <script id="aclib" type="text/javascript" src="//acscdn.com/script/aclib.js"></script>
+    <script type="text/javascript">
+      aclib.runAutoTag({ zoneId: 'gk0vdquftk' });
     </script>
-
-    <!-- aclib ad library -->
-    <script id="aclib" src="//acscdn.com/script/aclib.js"></script>
 
   </head>
   <body>

@@ -8,7 +8,6 @@ import { apiFetch } from '@/hooks/use-auth';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Switch } from '@/components/ui/switch';
 import { useI18n } from '@/lib/i18n';
-import RoomInterstitial from '@/components/room-interstitial';
 
 interface PublicRoom {
   id: number;
@@ -77,7 +76,7 @@ export function RoomsTab() {
   const [bannedRooms, setBannedRooms] = useState<string[]>([]);
   const [kickedMsg, setKickedMsg] = useState<string | null>(null);
   const [createErr, setCreateErr] = useState('');
-  const [pendingRoom, setPendingRoom] = useState<string | null>(null);
+
   const keyboardOffset = useKeyboardOffset();
   const { data: rooms = [], isLoading } = useQuery<PublicRoom[]>({
     queryKey: ['rooms'],
@@ -129,7 +128,7 @@ export function RoomsTab() {
     },
     onSuccess: (room) => {
       qc.invalidateQueries({ queryKey: ['rooms'] });
-      setPendingRoom(room.slug);
+      setLocation('/room/' + room.slug);
     },
     onError: (e: Error) => setCreateErr(e.message),
   });
@@ -138,7 +137,7 @@ export function RoomsTab() {
 
   const handleJoinCode = () => {
     const slug = joinCode.replace(/^(.*\/room\/)/, '').trim();
-    if (slug) setPendingRoom(slug);
+    if (slug) setLocation('/room/' + slug);
   };
 
   return (
@@ -253,7 +252,7 @@ export function RoomsTab() {
                           apiFetch(`/invites/${inv.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'accepted' }) });
                           qc.invalidateQueries({ queryKey: ['room-invites'] });
                           qc.invalidateQueries({ queryKey: ['rooms-badge'] });
-                          setPendingRoom(inv.roomSlug);
+                          setLocation('/room/' + inv.roomSlug);
                         }}
                         className="flex items-center gap-1 px-3 h-8 rounded-xl bg-primary text-primary-foreground text-xs font-bold active:scale-90 transition-all"
                       >
@@ -319,7 +318,7 @@ export function RoomsTab() {
                 </button>
               ) : (
                 <button
-                  onClick={() => setPendingRoom(room.slug)}
+                  onClick={() => setLocation('/room/' + room.slug)}
                   className="flex-shrink-0 px-4 py-2 bg-primary text-primary-foreground rounded-xl text-xs font-bold hover:bg-primary/90"
                 >
                   دخول
@@ -410,16 +409,6 @@ export function RoomsTab() {
         document.body
       )}
 
-      {/* ── Interstitial Ad ───────────────────────────────────────── */}
-      {pendingRoom && (
-        <RoomInterstitial
-          onDone={() => {
-            const slug = pendingRoom;
-            setPendingRoom(null);
-            setLocation(`/room/${slug}`);
-          }}
-        />
-      )}
     </div>
   );
 }

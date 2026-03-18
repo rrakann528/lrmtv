@@ -10,7 +10,7 @@ import { ProfileTab } from './home/profile-tab';
 import { NotifBanner } from '@/components/notif-banner';
 import { useQuery } from '@tanstack/react-query';
 import { useUserSocket } from '@/hooks/use-user-socket';
-import AdBanner from '@/components/ad-banner';
+
 
 type Tab = 'rooms' | 'friends' | 'profile';
 
@@ -158,9 +158,6 @@ export default function HomePage() {
           </motion.div>
         </AnimatePresence>
       </div>
-
-      {/* ── Ad Bar (above bottom nav) ─────────────────────────────── */}
-      <AdBanner bottom={NAV_H} />
 
       {/* ── Fixed Bottom Navigation ───────────────────────────────── */}
       <div
