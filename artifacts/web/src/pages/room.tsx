@@ -497,7 +497,14 @@ export default function RoomPage() {
                 </div>
                 {/* Pre-roll ad */}
                 {showPreRoll && (
-                  <PreRollAd onDone={() => { setShowPreRoll(false); setWatcherReadyState(true); }} />
+                  <PreRollAd onDone={() => {
+                    setShowPreRoll(false);
+                    setWatcherReadyState(true);
+                    // Give the player a frame to become visible then seek to current sync position
+                    setTimeout(() => {
+                      playerRef.current?.seekTo(syncState.time);
+                    }, 300);
+                  }} />
                 )}
                 {/* IP-lock warning — shown to DJ only when server can't reach the stream */}
                 {ipLockWarning && isDJ && (
