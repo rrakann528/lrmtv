@@ -73,6 +73,8 @@ export function RoomsTab() {
   const [roomName, setRoomName] = useState('');
   const [isPrivate, setIsPrivate] = useState(false);
   const [joinCode, setJoinCode] = useState('');
+  const [bannedRooms, setBannedRooms] = useState<string[]>([]);
+  const [kickedMsg, setKickedMsg] = useState<string | null>(null);
   const [createErr, setCreateErr] = useState('');
   const keyboardOffset = useKeyboardOffset();
   const { data: rooms = [], isLoading } = useQuery<PublicRoom[]>({
@@ -90,6 +92,20 @@ export function RoomsTab() {
     refetchOnWindowFocus: true,
   });
 
+
+  // Read banned rooms from localStorage on mount + detect kicked redirect
+  useEffect(() => {
+    try {
+      const banned: string[] = JSON.parse(localStorage.getItem('lrmtv_banned_rooms') || '[]');
+      setBannedRooms(banned);
+      const lastKicked = localStorage.getItem('lrmtv_last_kicked');
+      if (lastKicked) {
+        setKickedMsg(lastKicked);
+        localStorage.removeItem('lrmtv_last_kicked');
+        setTimeout(() => setKickedMsg(null), 5000);
+      }
+    } catch {}
+  }, []);
 
   const declineMut = useMutation({
     mutationFn: (id: number) => apiFetch(`/invites/${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'declined' }) }),
@@ -125,6 +141,21 @@ export function RoomsTab() {
 
   return (
     <div className="flex flex-col h-full">
+
+      {/* Kicked banner */}
+      <AnimatePresence>
+        {kickedMsg && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="mx-4 mt-3 px-4 py-3 rounded-xl bg-red-500/15 border border-red-500/40 text-red-400 text-sm font-medium text-center"
+          >
+            ⛔ تم طردك من الغرفة
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Search & Join */}
       <div className="px-4 pt-4 pb-2 space-y-2">
         <div className="relative">
@@ -277,12 +308,21 @@ export function RoomsTab() {
                   <span className="text-xs text-muted-foreground">{room.userCount} مشاهد</span>
                 </div>
               </div>
-              <button
-                onClick={() => setLocation(`/room/${room.slug}`)}
-                className="flex-shrink-0 px-4 py-2 bg-primary text-primary-foreground rounded-xl text-xs font-bold hover:bg-primary/90"
-              >
-                دخول
-              </button>
+              {bannedRooms.includes(room.slug) ? (
+                <button
+                  disabled
+                  className="flex-shrink-0 px-4 py-2 bg-red-500/20 text-red-400 border border-red-500/40 rounded-xl text-xs font-bold cursor-not-allowed"
+                >
+                  مطرود
+                </button>
+              ) : (
+                <button
+                  onClick={() => setLocation(`/room/${room.slug}`)}
+                  className="flex-shrink-0 px-4 py-2 bg-primary text-primary-foreground rounded-xl text-xs font-bold hover:bg-primary/90"
+                >
+                  دخول
+                </button>
+              )}
             </motion.div>
           ))
         )}

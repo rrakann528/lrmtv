@@ -220,6 +220,8 @@ export function kickUserFromAllRooms(userId: number): void {
   for (const [, state] of rooms) {
     for (const [socketId, user] of state.users) {
       if (user.userId === userId) {
+        // Add to room ban list so they cannot rejoin
+        state.bannedUserIds.add(userId);
         _io.to(socketId).emit('kicked');
       }
     }

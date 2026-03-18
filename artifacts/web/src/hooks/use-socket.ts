@@ -87,6 +87,15 @@ export function useSocket(slug: string | null) {
 
     socket.on('kicked', () => {
       socket.disconnect();
+      // Store banned room slug in localStorage so rooms-tab can show "مطرود"
+      if (slug) {
+        try {
+          const banned: string[] = JSON.parse(localStorage.getItem('lrmtv_banned_rooms') || '[]');
+          if (!banned.includes(slug)) banned.push(slug);
+          localStorage.setItem('lrmtv_banned_rooms', JSON.stringify(banned));
+          localStorage.setItem('lrmtv_last_kicked', slug);
+        } catch {}
+      }
       window.location.href = '/';
     });
 
