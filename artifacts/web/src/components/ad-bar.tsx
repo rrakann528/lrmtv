@@ -7,7 +7,6 @@ function AdIframe() {
   return (
     <iframe
       src="/ad-banner.html"
-      sandbox="allow-scripts allow-popups allow-same-origin"
       scrolling="no"
       style={{ width: 468, height: 60, border: 0, display: 'block', flexShrink: 0 }}
       title="ad"
