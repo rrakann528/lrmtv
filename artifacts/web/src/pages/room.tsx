@@ -78,11 +78,6 @@ export default function RoomPage() {
   const [isSeeking]             = useState(false);
   const [playerReady, setPlayerReady] = useState(false);
 
-  const [needsClickToWatch, setNeedsClickToWatch] = useState(false);
-
-  // "Click to Watch" gate — non-DJs must click before the player activates.
-  // DJs are always ready (computed: isDJ || watcherReadyState) so they
-  // never see the overlay, even during the first render before room-state arrives.
   const [watcherReadyState, setWatcherReadyState] = useState(false);
   // Suppress pause emissions when DJ is hiding/closing — prevents false
   // pause events from resetting all viewers' playback position.
@@ -187,13 +182,9 @@ export default function RoomPage() {
   const isDJRef = useRef(isDJ);
   useEffect(() => { isDJRef.current = isDJ; }, [isDJ]);
 
-  // Reset player state whenever the video URL changes.
-  // DJs see the pre-roll automatically; non-DJs see "Click to Watch" first.
   useEffect(() => {
     setPlayerReady(false);
     readyTimeRef.current = 0;
-    setWatcherReadyState(false);
-    setNeedsClickToWatch(false);
   }, [syncState.url]);
 
   // Sync effect — thresholds by source:
@@ -461,7 +452,7 @@ export default function RoomPage() {
                 <SmartPlayer
                   ref={playerRef}
                   url={syncState.url}
-                  playing={syncState.playing && watcherReady && !needsClickToWatch}
+                  playing={syncState.playing && watcherReady}
                   controls={canControl && watcherReady}
                   canControl={canControl && watcherReady}
                   initialTime={syncState.time}
@@ -481,14 +472,12 @@ export default function RoomPage() {
                 />
                 </div>
 
-                {/* "Click to Watch" overlay — shown before watching or after ad */}
-                {(needsClickToWatch || (!watcherReady && syncState.url)) && (
+                {!watcherReady && syncState.url && (
                   <div
                     className="absolute inset-0 z-30 flex items-center justify-center bg-black/75 cursor-pointer select-none"
                     onClick={() => {
-                      setNeedsClickToWatch(false);
                       setWatcherReadyState(true);
-                      setTimeout(() => { playerRef.current?.seekTo(syncState.time); }, 300);
+                      playerRef.current?.seekTo(syncState.time);
                     }}
                   >
                     <div className="text-center space-y-4">
@@ -496,7 +485,7 @@ export default function RoomPage() {
                         <Play className="w-12 h-12 text-white fill-white ms-1" />
                       </div>
                       <div>
-                        <p className="text-white text-xl font-bold">اضغط للمشاهدة</p>
+                        <p className="text-white text-xl font-bold">{t('tapToPlay')}</p>
                         <p className="text-white/50 text-sm mt-1">Click to Watch</p>
                       </div>
                     </div>

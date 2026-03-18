@@ -355,10 +355,15 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
         setError('embed_blocked');
         return;
       }
-      // Autoplay policy
       const e = err as { name?: string } | null;
       if (e?.name === 'NotAllowedError' || (typeof err === 'string' && err.toLowerCase().includes('not allowed'))) {
-        setAutoplayBlocked(true);
+        setMutedForAutoplay(true);
+        try {
+          const ip = reactPlayerRef.current?.getInternalPlayer();
+          if (ip?.mute) ip.mute();
+          if (ip?.playVideo) ip.playVideo();
+          else if (ip?.play) ip.play().catch(() => { setAutoplayBlocked(true); setMutedForAutoplay(false); });
+        } catch { setAutoplayBlocked(true); setMutedForAutoplay(false); }
         return;
       }
       // Generic YouTube errors (2=bad param, 5=html5, 100=not found) — show tap-to-play

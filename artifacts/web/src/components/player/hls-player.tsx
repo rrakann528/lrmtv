@@ -7,7 +7,7 @@ import React, {
   useCallback,
 } from 'react';
 import Hls from 'hls.js';
-import { Play, AlertTriangle, RotateCcw, Loader2 } from 'lucide-react';
+import { Play, AlertTriangle, RotateCcw, Loader2, VolumeX } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 import { onFullscreenChange } from '@/lib/fullscreen';
 import PlayerControls, { type SubtitleTrack, type ToastMessage } from './player-controls';
@@ -291,6 +291,7 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
       setError(null);
       setStatusMsg(null);
       setAutoplayBlocked(false);
+      setMutedForAutoplay(false);
       setSubtitleTracks([]);
       setActiveSubtitleId(-1);
 
@@ -880,13 +881,22 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
       };
     }, [src, retryKey]);
 
-    // Play / pause sync
+    const [mutedForAutoplay, setMutedForAutoplay] = useState(false);
+
     useEffect(() => {
       const v = videoRef.current;
       if (!v) return;
       if (playing) {
         v.play().catch((err: Error) => {
-          if (err.name === 'NotAllowedError') setAutoplayBlocked(true);
+          if (err.name === 'NotAllowedError') {
+            v.muted = true;
+            v.play().then(() => {
+              setMutedForAutoplay(true);
+              setAutoplayBlocked(false);
+            }).catch(() => {
+              setAutoplayBlocked(true);
+            });
+          }
         });
       } else {
         v.pause();
@@ -1020,7 +1030,12 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         {autoplayBlocked && !error && !statusMsg && (
           <div
             className="absolute inset-0 flex items-center justify-center bg-black/60 z-20 cursor-pointer"
-            onClick={() => { setAutoplayBlocked(false); videoRef.current?.play().catch(() => {}); onPlay?.(); }}
+            onClick={() => {
+              setAutoplayBlocked(false);
+              const v = videoRef.current;
+              if (v) { v.muted = false; v.play().catch(() => {}); }
+              onPlay?.();
+            }}
           >
             <div className="text-center space-y-3">
               <div className="w-20 h-20 rounded-full bg-white/20 backdrop-blur flex items-center justify-center mx-auto border border-white/30">
@@ -1028,6 +1043,22 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
               </div>
               <p className="text-white/80 text-sm">{t('tapToPlay')}</p>
             </div>
+          </div>
+        )}
+
+        {mutedForAutoplay && !autoplayBlocked && !error && (
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30">
+            <button
+              onClick={() => {
+                const v = videoRef.current;
+                if (v) { v.muted = false; }
+                setMutedForAutoplay(false);
+              }}
+              className="flex items-center gap-2 bg-black/80 backdrop-blur-sm text-white px-4 py-2 rounded-full text-sm border border-white/20 hover:bg-white/20 transition-colors shadow-lg"
+            >
+              <VolumeX className="w-4 h-4" />
+              {t('mutedTapUnmute')}
+            </button>
           </div>
         )}
 
