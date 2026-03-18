@@ -8,7 +8,7 @@ import { apiFetch } from '@/hooks/use-auth';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Switch } from '@/components/ui/switch';
 import { useI18n } from '@/lib/i18n';
-import InterstitialAd from '@/components/interstitial-ad';
+import RoomInterstitial from '@/components/room-interstitial';
 
 interface PublicRoom {
   id: number;
@@ -412,7 +412,7 @@ export function RoomsTab() {
 
       {/* ── Interstitial Ad ───────────────────────────────────────── */}
       {pendingRoom && (
-        <InterstitialAd
+        <RoomInterstitial
           onDone={() => {
             const slug = pendingRoom;
             setPendingRoom(null);
@@ -423,3 +423,4 @@ export function RoomsTab() {
     </div>
   );
 }
+
