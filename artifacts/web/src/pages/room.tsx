@@ -564,9 +564,6 @@ export default function RoomPage() {
 
           </div>
 
-          {/* Inline banner ad below player */}
-          <AdBar inline />
-
           {/* Local cam — draggable, bottom-left, audio muted to avoid echo */}
           {localStream && localStream.getVideoTracks().length > 0 && (
             <DraggableCam
@@ -606,6 +603,11 @@ export default function RoomPage() {
           // md+: fixed-width sidebar with left border
           'md:flex-grow-0 md:w-72 lg:w-96 md:shrink-0 md:border-s border-white/10',
         )}>
+
+          {/* ── Banner ad — always visible, shrink-0 ─────────────────── */}
+          <div className="shrink-0">
+            <AdBar inline />
+          </div>
 
           {/* ── YouTube search + direct URL — only for users with control ── */}
           {canControl && (
