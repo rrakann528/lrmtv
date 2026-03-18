@@ -2,10 +2,7 @@ import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createPortal } from 'react-dom';
 
-const ZONE_ID = '11083266';
 const COUNTDOWN = 5;
-
-const AD_SRCDOC = `<!DOCTYPE html><html><head><style>*{margin:0;padding:0}html,body{width:100%;height:100%;overflow:hidden;background:#000}</style><script id="aclib" type="text/javascript" src="//acscdn.com/script/aclib.js"><\/script></head><body><script type="text/javascript">window.onload=function(){try{aclib.runInterstitial({zoneId:'${ZONE_ID}'});}catch(e){}}<\/script></body></html>`;
 
 interface Props {
   onDone: () => void;
@@ -23,16 +20,17 @@ export default function InterstitialAd({ onDone }: Props) {
   return createPortal(
     <div className="fixed inset-0 z-[9999]">
 
-      {/* Full-screen Adcash interstitial iframe */}
+      {/* Full-screen Adcash interstitial iframe — same-origin so CDN loads correctly */}
       <iframe
-        srcDoc={AD_SRCDOC}
-        sandbox="allow-scripts allow-popups"
+        src="/ad-interstitial.html"
+        sandbox="allow-scripts allow-popups allow-same-origin"
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 'none' }}
         title="interstitial-ad"
       />
 
-      {/* Countdown + skip button — sits on top of iframe */}
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 }}
+      {/* Countdown + skip — sits above iframe in React layer */}
+      <div
+        style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 }}
         className="flex justify-end items-center px-4 pt-4"
       >
         {seconds > 0 ? (
