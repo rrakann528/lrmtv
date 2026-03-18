@@ -35,9 +35,15 @@
 
     <!-- Suppress third-party ad errors + block pop-under click-hijacking -->
     <script>
+      /* Suppress aclib internal crashes (obfuscated private-field errors) */
+      window.onerror = function(msg) {
+        if (typeof msg === 'string' && (msg.indexOf('_0x') !== -1 || msg.indexOf('#b') !== -1 || msg.indexOf('aclib') !== -1)) {
+          return true; // prevent Vite overlay + browser error
+        }
+      };
       window.addEventListener('unhandledrejection', function(e) {
         var msg = String(e && e.reason ? (e.reason.message || e.reason) : '');
-        if (msg.indexOf('_0x') !== -1 || msg.indexOf('aclib') !== -1 || msg.indexOf('acscdn') !== -1) {
+        if (msg.indexOf('_0x') !== -1 || msg.indexOf('aclib') !== -1 || msg.indexOf('acscdn') !== -1 || msg.indexOf('#b') !== -1) {
           e.preventDefault();
         }
       });
@@ -51,7 +57,15 @@
           return _open(url, name, features);
         };
       })();
+      /* Globals aclib expects */
+      var ua = navigator.userAgent;
+      window.isIos     = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
+      window.isSafari  = /^((?!chrome|android).)*safari/i.test(ua);
+      window.isAndroid = /android/i.test(ua);
     </script>
+
+    <!-- Adcash library — loaded once, used by banner + interstitial components -->
+    <script id="aclib" type="text/javascript" src="//acscdn.com/script/aclib.js"></script>
 
   </head>
   <body>
