@@ -3,20 +3,86 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
-    <title>LrmTV</title>
 
-    <!-- PWA manifest -->
+    <!-- ═══════════════════════════════════════════════════════
+         SEO — العنوان والوصف
+    ═══════════════════════════════════════════════════════ -->
+    <title>LrmTV — شاهد مع أصدقائك في الوقت الحقيقي</title>
+    <meta name="description" content="LrmTV منصة مشاهدة مشتركة مجانية — شاهد البث المباشر والفيديوهات مع أصدقائك في نفس الوقت. أنشئ غرفة خلال ثوانٍ وشاهد معًا أينما كنتم." />
+    <meta name="keywords" content="مشاهدة مشتركة, watch together, بث مباشر, مشاهدة مع الأصدقاء, LrmTV, غرف مشاهدة, فيديو مع أصدقاء, منصة بث, مشاهدة اونلاين, watch party" />
+    <meta name="author" content="LrmTV" />
+    <link rel="canonical" href="https://lrmtv.sbs/" />
+
+    <!-- ═══════════════════════════════════════════════════════
+         Open Graph (Facebook / WhatsApp / Telegram)
+    ═══════════════════════════════════════════════════════ -->
+    <meta property="og:type"        content="website" />
+    <meta property="og:url"         content="https://lrmtv.sbs/" />
+    <meta property="og:site_name"   content="LrmTV" />
+    <meta property="og:title"       content="LrmTV — شاهد مع أصدقائك في الوقت الحقيقي" />
+    <meta property="og:description" content="شاهد البث المباشر والفيديوهات مع أصدقائك في نفس الوقت — مجانًا وبدون تسجيل. أنشئ غرفة وابدأ المشاهدة الآن!" />
+    <meta property="og:image"       content="https://lrmtv.sbs/opengraph.jpg" />
+    <meta property="og:image:width"  content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale"      content="ar_AR" />
+
+    <!-- ═══════════════════════════════════════════════════════
+         Twitter Card
+    ═══════════════════════════════════════════════════════ -->
+    <meta name="twitter:card"        content="summary_large_image" />
+    <meta name="twitter:title"       content="LrmTV — شاهد مع أصدقائك في الوقت الحقيقي" />
+    <meta name="twitter:description" content="شاهد البث المباشر والفيديوهات مع أصدقائك في نفس الوقت — مجانًا وبدون تسجيل." />
+    <meta name="twitter:image"       content="https://lrmtv.sbs/opengraph.jpg" />
+
+    <!-- ═══════════════════════════════════════════════════════
+         بيانات هيكلية (Google Rich Results)
+    ═══════════════════════════════════════════════════════ -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "LrmTV",
+      "url": "https://lrmtv.sbs",
+      "description": "منصة مشاهدة مشتركة في الوقت الحقيقي — شاهد البث المباشر والفيديوهات مع أصدقائك معًا",
+      "applicationCategory": "EntertainmentApplication",
+      "operatingSystem": "Web, iOS, Android",
+      "inLanguage": ["ar", "en"],
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "featureList": [
+        "مشاهدة مشتركة في الوقت الحقيقي",
+        "دردشة مباشرة",
+        "بث HLS تكيفي",
+        "كاميرا ومايكروفون WebRTC",
+        "غرف خاصة وعامة"
+      ],
+      "screenshot": "https://lrmtv.sbs/opengraph.jpg",
+      "publisher": {
+        "@type": "Organization",
+        "name": "LrmTV",
+        "url": "https://lrmtv.sbs"
+      }
+    }
+    </script>
+
+    <!-- ═══════════════════════════════════════════════════════
+         PWA
+    ═══════════════════════════════════════════════════════ -->
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#06B6D4" />
     <meta name="mobile-web-app-capable" content="yes" />
-
-    <!-- iOS Safari PWA -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="LrmTV" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.svg" />
     <meta name="color-scheme" content="dark" />
 
+    <!-- ═══════════════════════════════════════════════════════
+         Fonts
+    ═══════════════════════════════════════════════════════ -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
