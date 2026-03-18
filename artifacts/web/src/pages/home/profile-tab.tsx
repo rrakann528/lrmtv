@@ -21,7 +21,7 @@ type Section = null | 'name' | 'username' | 'bio' | 'avatar' | 'password';
 
 export function ProfileTab() {
   const { user, logout, updateProfile } = useAuth();
-  const { lang, setLang } = useI18n();
+  const { lang, setLang, t } = useI18n();
   const [, setLocation] = useLocation();
   const { permission, loading: pushLoading, subscribe, refresh: refreshPush, test: testPush, isSupported } = usePush(user?.id);
   const [testMsg, setTestMsg] = useState<'idle' | 'sent' | 'fail'>('idle');
@@ -45,7 +45,7 @@ export function ProfileTab() {
     setSaving(true);
     try {
       await updateProfile(updates);
-      setSuccess('تم الحفظ بنجاح');
+      setSuccess(t('saveSuccess'));
       setSection(null);
       setTimeout(() => setSuccess(''), 3000);
     } catch (e: unknown) {
@@ -89,8 +89,8 @@ export function ProfileTab() {
 
         {/* Display Name */}
         <ProfileSection
-          label="الاسم الظاهر"
-          value={user.displayName || 'لم يُعيَّن'}
+          label={t('displayNameLabel')}
+          value={user.displayName || t('notSet')}
           onEdit={() => { setDisplayName(user.displayName || ''); setSection('name'); }}
           isOpen={section === 'name'}
           onClose={() => setSection(null)}
@@ -98,17 +98,16 @@ export function ProfileTab() {
           <input
             value={displayName}
             onChange={e => setDisplayName(e.target.value)}
-            placeholder="اسمك الظاهر للآخرين"
+            placeholder={t('displayNamePlaceholder')}
             maxLength={40}
             className="w-full bg-muted/50 border border-border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-            dir="rtl"
           />
-          <SaveBtn saving={saving} onClick={() => save({ displayName })} />
+          <SaveBtn saving={saving} onClick={() => save({ displayName })} label={t('save')} />
         </ProfileSection>
 
         {/* Username */}
         <ProfileSection
-          label="اسم المستخدم"
+          label={t('usernameLabel')}
           value={`@${user.username}`}
           onEdit={() => { setUsername(user.username); setSection('username'); }}
           isOpen={section === 'username'}
@@ -117,18 +116,18 @@ export function ProfileTab() {
           <input
             value={username}
             onChange={e => setUsername(e.target.value)}
-            placeholder="اسم المستخدم"
+            placeholder={t('usernamePlaceholder')}
             maxLength={32}
             className="w-full bg-muted/50 border border-border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
             dir="ltr"
           />
-          <SaveBtn saving={saving} onClick={() => save({ username })} />
+          <SaveBtn saving={saving} onClick={() => save({ username })} label={t('save')} />
         </ProfileSection>
 
         {/* Bio */}
         <ProfileSection
-          label="نبذة عني"
-          value={user.bio || 'أضف نبذة...'}
+          label={t('bioLabel')}
+          value={user.bio || t('bioEmpty')}
           onEdit={() => { setBio(user.bio || ''); setSection('bio'); }}
           isOpen={section === 'bio'}
           onClose={() => setSection(null)}
@@ -136,20 +135,19 @@ export function ProfileTab() {
           <textarea
             value={bio}
             onChange={e => setBio(e.target.value)}
-            placeholder="اكتب نبذة مختصرة عنك"
+            placeholder={t('bioPlaceholder')}
             maxLength={160}
             rows={3}
             className="w-full bg-muted/50 border border-border rounded-xl px-4 py-2.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-primary"
-            dir="rtl"
           />
           <p className="text-xs text-muted-foreground text-left">{bio.length}/160</p>
-          <SaveBtn saving={saving} onClick={() => save({ bio })} />
+          <SaveBtn saving={saving} onClick={() => save({ bio })} label={t('save')} />
         </ProfileSection>
 
         {/* Avatar Picker */}
         <ProfileSection
-          label="الصورة والألوان"
-          value="تخصيص الأفاتار"
+          label={t('avatarLabel')}
+          value={t('avatarCustomize')}
           onEdit={() => setSection('avatar')}
           isOpen={section === 'avatar'}
           onClose={() => setSection(null)}
@@ -215,7 +213,7 @@ export function ProfileTab() {
           {/* Color picker (for initials avatar) */}
           {(!avatarUrl || !isPresetAvatar(avatarUrl)) && (
             <div className="space-y-1.5">
-              <p className="text-xs text-muted-foreground text-center">لون الأحرف الأولى</p>
+              <p className="text-xs text-muted-foreground text-center">{t('initialsColor')}</p>
               <div className="flex flex-wrap gap-2 justify-center">
                 {AVATAR_COLORS.map(c => (
                   <button
@@ -229,7 +227,7 @@ export function ProfileTab() {
             </div>
           )}
 
-          <SaveBtn saving={saving} onClick={() => save({ avatarColor, avatarUrl })} />
+          <SaveBtn saving={saving} onClick={() => save({ avatarColor, avatarUrl })} label={t('save')} />
         </ProfileSection>
 
 
@@ -237,15 +235,15 @@ export function ProfileTab() {
         <div className="bg-card border border-border rounded-2xl overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3.5">
             <div className="text-right">
-              <p className="text-xs text-muted-foreground">الإشعارات</p>
+              <p className="text-xs text-muted-foreground">{t('notificationsLabel')}</p>
               <p className="text-sm font-medium text-foreground mt-0.5">
                 {!isSupported
-                  ? 'غير مدعوم على هذا المتصفح'
+                  ? t('notifNotSupported')
                   : permission === 'granted'
-                    ? 'مفعّلة'
+                    ? t('notifEnabled')
                     : permission === 'denied'
-                      ? 'محظورة من المتصفح'
-                      : 'غير مفعّلة'}
+                      ? t('notifBlocked')
+                      : t('notifDisabled')}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -258,7 +256,7 @@ export function ProfileTab() {
                   {pushLoading
                     ? <div className="w-3 h-3 border-2 border-primary-foreground/50 border-t-transparent rounded-full animate-spin" />
                     : <Bell className="w-3.5 h-3.5" />}
-                  تفعيل
+                  {t('notifEnable')}
                 </button>
               )}
               {permission === 'granted' && (
@@ -270,7 +268,7 @@ export function ProfileTab() {
                   {pushLoading
                     ? <div className="w-3 h-3 border-2 border-muted-foreground/40 border-t-transparent rounded-full animate-spin" />
                     : <Bell className="w-3.5 h-3.5" />}
-                  تحديث
+                  {t('notifRefresh')}
                 </button>
               )}
               {permission === 'granted' && (
@@ -285,7 +283,7 @@ export function ProfileTab() {
                   className="flex items-center gap-1 px-2.5 py-1.5 bg-green-500/20 rounded-xl text-xs text-green-500 font-medium disabled:opacity-50"
                 >
                   <Bell className="w-3.5 h-3.5" />
-                  اختبار
+                  {t('notifTest')}
                 </button>
               )}
               {permission === 'denied' && (
@@ -297,7 +295,7 @@ export function ProfileTab() {
           </div>
           {testMsg !== 'idle' && (
             <div className={`px-4 py-2 text-xs text-center border-t border-border ${testMsg === 'sent' ? 'text-green-500' : 'text-destructive'}`}>
-              {testMsg === 'sent' ? 'تم الإرسال — تحقق من إشعاراتك!' : 'فشل الإرسال — جرّب "تحديث" أولاً'}
+              {testMsg === 'sent' ? t('notifSent') : t('notifFailed')}
             </div>
           )}
         </div>
@@ -310,14 +308,14 @@ export function ProfileTab() {
             className="w-full flex items-center justify-center gap-2 py-3.5 bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 rounded-2xl font-semibold text-sm mt-4"
           >
             <Shield className="w-4 h-4" />
-            {lang === 'ar' ? 'لوحة الأدمن' : 'Admin Panel'}
+            {t('adminPanel')}
           </motion.button>
         )}
 
         {/* ── Language selector ───────────────────────────── */}
         <div className="mt-4 bg-card border border-border rounded-2xl overflow-hidden">
           <p className="text-xs text-muted-foreground px-4 pt-3 pb-2">
-            {lang === 'ar' ? 'لغة الواجهة' : 'Interface Language'}
+            {t('interfaceLanguage')}
           </p>
           <div className="grid grid-cols-3 gap-1.5 px-3 pb-3">
             {LANGUAGES.map(l => (
@@ -344,7 +342,7 @@ export function ProfileTab() {
           className="w-full flex items-center justify-center gap-2 py-3.5 bg-destructive/10 border border-destructive/20 text-destructive rounded-2xl font-semibold text-sm mt-4"
         >
           <LogOut className="w-4 h-4" />
-          {lang === 'ar' ? 'تسجيل الخروج' : 'Log Out'}
+          {t('logout')}
         </motion.button>
       </div>
     </div>
