@@ -1,4 +1,4 @@
-import { useEffect, useId } from 'react';
+import { useEffect, useRef } from 'react';
 
 declare global {
   interface Window { aclib?: any; }
@@ -11,30 +11,38 @@ interface Props {
   inline?: boolean;
 }
 
-function runAd(containerId: string) {
-  const el = document.getElementById(containerId);
-  if (!el || !window.aclib) return;
-  try {
-    const result = window.aclib.runBanner({ zoneId: BANNER_ZONE_ID, el });
-    if (result && typeof result.then === 'function') result.catch(() => {});
-  } catch {}
+function injectAd(container: HTMLDivElement) {
+  const run = () => {
+    if (!window.aclib) return false;
+    // inject a real <script> node inside the container so aclib renders into it
+    const s = document.createElement('script');
+    s.type = 'text/javascript';
+    s.text = `try { aclib.runBanner({ zoneId: '${BANNER_ZONE_ID}' }); } catch(e) {}`;
+    container.appendChild(s);
+    return true;
+  };
+  if (!run()) {
+    const t = setInterval(() => { if (run()) clearInterval(t); }, 300);
+    return () => clearInterval(t);
+  }
 }
 
 export default function AdBar({ bottom = 0, inline = false }: Props) {
-  const uid = useId().replace(/[^a-z0-9]/gi, '');
-  const containerId = `adbar-${uid}`;
+  const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (window.aclib) {
-      setTimeout(() => runAd(containerId), 0);
-    } else {
-      const t = setInterval(() => {
-        if (window.aclib) { clearInterval(t); setTimeout(() => runAd(containerId), 0); }
-      }, 300);
-      return () => clearInterval(t);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    const el = ref.current;
+    if (!el) return;
+    const cleanup = injectAd(el);
+    return cleanup;
   }, []);
+
+  const inner = (
+    <div
+      ref={ref}
+      style={{ width: 468, height: 60, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+    />
+  );
 
   if (inline) {
     return (
@@ -48,7 +56,7 @@ export default function AdBar({ bottom = 0, inline = false }: Props) {
         overflow: 'hidden',
         height: 60,
       }}>
-        <div id={containerId} style={{ width: 468, height: 60 }} />
+        {inner}
       </div>
     );
   }
@@ -68,7 +76,7 @@ export default function AdBar({ bottom = 0, inline = false }: Props) {
       height: 60,
       overflow: 'hidden',
     }}>
-      <div id={containerId} style={{ width: 468, height: 60 }} />
+      {inner}
     </div>
   );
 }
