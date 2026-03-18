@@ -1,12 +1,28 @@
 <!DOCTYPE html>
 <html>
 <head>
-<style>*{margin:0;padding:0;overflow:hidden}html,body{width:100%;height:60px;background:transparent;display:flex;align-items:center;justify-content:center}</style>
+<meta charset="utf-8">
+<style>
+  * { margin:0; padding:0; }
+  html, body { width:100%; height:60px; overflow:hidden; background:transparent; display:flex; align-items:center; justify-content:center; }
+</style>
+<script>
+  // Prevent aclib internal errors from leaking to parent
+  window.onerror = function() { return true; };
+  window.addEventListener('unhandledrejection', function(e) { e.preventDefault(); });
+  // Globals aclib expects
+  var ua = navigator.userAgent;
+  window.isIos     = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
+  window.isSafari  = /^((?!chrome|android).)*safari/i.test(ua);
+  window.isAndroid = /android/i.test(ua);
+</script>
 <script id="aclib" type="text/javascript" src="//acscdn.com/script/aclib.js"></script>
 </head>
 <body>
 <script type="text/javascript">
-window.onload=function(){try{aclib.runBanner({zoneId:'11082246'});}catch(e){}};
+  window.onload = function() {
+    try { aclib.runBanner({ zoneId: '11082246' }); } catch(e) {}
+  };
 </script>
 </body>
 </html>

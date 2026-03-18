@@ -5,33 +5,52 @@ import { createPortal } from 'react-dom';
 const ZONE_ID = '11083266';
 const COUNTDOWN = 5;
 
-function ensureGlobals() {
-  const ua = navigator.userAgent;
-  if ((window as any).isIos === undefined)
-    (window as any).isIos = /iPad|iPhone|iPod/.test(ua) && !(window as any).MSStream;
-  if ((window as any).isSafari === undefined)
-    (window as any).isSafari = /^((?!chrome|android).)*safari/i.test(ua);
-  if ((window as any).isAndroid === undefined)
-    (window as any).isAndroid = /android/i.test(ua);
+function suppressAclibErrors() {
+  // aclib.js has an internal bug with private class fields in some environments;
+  // suppress those errors so Vite's overlay doesn't appear.
+  const handler = (e: ErrorEvent) => {
+    if (e.message?.includes('#b') || e.message?.includes('aclib')) e.preventDefault();
+  };
+  const rejHandler = (e: PromiseRejectionEvent) => { e.preventDefault(); };
+  window.addEventListener('error', handler);
+  window.addEventListener('unhandledrejection', rejHandler);
+  // Remove after 5 s — enough time for aclib to finish initialising
+  setTimeout(() => {
+    window.removeEventListener('error', handler);
+    window.removeEventListener('unhandledrejection', rejHandler);
+  }, 5000);
 }
 
-function loadAclibAndRunInterstitial() {
-  ensureGlobals();
-  const run = () => {
-    try { (window as any).aclib.runInterstitial({ zoneId: ZONE_ID }); } catch (_) {}
+function runInterstitial() {
+  suppressAclibErrors();
+
+  // Define globals aclib expects
+  const ua = navigator.userAgent;
+  (window as any).isIos    ??= /iPad|iPhone|iPod/.test(ua) && !(window as any).MSStream;
+  (window as any).isSafari ??= /^((?!chrome|android).)*safari/i.test(ua);
+  (window as any).isAndroid ??= /android/i.test(ua);
+
+  const fire = () => {
+    try { (window as any).aclib?.runInterstitial({ zoneId: ZONE_ID }); } catch (_) {}
   };
-  if ((window as any).aclib) { run(); return; }
-  if (document.getElementById('aclib-script')) {
-    const wait = setInterval(() => {
-      if ((window as any).aclib) { clearInterval(wait); run(); }
+
+  if ((window as any).aclib) { fire(); return; }
+
+  // Only inject once
+  if (!document.getElementById('aclib-script')) {
+    const s = document.createElement('script');
+    s.id = 'aclib-script';
+    s.src = '//acscdn.com/script/aclib.js';
+    s.onload = fire;
+    s.onerror = () => {}; // silent fail
+    document.head.appendChild(s);
+  } else {
+    // Script tag exists but aclib not yet ready — poll briefly
+    let tries = 0;
+    const t = setInterval(() => {
+      if ((window as any).aclib || ++tries > 20) { clearInterval(t); fire(); }
     }, 100);
-    return;
   }
-  const s = document.createElement('script');
-  s.id = 'aclib-script';
-  s.src = '//acscdn.com/script/aclib.js';
-  s.onload = run;
-  document.head.appendChild(s);
 }
 
 interface Props {
@@ -42,7 +61,7 @@ export default function InterstitialAd({ onDone }: Props) {
   const [seconds, setSeconds] = useState(COUNTDOWN);
 
   useEffect(() => {
-    loadAclibAndRunInterstitial();
+    try { runInterstitial(); } catch (_) {}
   }, []);
 
   useEffect(() => {
@@ -51,25 +70,18 @@ export default function InterstitialAd({ onDone }: Props) {
     return () => clearTimeout(t);
   }, [seconds]);
 
-  // Auto-navigate when countdown reaches 0 after a short grace period
+  // Auto-navigate a few seconds after countdown hits 0
   useEffect(() => {
-    if (seconds === 0) {
-      const t = setTimeout(onDone, 3000); // 3 extra seconds grace
-      return () => clearTimeout(t);
-    }
+    if (seconds !== 0) return;
+    const t = setTimeout(onDone, 3000);
+    return () => clearTimeout(t);
   }, [seconds, onDone]);
 
   return createPortal(
-    <div
-      className="fixed inset-0 z-[9990] bg-black/60"
-      style={{ pointerEvents: 'none' }}
-    >
-      {/* Countdown + skip — always interactive */}
+    <div className="fixed inset-0 z-[9990]" style={{ pointerEvents: 'none' }}>
+      {/* Skip button — always interactive */}
       <div
-        style={{
-          position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10000,
-          pointerEvents: 'auto',
-        }}
+        style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10000, pointerEvents: 'auto' }}
         className="flex justify-end items-center px-4 pt-4"
       >
         {seconds > 0 ? (
@@ -93,12 +105,7 @@ export default function InterstitialAd({ onDone }: Props) {
       </div>
 
       {/* Progress bar */}
-      <div
-        style={{
-          position: 'absolute', bottom: 0, left: 0, right: 0,
-          zIndex: 10000, pointerEvents: 'none',
-        }}
-      >
+      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 10000, pointerEvents: 'none' }}>
         <div className="h-1 bg-white/20">
           <motion.div
             className="h-full bg-white"
