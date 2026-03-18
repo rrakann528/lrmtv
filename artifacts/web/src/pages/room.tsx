@@ -200,9 +200,9 @@ export default function RoomPage() {
     const diff = Math.abs(playerTime - syncState.time);
     const sinceReady = Date.now() - readyTimeRef.current;
 
-    const threshold = syncState.source === 'action'    ? 1.5
-                    : syncState.source === 'heartbeat' ? 8
-                    : sinceReady > 30_000              ? 8   // 30 s grace (was 10 s)
+    const threshold = syncState.source === 'action'    ? 1.0
+                    : syncState.source === 'heartbeat' ? 3
+                    : sinceReady > 8_000               ? 3
                     : Infinity;
 
     if (diff > threshold) {
@@ -215,7 +215,7 @@ export default function RoomPage() {
       }
       isRemoteSeekRef.current = true;
       playerRef.current.seekTo(syncState.time, 'seconds');
-      setTimeout(() => { isRemoteSeekRef.current = false; }, 1500);
+      setTimeout(() => { isRemoteSeekRef.current = false; }, 600);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [syncState.time, syncState.playing, syncState.source, syncState.isLive, isSeeking, playerReady]);

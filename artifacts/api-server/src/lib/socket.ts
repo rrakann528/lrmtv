@@ -1054,7 +1054,7 @@ function startHeartbeat(io: Server, state: RoomState) {
       isLive: state.isLive,
       serverTs: Date.now(),
     });
-  }, 3000);
+  }, 2000);
 }
 
 function stopHeartbeat(state: RoomState) {

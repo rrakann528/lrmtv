@@ -394,38 +394,29 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         startPosition: startPos,
         startFragPrefetch: true,
 
-        // ── Live latency — 2 segments behind for low-latency edge tracking ──
-        // liveSyncDurationCount=2  → stay closer to edge (was 3)
-        // liveMaxLatencyDurationCount=5 → trigger catch-up sooner (was 8)
-        // maxLiveSyncPlaybackRate=1.15 → smooth speed-up catch-up (was 1.1)
         liveSyncDurationCount:       2,
-        liveMaxLatencyDurationCount: 5,
-        maxLiveSyncPlaybackRate:     1.15,
+        liveMaxLatencyDurationCount: 4,
+        maxLiveSyncPlaybackRate:     1.2,
 
-        // ── Buffer — generous for VOD; live streams self-trim via backBuffer ─
-        backBufferLength:   30,
-        maxBufferLength:    30,
-        maxMaxBufferLength: 60,
+        backBufferLength:   20,
+        maxBufferLength:    60,
+        maxMaxBufferLength: 120,
 
-        // ── Retry / timeout ───────────────────────────────────────────────────
-        // Manifest: fail fast (1 retry, 6 s) so we reach S6 API proxy quickly.
-        // Fragments: more retries — once playing we want recovery not restart.
         manifestLoadingMaxRetry:   1,
         manifestLoadingTimeOut:    6_000,
-        manifestLoadingRetryDelay: 800,
+        manifestLoadingRetryDelay: 500,
         levelLoadingMaxRetry:      3,
-        levelLoadingTimeOut:       12_000,
-        levelLoadingRetryDelay:    1000,
-        fragLoadingMaxRetry:       6,
-        fragLoadingTimeOut:        20_000,
-        fragLoadingRetryDelay:     500,
+        levelLoadingTimeOut:       10_000,
+        levelLoadingRetryDelay:    500,
+        fragLoadingMaxRetry:       5,
+        fragLoadingTimeOut:        12_000,
+        fragLoadingRetryDelay:     300,
 
-        // ── ABR — start at lowest quality, upgrade conservatively ────────────
-        startLevel:             0,
-        abrEwmaDefaultEstimate: 1_000_000,
-        abrBandWidthFactor:     0.8,
-        abrBandWidthUpFactor:   0.5,
-        testBandwidth:          false,
+        startLevel:             -1,
+        abrEwmaDefaultEstimate: 2_000_000,
+        abrBandWidthFactor:     0.9,
+        abrBandWidthUpFactor:   0.7,
+        testBandwidth:          true,
 
         progressive:   true,
         nudgeMaxRetry: 10,
@@ -912,7 +903,7 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           if (prev) { setError(e => e ?? 'ip-locked'); return null; }
           return prev;
         });
-      }, 45_000);
+      }, 30_000);
       return () => clearTimeout(timer);
     }, [src, retryKey]);
 
