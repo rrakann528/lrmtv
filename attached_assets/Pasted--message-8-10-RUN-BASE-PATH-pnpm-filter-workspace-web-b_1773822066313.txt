@@ -1,0 +1,35 @@
+{
+  "message": "[ 8/10] RUN BASE_PATH=/ pnpm --filter @workspace/web build",
+  "timestamp": "2026-03-18T08:19:46.946986211Z",
+  "severity": "error",
+  "children": [
+    {
+      "message": "\n> @workspace/web@0.0.0 build /app/artifacts/web\n> vite build --config vite.config.ts\n\n",
+      "timestamp": "2026-03-18T08:19:58.297503331Z"
+    },
+    {
+      "message": "vite v7.3.1 building client environment for production...\n",
+      "timestamp": "2026-03-18T08:19:58.776474521Z"
+    },
+    {
+      "message": "transforming...\n",
+      "timestamp": "2026-03-18T08:19:58.900411111Z"
+    },
+    {
+      "message": "✓ 1093 modules transformed.\n",
+      "timestamp": "2026-03-18T08:20:01.613851482Z"
+    },
+    {
+      "message": "✗ Build failed in 2.80s\n",
+      "timestamp": "2026-03-18T08:20:01.620608841Z"
+    },
+    {
+      "message": "error during build:\n[vite:load-fallback] Could not load /app/artifacts/web/src/components/ad-bar (imported by src/pages/home.tsx): ENOENT: no such file or directory, open '/app/artifacts/web/src/components/ad-bar'\n    at async open (node:internal/fs/promises:634:25)\n    at async Object.readFile (node:internal/fs/promises:1236:14)\n    at async Object.handler (file:///app/node_modules/.pnpm/vite@7.3.1_@types+node@25.3.5_jiti@2.6.1_lightningcss@1.31.1_tsx@4.21.0_yaml@2.8.2/node_modules/vite/dist/node/chunks/config.js:33169:21)\n    at async PluginDriver.hookFirstAndGetPlugin (file:///app/node_modules/.pnpm/rollup@4.59.0/node_modules/rollup/dist/es/shared/node-entry.js:22453:28)\n    at async file:///app/node_modules/.pnpm/rollup@4.59.0/node_modules/rollup/dist/es/shared/node-entry.js:21445:33\n    at async Queue.work (file:///app/node_modules/.pnpm/rollup@4.59.0/node_modules/rollup/dist/es/shared/node-entry.js:22681:32)\n",
+      "timestamp": "2026-03-18T08:20:01.620726355Z"
+    },
+    {
+      "message": "/app/artifacts/web:\n ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @workspace/web@0.0.0 build: `vite build --config vite.config.ts`\nExit status 1\n",
+      "timestamp": "2026-03-18T08:20:01.674089171Z"
+    }
+  ]
+}
