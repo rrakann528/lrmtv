@@ -391,7 +391,7 @@ export default function RoomPage() {
         <div className="flex items-center gap-1 md:gap-2 shrink-0">
           {/* Leave */}
           <button
-            onClick={() => window.location.href = '/'}
+            onClick={() => { suppressPauseRef.current = true; window.location.href = '/'; }}
             className="h-8 px-2 md:px-3 flex items-center gap-1.5 rounded-lg bg-red-500/80 hover:bg-red-500 text-white text-xs font-medium transition-colors"
           >
             <LogOut className="w-3.5 h-3.5" />
