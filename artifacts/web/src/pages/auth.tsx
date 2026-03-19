@@ -2,22 +2,24 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth, apiFetch, writeToken } from '@/hooks/use-auth';
 import { useLocation, useSearch } from 'wouter';
-import { Eye, EyeOff, Loader2, Mail, CheckCircle2 } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Mail, CheckCircle2, Globe } from 'lucide-react';
+import { useI18n, LANGUAGES } from '@/lib/i18n';
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
 
-const OAUTH_ERROR_MSGS: Record<string, string> = {
-  google_cancelled: 'تم إلغاء تسجيل الدخول',
-  google_failed: 'فشل تسجيل الدخول بـ Google، حاول مجدداً',
-};
-
 export default function AuthPage() {
   const { user, loading, setUser } = useAuth();
+  const { t, lang, setLang, dir } = useI18n();
   const [, setLocation] = useLocation();
   const search = useSearch();
   const params = new URLSearchParams(search);
   const initialMode = params.get('mode') === 'register' ? 'register' : 'login';
   const oauthError = params.get('error');
+
+  const OAUTH_ERROR_KEYS: Record<string, string> = {
+    google_cancelled: 'authGoogleCancelled',
+    google_failed: 'authGoogleFailed',
+  };
 
   const [mode, setMode] = useState<'login' | 'register'>(initialMode);
   const [step, setStep] = useState<'form' | 'otp'>('form');
@@ -27,9 +29,12 @@ export default function AuthPage() {
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState(oauthError ? (OAUTH_ERROR_MSGS[oauthError] || 'خطأ في تسجيل الدخول') : '');
+  const [errorKey, setErrorKey] = useState(oauthError ? (OAUTH_ERROR_KEYS[oauthError] || 'authOauthError') : '');
+  const [errorRaw, setErrorRaw] = useState('');
+  const [showLangPicker, setShowLangPicker] = useState(false);
 
-  // OTP state
+  const displayError = errorKey ? t(errorKey as any) : errorRaw;
+
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [otpError, setOtpError] = useState('');
   const [otpSubmitting, setOtpSubmitting] = useState(false);
@@ -37,13 +42,11 @@ export default function AuthPage() {
   const [pendingUser, setPendingUser] = useState<any>(null);
   const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-  // Redirect to home only if email is verified (or user has no email — old accounts)
   useEffect(() => {
     if (!loading && user && step !== 'otp') {
       if (!user.email || user.emailVerified !== false) {
         setLocation('/home');
       } else {
-        // Unverified email — force OTP step
         setPendingUser(user);
         setStep('otp');
         apiFetch('/auth/send-otp', { method: 'POST' }).catch(() => {});
@@ -53,13 +56,13 @@ export default function AuthPage() {
 
   useEffect(() => {
     if (resendCooldown <= 0) return;
-    const t = setTimeout(() => setResendCooldown(v => v - 1), 1000);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setResendCooldown(v => v - 1), 1000);
+    return () => clearTimeout(timer);
   }, [resendCooldown]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setError('');
+    setErrorKey(''); setErrorRaw('');
     setSubmitting(true);
     try {
       const endpoint = mode === 'login' ? '/auth/login' : '/auth/register';
@@ -74,7 +77,7 @@ export default function AuthPage() {
       const res = await apiFetch(endpoint, { method: 'POST', body: JSON.stringify(body) });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || 'حدث خطأ');
+        if (data.error) setErrorRaw(data.error); else setErrorKey('authGenericError');
         return;
       }
 
@@ -82,7 +85,6 @@ export default function AuthPage() {
       const { token: _t, ...userData } = data;
 
       if (mode === 'register' && !userData.emailVerified) {
-        // Show OTP screen first — then send in background
         setPendingUser(userData);
         setStep('otp');
         setResendCooldown(60);
@@ -92,7 +94,7 @@ export default function AuthPage() {
         setLocation('/home');
       }
     } catch {
-      setError('تعذّر الاتصال بالخادم');
+      setErrorKey('authConnectionError');
     } finally {
       setSubmitting(false);
     }
@@ -125,17 +127,17 @@ export default function AuthPage() {
   async function handleVerifyOtp(e: React.FormEvent) {
     e.preventDefault();
     const code = otp.join('');
-    if (code.length < 6) { setOtpError('أدخل الرمز كاملاً'); return; }
+    if (code.length < 6) { setOtpError(t('authEnterFullCode')); return; }
     setOtpSubmitting(true);
     setOtpError('');
     try {
       const res = await apiFetch('/auth/verify-otp', { method: 'POST', body: JSON.stringify({ code }) });
       const data = await res.json();
-      if (!res.ok) { setOtpError(data.error || 'رمز غير صحيح'); return; }
+      if (!res.ok) { setOtpError(data.error || t('authInvalidCode')); return; }
       setUser({ ...pendingUser, emailVerified: true });
       setLocation('/home');
     } catch {
-      setOtpError('تعذّر الاتصال بالخادم');
+      setOtpError(t('authConnectionError'));
     } finally {
       setOtpSubmitting(false);
     }
@@ -149,13 +151,49 @@ export default function AuthPage() {
       setOtp(['', '', '', '', '', '']);
       setOtpError('');
       otpRefs.current[0]?.focus();
-    } catch { setOtpError('فشل إعادة الإرسال'); }
+    } catch { setOtpError(t('authResendFailed')); }
   }
 
+  const currentLang = LANGUAGES.find(l => l.code === lang);
+
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-background">
+    <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-background" dir={dir}>
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-1/3 left-1/2 -translate-x-1/2 w-[500px] h-[500px] rounded-full opacity-10 blur-3xl" style={{ backgroundColor: '#06B6D4' }} />
+      </div>
+
+      <div className="absolute top-4 z-20" style={{ insetInlineEnd: '1rem' }}>
+        <button
+          onClick={() => setShowLangPicker(v => !v)}
+          className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-white/60 hover:text-white hover:bg-white/10 transition text-sm"
+        >
+          <Globe size={16} />
+          <span>{currentLang?.flag} {currentLang?.label}</span>
+        </button>
+
+        <AnimatePresence>
+          {showLangPicker && (
+            <motion.div
+              initial={{ opacity: 0, y: -8, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.95 }}
+              transition={{ duration: 0.15 }}
+              className="absolute top-full mt-2 w-48 rounded-xl border border-white/10 overflow-hidden"
+              style={{ backgroundColor: 'rgba(20,20,30,0.95)', backdropFilter: 'blur(12px)', insetInlineEnd: 0 }}
+            >
+              {LANGUAGES.map(l => (
+                <button
+                  key={l.code}
+                  onClick={() => { setLang(l.code); setShowLangPicker(false); }}
+                  className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition hover:bg-white/10 ${lang === l.code ? 'text-cyan-400 bg-white/5' : 'text-white/70'}`}
+                >
+                  <span className="text-lg">{l.flag}</span>
+                  <span>{l.label}</span>
+                </button>
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       <motion.div
@@ -164,7 +202,6 @@ export default function AuthPage() {
         transition={{ duration: 0.4 }}
         className="relative w-full max-w-xs flex flex-col items-center gap-6"
       >
-        {/* ── OTP Step ── */}
         <AnimatePresence mode="wait">
           {step === 'otp' ? (
             <motion.div
@@ -178,16 +215,15 @@ export default function AuthPage() {
                 <div className="w-14 h-14 rounded-full bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center mx-auto mb-3">
                   <Mail className="w-7 h-7 text-cyan-400" />
                 </div>
-                <h1 className="text-white text-xl font-bold">تحقق من بريدك</h1>
+                <h1 className="text-white text-xl font-bold">{t('authVerifyEmail')}</h1>
                 <p className="text-white/40 text-sm mt-1">
-                  أرسلنا رمزاً إلى<br />
+                  {t('authSentCodeTo')}<br />
                   <span className="text-cyan-400 font-mono">{email}</span>
                 </p>
               </div>
 
               <div className="w-full rounded-2xl border border-white/10 p-6 flex flex-col gap-4" style={{ backgroundColor: 'rgba(255,255,255,0.03)' }}>
                 <form onSubmit={handleVerifyOtp} className="flex flex-col gap-4">
-                  {/* OTP boxes */}
                   <div className="flex gap-2 justify-center" dir="ltr" onPaste={handleOtpPaste}>
                     {otp.map((digit, i) => (
                       <input
@@ -217,7 +253,7 @@ export default function AuthPage() {
                     className="flex items-center justify-center gap-2 w-full py-3 rounded-xl bg-primary text-white font-semibold text-sm hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60"
                   >
                     {otpSubmitting ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
-                    تأكيد الرمز
+                    {t('authConfirmCode')}
                   </button>
                 </form>
 
@@ -227,13 +263,12 @@ export default function AuthPage() {
                     disabled={resendCooldown > 0}
                     className="text-sm text-cyan-400 hover:text-cyan-300 disabled:text-white/30 transition"
                   >
-                    {resendCooldown > 0 ? `إعادة الإرسال خلال ${resendCooldown}ث` : 'إعادة إرسال الرمز'}
+                    {resendCooldown > 0 ? `${t('authResendIn')} ${resendCooldown}${t('authSecondsSuffix')}` : t('authResendCode')}
                   </button>
                 </div>
               </div>
             </motion.div>
           ) : (
-            /* ── Auth Form ── */
             <motion.div
               key="form"
               initial={{ opacity: 0, y: 16 }}
@@ -243,7 +278,7 @@ export default function AuthPage() {
             >
               <div className="text-center">
                 <h1 className="text-white text-2xl font-bold tracking-tight">
-                  {mode === 'login' ? 'تسجيل الدخول' : 'إنشاء حساب جديد'}
+                  {mode === 'login' ? t('authLogin') : t('authRegister')}
                 </h1>
                 <p className="text-white/40 text-sm mt-1">LrmTV</p>
               </div>
@@ -251,16 +286,16 @@ export default function AuthPage() {
               <div className="w-full rounded-2xl border border-white/10 p-6 flex flex-col gap-4" style={{ backgroundColor: 'rgba(255,255,255,0.03)' }}>
                 <div className="flex rounded-xl overflow-hidden border border-white/10">
                   <button
-                    onClick={() => { setMode('login'); setError(''); }}
+                    onClick={() => { setMode('login'); setErrorKey(''); setErrorRaw(''); }}
                     className={`flex-1 py-2 text-sm font-medium transition-colors ${mode === 'login' ? 'bg-primary text-white' : 'text-white/40 hover:text-white/70'}`}
                   >
-                    دخول
+                    {t('authLoginTab')}
                   </button>
                   <button
-                    onClick={() => { setMode('register'); setError(''); }}
+                    onClick={() => { setMode('register'); setErrorKey(''); setErrorRaw(''); }}
                     className={`flex-1 py-2 text-sm font-medium transition-colors ${mode === 'register' ? 'bg-primary text-white' : 'text-white/40 hover:text-white/70'}`}
                   >
-                    حساب جديد
+                    {t('authRegisterTab')}
                   </button>
                 </div>
 
@@ -276,7 +311,7 @@ export default function AuthPage() {
                       >
                         <input
                           type="text"
-                          placeholder="اسم المستخدم"
+                          placeholder={t('authUsername')}
                           value={username}
                           onChange={e => setUsername(e.target.value)}
                           required
@@ -291,7 +326,7 @@ export default function AuthPage() {
                   {mode === 'login' ? (
                     <input
                       type="text"
-                      placeholder="البريد الإلكتروني أو اسم المستخدم"
+                      placeholder={t('authEmailOrUsername')}
                       value={loginField}
                       onChange={e => setLoginField(e.target.value)}
                       required
@@ -302,7 +337,7 @@ export default function AuthPage() {
                   ) : (
                     <input
                       type="email"
-                      placeholder="البريد الإلكتروني"
+                      placeholder={t('authEmail')}
                       value={email}
                       onChange={e => setEmail(e.target.value)}
                       required
@@ -314,7 +349,7 @@ export default function AuthPage() {
                   <div className="relative">
                     <input
                       type={showPass ? 'text' : 'password'}
-                      placeholder="كلمة المرور"
+                      placeholder={t('authPassword')}
                       value={password}
                       onChange={e => setPassword(e.target.value)}
                       required
@@ -324,15 +359,16 @@ export default function AuthPage() {
                     <button
                       type="button"
                       onClick={() => setShowPass(v => !v)}
-                      className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60"
+                      className="absolute top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60"
+                      style={{ insetInlineStart: '0.75rem' }}
                     >
                       {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
                     </button>
                   </div>
 
-                  {error && (
+                  {displayError && (
                     <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-red-400 text-xs text-center">
-                      {error}
+                      {displayError}
                     </motion.p>
                   )}
 
@@ -342,7 +378,7 @@ export default function AuthPage() {
                     className="flex items-center justify-center gap-2 w-full py-3 rounded-xl bg-primary text-white font-semibold text-sm hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60"
                   >
                     {submitting ? <Loader2 size={16} className="animate-spin" /> : null}
-                    {mode === 'login' ? 'دخول' : 'إنشاء الحساب'}
+                    {mode === 'login' ? t('authLoginSubmit') : t('authCreateAccount')}
                   </button>
                 </form>
               </div>
@@ -351,7 +387,7 @@ export default function AuthPage() {
                 onClick={() => setLocation('/')}
                 className="text-white/20 text-xs hover:text-white/50 transition"
               >
-                ← العودة
+                {dir === 'rtl' ? '→' : '←'} {t('authBack')}
               </button>
             </motion.div>
           )}
