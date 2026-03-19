@@ -35,8 +35,9 @@ interface ChatMessageData {
 }
 
 export function useSocket(slug: string | null) {
-  const { username } = useUserSession();
+  const { username: sessionUsername, setUsername: setSessionUsername } = useUserSession();
   const { user: authUser } = useAuth();
+  const username = authUser ? (authUser.displayName || authUser.username) : sessionUsername;
   const socketRef = useRef<Socket | null>(null);
   const [connected, setConnected] = useState(false);
   const [users, setUsers] = useState<RoomUser[]>([]);
@@ -60,7 +61,15 @@ export function useSocket(slug: string | null) {
     from: string;
   } | null>(null);
 
-  // Send identify once authUser loads (in case connect fired before auth was ready)
+  useEffect(() => {
+    if (authUser) {
+      const profileName = authUser.displayName || authUser.username;
+      if (profileName && profileName !== sessionUsername) {
+        setSessionUsername(profileName);
+      }
+    }
+  }, [authUser, sessionUsername, setSessionUsername]);
+
   useEffect(() => {
     if (!authUser?.id || !socketRef.current?.connected) return;
     socketRef.current.emit('identify', { userId: authUser.id });

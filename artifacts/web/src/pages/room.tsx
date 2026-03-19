@@ -63,8 +63,11 @@ export default function RoomPage() {
   const username = authUser ? (authUser.displayName || authUser.username) : sessionUsername;
 
   useEffect(() => {
-    if (authUser && !sessionUsername) {
-      setUsername(authUser.displayName || authUser.username);
+    if (authUser) {
+      const profileName = authUser.displayName || authUser.username;
+      if (profileName && profileName !== sessionUsername) {
+        setUsername(profileName);
+      }
     }
   }, [authUser, sessionUsername, setUsername]);
 
