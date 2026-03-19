@@ -276,9 +276,30 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
         if (!ready || !reactPlayerRef.current) return;
         reactPlayerRef.current.seekTo(time, 'seconds');
       },
-      play: () => { if (isHls) hlsPlayerRef.current?.play(); },
-      pause: () => { if (isHls) hlsPlayerRef.current?.pause(); },
-      getVideoElement: () => isHls ? (hlsPlayerRef.current?.getVideoElement() ?? null) : null,
+      play: () => {
+        if (isHls) { hlsPlayerRef.current?.play(); return; }
+        try {
+          const ip = reactPlayerRef.current?.getInternalPlayer();
+          if (ip?.playVideo) ip.playVideo();
+          else if (ip?.play) ip.play().catch?.(() => {});
+        } catch {}
+      },
+      pause: () => {
+        if (isHls) { hlsPlayerRef.current?.pause(); return; }
+        try {
+          const ip = reactPlayerRef.current?.getInternalPlayer();
+          if (ip?.pauseVideo) ip.pauseVideo();
+          else if (ip?.pause) ip.pause();
+        } catch {}
+      },
+      getVideoElement: () => {
+        if (isHls) return hlsPlayerRef.current?.getVideoElement() ?? null;
+        try {
+          const ip = reactPlayerRef.current?.getInternalPlayer();
+          if (ip instanceof HTMLVideoElement) return ip;
+        } catch {}
+        return null;
+      },
     }));
 
     // ── Subtitle: update current cue as video progresses ────────────────────

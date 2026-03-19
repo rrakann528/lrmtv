@@ -509,9 +509,17 @@ export default function RoomPage() {
                     className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 backdrop-blur-sm cursor-pointer select-none"
                     onClick={() => {
                       setWatcherReadyState(true);
-                      if (syncState.time > 1) {
-                        setTimeout(() => playerRef.current?.seekTo(syncState.time), 300);
+
+                      if (canControl) {
+                        emitSync(syncState.time > 1 ? syncState.time : 0, true, syncState.url);
                       }
+
+                      setTimeout(() => {
+                        if (syncState.time > 1) {
+                          playerRef.current?.seekTo(syncState.time);
+                        }
+                        playerRef.current?.play();
+                      }, 200);
                     }}
                   >
                     <div className="text-center space-y-3 animate-pulse">
