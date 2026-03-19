@@ -166,7 +166,6 @@ export function RoomsTab() {
             onChange={e => setSearch(e.target.value)}
             placeholder={t('searchRoomPlaceholder')}
             className="w-full bg-muted/50 border border-border rounded-xl pl-4 pr-10 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-            dir="rtl"
           />
         </div>
         <div className="flex gap-2">
@@ -175,7 +174,6 @@ export function RoomsTab() {
             onChange={e => setJoinCode(e.target.value)}
             placeholder={t('enterRoomCode')}
             className="flex-1 bg-muted/50 border border-border rounded-xl px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-            dir="rtl"
             onKeyDown={e => e.key === 'Enter' && handleJoinCode()}
           />
           <button

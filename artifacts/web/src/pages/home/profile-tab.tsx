@@ -49,7 +49,7 @@ export function ProfileTab() {
       setSection(null);
       setTimeout(() => setSuccess(''), 3000);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'خطأ في الحفظ');
+      setError(e instanceof Error ? e.message : t('saveError'));
     } finally {
       setSaving(false);
     }
@@ -174,7 +174,7 @@ export function ProfileTab() {
                     : 'bg-muted text-muted-foreground'
                 }`}
               >
-                {CATEGORY_LABELS[cat].ar}
+                {lang === 'ar' ? CATEGORY_LABELS[cat].ar : CATEGORY_LABELS[cat].en}
               </button>
             ))}
           </div>

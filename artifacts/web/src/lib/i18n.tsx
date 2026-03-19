@@ -1514,6 +1514,11 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   const t = (key: TranslationKey): string => translations[lang][key] ?? translations.en[key];
   const dir = LANGUAGES.find(l => l.code === lang)?.dir ?? 'ltr';
 
+  React.useEffect(() => {
+    document.documentElement.lang = lang;
+    document.documentElement.dir = dir;
+  }, [lang, dir]);
+
   return (
     <I18nContext.Provider value={{ lang, setLang, t, dir }}>
       {children}

@@ -122,7 +122,13 @@ router.get('/proxy/subtitle', async (req, res) => {
   let targetUrl: string;
   try {
     targetUrl = decodeURIComponent(rawUrl);
-    new URL(targetUrl);
+    const parsed = new URL(targetUrl);
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      res.status(400).json({ error: 'Invalid url scheme' }); return;
+    }
+    if (['localhost', '127.0.0.1', '0.0.0.0', '[::1]'].includes(parsed.hostname) || parsed.hostname.startsWith('10.') || parsed.hostname.startsWith('192.168.') || parsed.hostname.startsWith('172.')) {
+      res.status(403).json({ error: 'Forbidden' }); return;
+    }
   } catch {
     res.status(400).json({ error: 'Invalid url' }); return;
   }

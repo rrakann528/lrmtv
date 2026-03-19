@@ -104,16 +104,23 @@ router.get("/admin/stats/registrations", requireSiteAdmin, async (_req, res): Pr
 // USER MANAGEMENT
 // ══════════════════════════════════════════════════════════════════════════════
 
-router.get("/admin/users", requireSiteAdmin, async (_req, res): Promise<void> => {
+router.get("/admin/users", requireSiteAdmin, async (req, res): Promise<void> => {
   try {
-    const users = await db.select({
-      id: usersTable.id, username: usersTable.username, displayName: usersTable.displayName,
-      email: usersTable.email, provider: usersTable.provider, isSiteAdmin: usersTable.isSiteAdmin,
-      isBanned: usersTable.isBanned, isMuted: usersTable.isMuted, adminNote: usersTable.adminNote,
-      lastSeenAt: usersTable.lastSeenAt, createdAt: usersTable.createdAt,
-    }).from(usersTable).orderBy(desc(usersTable.createdAt));
-    res.json(users);
-  } catch (err) { res.status(500).json({ error: "خطأ داخلي" }); }
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(500, Math.max(1, parseInt(req.query.limit as string) || 100));
+    const offset = (page - 1) * limit;
+
+    const [users, [{ total }]] = await Promise.all([
+      db.select({
+        id: usersTable.id, username: usersTable.username, displayName: usersTable.displayName,
+        email: usersTable.email, provider: usersTable.provider, isSiteAdmin: usersTable.isSiteAdmin,
+        isBanned: usersTable.isBanned, isMuted: usersTable.isMuted, adminNote: usersTable.adminNote,
+        lastSeenAt: usersTable.lastSeenAt, createdAt: usersTable.createdAt,
+      }).from(usersTable).orderBy(desc(usersTable.createdAt)).limit(limit).offset(offset),
+      db.select({ total: count() }).from(usersTable),
+    ]);
+    res.json({ users, total, page, limit, totalPages: Math.ceil(total / limit) });
+  } catch (err) { res.status(500).json({ error: "Internal error" }); }
 });
 
 // Edit user data

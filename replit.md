@@ -226,9 +226,11 @@ S1 HLS.js direct
 
 - `useI18n()` → `{ lang, setLang, t, dir }`
 - مفتاح LocalStorage: `lrmtv_lang`
-- الاتجاه (RTL/LTR) لا يتغير عند تبديل اللغة
+- الاتجاه (RTL/LTR) يتغير ديناميكياً عند تبديل اللغة (عبر `document.documentElement.dir`)
 - `I18nProvider` يغلف كل شيء في `App.tsx`
+- `I18nProvider` يزامن `document.documentElement.lang` و `.dir` عند تغيير اللغة
 - جميع الملفات مكتملة 100% — لا توجد نصوص عربية hardcoded
+- `formatLastTime` في friends-tab يدعم 6 لغات
 
 ---
 
@@ -236,7 +238,7 @@ S1 HLS.js direct
 
 تبويبات: الرئيسية / المستخدمون / الغرف / المحادثات / الإشعارات / الإعدادات / الأمان / النظام
 
-**ميزات المستخدمين:** حظر/رفع — كتم الدردشة — ملاحظة أدمن — تعديل اسم/بريد — إعادة تعيين كلمة مرور — طرد من كل الغرف — تصدير CSV
+**ميزات المستخدمين:** حظر/رفع — كتم الدردشة — ملاحظة أدمن — تعديل اسم/بريد — إعادة تعيين كلمة مرور — طرد من كل الغرف — تصدير CSV — Paginated (limit=100, max=500)
 
 **ميزات الغرف:** تجميد/رفع — تغيير نوع — إعادة تسمية — عرض/مسح محادثة — مسح قائمة التشغيل — تشغيل/إيقاف إجباري — حذف — تصدير CSV
 
@@ -251,6 +253,8 @@ S1 HLS.js direct
 ## ملاحظات مهمة
 
 1. **P2P والـ Relay تم إزالتهم بالكامل** — المشغل يعتمد على سلسلة fallback مباشرة فقط
+8. **DB Indexes**: `idx_chat_room_created` (chat_messages), `idx_rooms_creator` (rooms), `idx_dm_sender/receiver/pair` (direct_messages), `idx_friendships_addressee`
+9. **N+1 fix**: `/friends/conversations` uses `DISTINCT ON` + single unread COUNT query instead of per-friend loops
 2. **الـ stall watchdog** يفحص كل 1 ثانية ويتدخل بعد 2 ثانية توقف
 3. **CF Worker** يحل CORS فقط — لا يحل IP blocking الحقيقي
 4. **TypeScript composite projects** — دائماً `typecheck` من الـ root

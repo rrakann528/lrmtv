@@ -50,16 +50,17 @@ async function searchUsers(q: string): Promise<FriendUser[]> {
   return Array.isArray(data) ? data : [];
 }
 
-function formatLastTime(iso: string): string {
+function formatLastTime(iso: string, lang: string): string {
   const d = new Date(iso);
   const now = new Date();
   const diffMs = now.getTime() - d.getTime();
   const diffMins = Math.floor(diffMs / 60000);
-  if (diffMins < 1) return 'الآن';
-  if (diffMins < 60) return `${diffMins}د`;
+  const locale = lang === 'ar' ? 'ar-SA' : lang === 'fr' ? 'fr-FR' : lang === 'tr' ? 'tr-TR' : lang === 'es' ? 'es-ES' : lang === 'id' ? 'id-ID' : 'en-US';
+  if (diffMins < 1) return lang === 'ar' ? 'الآن' : lang === 'fr' ? "à l'instant" : lang === 'tr' ? 'şimdi' : lang === 'es' ? 'ahora' : lang === 'id' ? 'baru saja' : 'now';
+  if (diffMins < 60) return `${diffMins}${lang === 'ar' ? 'د' : lang === 'fr' ? 'min' : lang === 'tr' ? 'dk' : lang === 'es' ? 'min' : lang === 'id' ? 'mnt' : 'm'}`;
   const diffHrs = Math.floor(diffMins / 60);
-  if (diffHrs < 24) return `${diffHrs}س`;
-  return d.toLocaleDateString('ar-SA', { day: 'numeric', month: 'numeric' });
+  if (diffHrs < 24) return `${diffHrs}${lang === 'ar' ? 'س' : 'h'}`;
+  return d.toLocaleDateString(locale, { day: 'numeric', month: 'numeric' });
 }
 
 interface FriendsTabProps {
@@ -68,7 +69,7 @@ interface FriendsTabProps {
 }
 
 export function FriendsTab({ acceptedToast, onDismissAcceptedToast }: FriendsTabProps = {}) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const { user } = useAuth();
   const qc = useQueryClient();
   const [subTab, setSubTab] = useState<SubTab>('friends');
@@ -704,7 +705,7 @@ function FriendCard({
       {/* Right side */}
       <div className="flex flex-col items-end gap-1 flex-shrink-0">
         {lastMsg && (
-          <span className="text-[10px] text-muted-foreground">{formatLastTime(lastMsg.createdAt)}</span>
+          <span className="text-[10px] text-muted-foreground">{formatLastTime(lastMsg.createdAt, lang)}</span>
         )}
         <div className="flex items-center gap-1.5">
           {/* Chat button with unread badge */}

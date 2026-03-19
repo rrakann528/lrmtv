@@ -167,10 +167,10 @@ export default function AdminPage() {
         if (st) { setSettings(st); setEditSettings(st); }
       } else if (what === 'users') {
         const [r, mc] = await Promise.all([
-          apiFetch('/admin/users'),
+          apiFetch('/admin/users?limit=500'),
           apiFetch('/admin/users/message-counts'),
         ]);
-        if (r.ok) setUsers(await r.json());
+        if (r.ok) { const data = await r.json(); setUsers(Array.isArray(data) ? data : data.users ?? []); }
         if (mc.ok) setMsgCounts(await mc.json());
       } else if (what === 'rooms') {
         const r = await apiFetch('/admin/rooms');

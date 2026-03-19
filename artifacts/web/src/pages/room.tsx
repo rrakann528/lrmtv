@@ -136,17 +136,20 @@ export default function RoomPage() {
   const queryClient = useQueryClient();
   const addMutation = useAddPlaylistItem();
 
+  const [deleteError, setDeleteError] = useState('');
   const handleDeleteRoom = useCallback(async () => {
     try {
       const res = await apiFetch(`/rooms/${slug}`, { method: 'DELETE' });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        alert(err.error || 'Failed to delete room');
+        setDeleteError(err.error || 'Failed to delete room');
+        setTimeout(() => setDeleteError(''), 5000);
         return;
       }
       navigate('/');
     } catch {
-      alert('Failed to delete room');
+      setDeleteError('Failed to delete room');
+      setTimeout(() => setDeleteError(''), 5000);
     }
   }, [slug, navigate]);
 
@@ -752,6 +755,11 @@ export default function RoomPage() {
           </motion.div>
         </div>,
         document.body
+      )}
+      {deleteError && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[400] bg-red-600 text-white px-4 py-2 rounded-lg shadow-lg text-sm animate-in fade-in">
+          {deleteError}
+        </div>
       )}
     </div>
   );

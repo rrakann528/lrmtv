@@ -216,53 +216,50 @@ router.get("/friends/conversations", requireAuth, async (req: AuthRequest, res):
 
   const receiptMap = new Map(receipts.map(r => [r.friendId, r.lastReadAt]));
 
-  // Build conversation info per friend
-  const conversations = await Promise.all(
-    friendIds.map(async (fid) => {
-      // Last message in this conversation
-      const [lastMsg] = await db
-        .select({
-          id: directMessagesTable.id,
-          senderId: directMessagesTable.senderId,
-          content: directMessagesTable.content,
-          createdAt: directMessagesTable.createdAt,
-        })
-        .from(directMessagesTable)
-        .where(
-          or(
-            and(eq(directMessagesTable.senderId, uid), eq(directMessagesTable.receiverId, fid)),
-            and(eq(directMessagesTable.senderId, fid), eq(directMessagesTable.receiverId, uid)),
-          )
-        )
-        .orderBy(desc(directMessagesTable.createdAt))
-        .limit(1);
+  const lastMsgResult = await db.execute(sql`
+    SELECT DISTINCT ON (friend_id) friend_id, content, sender_id, created_at
+    FROM (
+      SELECT
+        CASE WHEN sender_id = ${uid} THEN receiver_id ELSE sender_id END AS friend_id,
+        content, sender_id, created_at
+      FROM direct_messages
+      WHERE (sender_id = ${uid} AND receiver_id = ANY(${friendIds}))
+         OR (receiver_id = ${uid} AND sender_id = ANY(${friendIds}))
+    ) sub
+    ORDER BY friend_id, created_at DESC
+  `);
 
-      // Unread count: messages from friend to me since lastReadAt
-      const lastReadAt = receiptMap.get(fid) ?? new Date(0);
-      const [{ count }] = await db
-        .select({ count: sql<number>`cast(count(*) as int)` })
-        .from(directMessagesTable)
-        .where(
-          and(
-            eq(directMessagesTable.senderId, fid),
-            eq(directMessagesTable.receiverId, uid),
-            gt(directMessagesTable.createdAt, lastReadAt),
-          )
-        );
+  const lastMsgMap = new Map<number, { content: string; createdAt: Date; fromMe: boolean }>();
+  for (const row of lastMsgResult.rows as any[]) {
+    lastMsgMap.set(Number(row.friend_id), {
+      content: row.content,
+      createdAt: new Date(row.created_at),
+      fromMe: Number(row.sender_id) === uid,
+    });
+  }
 
-      return {
-        friendId: fid,
-        lastMessage: lastMsg
-          ? {
-              content: lastMsg.content,
-              createdAt: lastMsg.createdAt,
-              fromMe: lastMsg.senderId === uid,
-            }
-          : null,
-        unreadCount: count,
-      };
-    })
-  );
+  const unreadResult = await db.execute(sql`
+    SELECT dm.sender_id, cast(count(*) as int) AS cnt
+    FROM direct_messages dm
+    WHERE dm.receiver_id = ${uid}
+      AND dm.sender_id = ANY(${friendIds})
+      AND dm.created_at > COALESCE(
+        (SELECT last_read_at FROM dm_read_receipts WHERE user_id = ${uid} AND friend_id = dm.sender_id),
+        '1970-01-01'::timestamptz
+      )
+    GROUP BY dm.sender_id
+  `);
+
+  const unreadMap = new Map<number, number>();
+  for (const row of unreadResult.rows as any[]) {
+    unreadMap.set(Number(row.sender_id), Number(row.cnt));
+  }
+
+  const conversations = friendIds.map(fid => ({
+    friendId: fid,
+    lastMessage: lastMsgMap.get(fid) ?? null,
+    unreadCount: unreadMap.get(fid) ?? 0,
+  }));
 
   res.json(conversations);
 });
