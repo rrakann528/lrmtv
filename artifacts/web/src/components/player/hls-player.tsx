@@ -367,7 +367,8 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           try { dashRef.current.destroy(); } catch { /* ignore */ }
           dashRef.current = null;
         }
-        if (video.src) { video.src = ''; }
+        video.removeAttribute('src');
+        video.load();
       };
 
       // ── Duration / live detection ─────────────────────────────────────────
@@ -639,49 +640,47 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
       const loadViaHls = () => {
         if (cancelled) return;
 
-        // S2 — native <video> (no CORS, no crossorigin)
-        // onFail: optional next step; if omitted shows ip-locked error (true last resort)
         const s2_native = (onFail?: () => void) => {
           if (cancelled) return;
           destroyAll();
           setStatusMsg('native');
-          video.removeAttribute('crossorigin');
-          video.setAttribute('referrerpolicy', 'no-referrer');
-          video.removeAttribute('src');
-          video.load();
-          video.src = src;
-          video.load();
-          const onMeta = () => {
-            if (!cancelled) {
-              const live = !isFinite(video.duration) || video.duration === Infinity;
-              isLiveRef.current = live; setIsLive(live);
-              onDurationChange(); setStatusMsg(null); setError(null); startStallWatchdog(); signalReady();
-            }
-          };
-          const onErr = () => {
-            if (!cancelled) {
-              if (onFail) { onFail(); }
-              else { setError('ip-locked'); setStatusMsg(null); }
-            }
-          };
-          // Timeout: if native video doesn't load in 15 s move to next stage
-          // (iOS Safari often silently hangs on 403/CORS without firing an error event;
-          //  some IP-locked CDNs take >8s to respond on the first manifest request)
-          let nativeDone = false;
-          const onMetaWrapped = () => { if (nativeDone) return; nativeDone = true; clearTimeout(fallbackTimer); onMeta(); };
-          const onErrWrapped  = () => { if (nativeDone) return; nativeDone = true; clearTimeout(fallbackTimer); onErr(); };
-          const fallbackTimer = setTimeout(() => {
-            if (nativeDone) return;
-            nativeDone = true;
-            video.removeEventListener('loadedmetadata', onMetaWrapped);
-            video.removeEventListener('error', onErrWrapped);
-            if (!cancelled) {
-              if (onFail) { onFail(); }
-              else { setError('ip-locked'); setStatusMsg(null); }
-            }
-          }, 15_000);
-          video.addEventListener('loadedmetadata', onMetaWrapped, { once: true });
-          video.addEventListener('error',          onErrWrapped,  { once: true });
+          setTimeout(() => {
+            if (cancelled) return;
+            video.removeAttribute('crossorigin');
+            video.setAttribute('referrerpolicy', 'no-referrer');
+            video.removeAttribute('src');
+            video.load();
+            video.src = src;
+            video.load();
+            const onMeta = () => {
+              if (!cancelled) {
+                const live = !isFinite(video.duration) || video.duration === Infinity;
+                isLiveRef.current = live; setIsLive(live);
+                onDurationChange(); setStatusMsg(null); setError(null); startStallWatchdog(); signalReady();
+              }
+            };
+            const onErr = () => {
+              if (!cancelled) {
+                if (onFail) { onFail(); }
+                else { setError('ip-locked'); setStatusMsg(null); }
+              }
+            };
+            let nativeDone = false;
+            const onMetaWrapped = () => { if (nativeDone) return; nativeDone = true; clearTimeout(fallbackTimer); onMeta(); };
+            const onErrWrapped  = () => { if (nativeDone) return; nativeDone = true; clearTimeout(fallbackTimer); onErr(); };
+            const fallbackTimer = setTimeout(() => {
+              if (nativeDone) return;
+              nativeDone = true;
+              video.removeEventListener('loadedmetadata', onMetaWrapped);
+              video.removeEventListener('error', onErrWrapped);
+              if (!cancelled) {
+                if (onFail) { onFail(); }
+                else { setError('ip-locked'); setStatusMsg(null); }
+              }
+            }, 18_000);
+            video.addEventListener('loadedmetadata', onMetaWrapped, { once: true });
+            video.addEventListener('error',          onErrWrapped,  { once: true });
+          }, 100);
         };
 
         // S7 — API proxy with native <video> (for iOS Safari where HLS.js is not supported)
