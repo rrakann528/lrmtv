@@ -140,7 +140,7 @@ export function GroupsTab() {
         ) : (
           <motion.div
             key="list"
-            className="flex flex-col h-full"
+            className="flex flex-col h-full relative"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -225,8 +225,7 @@ export function GroupsTab() {
         <motion.button
           whileTap={{ scale: 0.92 }}
           onClick={() => setShowCreate(true)}
-          className="fixed left-4 z-[50] w-14 h-14 bg-violet-600 rounded-full shadow-xl shadow-violet-600/40 flex items-center justify-center"
-          style={{ bottom: 'calc(160px + env(safe-area-inset-bottom, 0px))' }}
+          className="absolute left-4 bottom-4 z-[50] w-14 h-14 bg-violet-600 rounded-full shadow-xl shadow-violet-600/40 flex items-center justify-center"
         >
           <Plus className="w-7 h-7 text-white" />
         </motion.button>

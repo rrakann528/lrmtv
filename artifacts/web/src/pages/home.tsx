@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useLocation, useSearch } from 'wouter';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Tv, Users, User, Users2 } from 'lucide-react';
@@ -19,30 +19,40 @@ const HEADER_H  = 56;
 const NAV_H     = 64;
 const AD_BAR_H  = 60;
 
-function useKeyboardOpen() {
-  const [open, setOpen] = useState(false);
+function useVisualViewport() {
+  const [height, setHeight] = useState(window.innerHeight);
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
+
     const isEditable = () => {
       const el = document.activeElement;
       if (!el) return false;
       const tag = el.tagName;
       return tag === 'INPUT' || tag === 'TEXTAREA' || (el as HTMLElement).isContentEditable;
     };
+
     const update = () => {
+      setHeight(vv.height);
       const diff = window.innerHeight - vv.height;
-      setOpen(diff > 100 && isEditable());
+      setKeyboardOpen(diff > 80 && isEditable());
     };
+
     vv.addEventListener('resize', update);
-    return () => vv.removeEventListener('resize', update);
+    window.addEventListener('resize', () => setHeight(vv.height));
+    return () => {
+      vv.removeEventListener('resize', update);
+    };
   }, []);
-  return open;
+
+  return { viewportHeight: height, keyboardOpen };
 }
 
 export default function HomePage() {
   const { t } = useI18n();
-  const keyboardOpen = useKeyboardOpen();
+  const { viewportHeight, keyboardOpen } = useVisualViewport();
   const [, setLocation] = useLocation();
   const search = useSearch();
   const params = new URLSearchParams(search);
@@ -128,11 +138,14 @@ export default function HomePage() {
 
   const userName = user?.displayName || user?.username || t('guestName');
 
+  const bottomBar = keyboardOpen ? 0 : NAV_H + AD_BAR_H;
+  const contentH = viewportHeight - HEADER_H - bottomBar;
+
   return (
-    <div className="bg-background" style={{ minHeight: '100dvh', minWidth: '100vw' }}>
-      {/* ── Fixed Header ─────────────────────────────────────────── */}
+    <div className="bg-background flex flex-col" style={{ height: viewportHeight, overflow: 'hidden' }}>
+      {/* ── Header ─────────────────────────────────────────── */}
       <div
-        className="fixed top-0 inset-x-0 z-30 flex items-center justify-between px-4 bg-card border-b border-border"
+        className="flex items-center justify-between px-4 bg-card border-b border-border flex-shrink-0 z-30"
         style={{ height: HEADER_H }}
       >
         <div className="flex items-center gap-2">
@@ -153,17 +166,8 @@ export default function HomePage() {
         )}
       </div>
 
-      {/* ── Scrollable content between header and nav ────────────── */}
-      <div
-        className="overflow-hidden"
-        style={{
-          position: 'fixed',
-          top: HEADER_H,
-          left: 0,
-          right: 0,
-          bottom: keyboardOpen ? 0 : `calc(${NAV_H + AD_BAR_H}px + env(safe-area-inset-bottom, 0px))`,
-        }}
-      >
+      {/* ── Content ────────────────────────────────────────── */}
+      <div className="flex-1 overflow-hidden relative" style={{ height: contentH }}>
         <AnimatePresence mode="wait">
           <motion.div
             key={activeTab}
@@ -185,46 +189,48 @@ export default function HomePage() {
         </AnimatePresence>
       </div>
 
-      {/* ── Fixed Bottom Navigation ───────────────────────────────── */}
-      <div
-        className={`fixed bottom-0 inset-x-0 z-30 bg-card border-t border-border transition-transform duration-200 ${keyboardOpen ? 'translate-y-full' : 'translate-y-0'}`}
-        style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
-      >
-        <div className="flex items-center justify-around px-2" style={{ height: NAV_H }}>
-          {TABS.map(({ id, label, Icon }) => {
-            const active = activeTab === id;
-            const badge = id === 'friends' && !active ? friendsBadge
-                        : id === 'rooms'   && !active ? roomsBadge
-                        : 0;
-            return (
-              <button
-                key={id}
-                onClick={() => setActiveTab(id)}
-                className="flex flex-col items-center justify-center gap-1 flex-1 py-1"
-              >
-                <motion.div
-                  className="relative"
-                  animate={{ scale: active ? 1.12 : 1 }}
-                  transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+      {/* ── Bottom Navigation ───────────────────────────────── */}
+      {!keyboardOpen && (
+        <div
+          className="flex-shrink-0 bg-card border-t border-border z-30"
+          style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+        >
+          <div className="flex items-center justify-around px-2" style={{ height: NAV_H }}>
+            {TABS.map(({ id, label, Icon }) => {
+              const active = activeTab === id;
+              const badge = id === 'friends' && !active ? friendsBadge
+                          : id === 'rooms'   && !active ? roomsBadge
+                          : 0;
+              return (
+                <button
+                  key={id}
+                  onClick={() => setActiveTab(id)}
+                  className="flex flex-col items-center justify-center gap-1 flex-1 py-1"
                 >
-                  <Icon
-                    className={`w-6 h-6 ${active ? 'text-primary' : 'text-muted-foreground'}`}
-                    strokeWidth={active ? 2.5 : 1.8}
-                  />
-                  {badge > 0 && (
-                    <span className="absolute -top-1.5 -right-1.5 min-w-[17px] h-[17px] bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-0.5 leading-none shadow-sm">
-                      {badge > 99 ? '99+' : badge}
-                    </span>
-                  )}
-                </motion.div>
-                <span className={`text-[10px] font-medium ${active ? 'text-primary' : 'text-muted-foreground'}`}>
-                  {label}
-                </span>
-              </button>
-            );
-          })}
+                  <motion.div
+                    className="relative"
+                    animate={{ scale: active ? 1.12 : 1 }}
+                    transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                  >
+                    <Icon
+                      className={`w-6 h-6 ${active ? 'text-primary' : 'text-muted-foreground'}`}
+                      strokeWidth={active ? 2.5 : 1.8}
+                    />
+                    {badge > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 min-w-[17px] h-[17px] bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-0.5 leading-none shadow-sm">
+                        {badge > 99 ? '99+' : badge}
+                      </span>
+                    )}
+                  </motion.div>
+                  <span className={`text-[10px] font-medium ${active ? 'text-primary' : 'text-muted-foreground'}`}>
+                    {label}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ── Push Notification Banner ───────────────────────────────── */}
       {user && <NotifBanner userId={user.id} />}
