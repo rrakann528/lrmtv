@@ -1,23 +1,11 @@
-<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180' width='180' height='180'>
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512' width='180' height='180'>
   <defs>
     <linearGradient id='bg' x1='0%' y1='0%' x2='100%' y2='100%'>
-      <stop offset='0%' stop-color='#0A0E14'/>
-      <stop offset='100%' stop-color='#111820'/>
-    </linearGradient>
-    <linearGradient id='glow' x1='0%' y1='0%' x2='100%' y2='100%'>
-      <stop offset='0%' stop-color='#22D3EE'/>
-      <stop offset='100%' stop-color='#06B6D4'/>
+      <stop offset='0%' stop-color='#1A1A1E'/>
+      <stop offset='100%' stop-color='#0D0D0E'/>
     </linearGradient>
   </defs>
-  <rect width='180' height='180' rx='38' fill='url(#bg)'/>
-  <g transform='translate(90, 68)'>
-    <rect x='-40' y='-24' width='80' height='52' rx='6' fill='none' stroke='url(#glow)' stroke-width='3.5'/>
-    <rect x='-34' y='-18' width='68' height='39' rx='3' fill='#06B6D4' opacity='0.12'/>
-    <polygon points='-5,-8 11,2 -5,12' fill='url(#glow)'/>
-    <line x1='-13' y1='35' x2='13' y2='35' stroke='url(#glow)' stroke-width='3' stroke-linecap='round'/>
-    <line x1='0' y1='28' x2='0' y2='35' stroke='url(#glow)' stroke-width='3' stroke-linecap='round'/>
-  </g>
-  <text x='90' y='146' font-family='Arial Black,Impact,sans-serif' font-size='34' font-weight='900' text-anchor='middle' letter-spacing='2'>
-    <tspan fill='#06B6D4'>Lrm</tspan><tspan fill='#FFFFFF'>TV</tspan>
-  </text>
+  <rect width='512' height='512' rx='100' fill='url(#bg)'/>
+  <text x='256' y='260' font-family='Arial Black,Impact,sans-serif' font-size='180' font-weight='900' text-anchor='middle' fill='#06B6D4' letter-spacing='-2'>Lrm</text>
+  <text x='256' y='400' font-family='Arial Black,Impact,sans-serif' font-size='150' font-weight='900' text-anchor='middle' fill='#FFFFFF' letter-spacing='6'>TV</text>
 </svg>
