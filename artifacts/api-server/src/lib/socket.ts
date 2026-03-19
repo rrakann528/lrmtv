@@ -367,7 +367,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
     socket.on("join-user-room", (data: { userId?: number }) => {
       if (!data?.userId) return;
       const token = (socket.handshake.auth as any)?.token || '';
-      const secret = process.env.JWT_SECRET || 'dev-secret';
+      const secret = process.env.JWT_SECRET || 'lrmtv_jwt_fallback_secret_2025_please_set_in_env';
       try {
         const decoded = jwt.verify(token, secret) as any;
         if (decoded?.userId === data.userId) {
