@@ -676,35 +676,49 @@ function GroupChatView({ groupId, group }: { groupId: number; group: GroupDetail
   );
 }
 
+interface FriendItem {
+  id: number;
+  username: string;
+  displayName: string | null;
+  avatarColor: string;
+  avatarUrl: string | null;
+  status: string;
+}
+
 function GroupSettingsView({ groupId, group, onBack }: { groupId: number; group: GroupDetail; onBack: () => void }) {
   const { user } = useAuth();
   const { t, dir } = useI18n();
   const qc = useQueryClient();
-  const [addUsername, setAddUsername] = useState('');
-  const [addErr, setAddErr] = useState('');
   const [inviteSlug, setInviteSlug] = useState('');
   const [inviteResult, setInviteResult] = useState('');
+  const [addingFriendId, setAddingFriendId] = useState<number | null>(null);
+  const [addedFriends, setAddedFriends] = useState<Set<number>>(new Set());
 
-  const addMemberMut = useMutation({
-    mutationFn: async () => {
+  const { data: friends = [] } = useQuery<FriendItem[]>({
+    queryKey: ['friends'],
+    queryFn: () => apiFetch('/friends').then(r => r.json()).then(d => Array.isArray(d) ? d : []),
+  });
+
+  const memberIds = new Set(group.members.map(m => m.id));
+  const acceptedFriends = friends.filter(f => f.status === 'accepted');
+  const invitableFriends = acceptedFriends.filter(f => !memberIds.has(f.id) && !addedFriends.has(f.id));
+  const alreadyMemberFriends = acceptedFriends.filter(f => memberIds.has(f.id) || addedFriends.has(f.id));
+
+  const handleAddFriend = async (friendId: number, username: string) => {
+    setAddingFriendId(friendId);
+    try {
       const r = await apiFetch(`/groups/${groupId}/members`, {
         method: 'POST',
-        body: JSON.stringify({ username: addUsername }),
+        body: JSON.stringify({ username }),
       });
-      if (!r.ok) {
-        const d = await r.json();
-        throw new Error(d.error || 'Failed');
+      if (r.ok) {
+        setAddedFriends(prev => new Set(prev).add(friendId));
+        qc.invalidateQueries({ queryKey: ['group', groupId] });
+        qc.invalidateQueries({ queryKey: ['groups'] });
       }
-      return r.json();
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['group', groupId] });
-      qc.invalidateQueries({ queryKey: ['groups'] });
-      setAddUsername('');
-      setAddErr('');
-    },
-    onError: (e: Error) => setAddErr(e.message),
-  });
+    } catch {}
+    setAddingFriendId(null);
+  };
 
   const removeMemberMut = useMutation({
     mutationFn: (userId: number) =>
@@ -799,26 +813,34 @@ function GroupSettingsView({ groupId, group, onBack }: { groupId: number; group:
         </div>
       )}
 
-      {isAdmin && (
+      {isAdmin && acceptedFriends.length > 0 && (
         <div className="space-y-2">
-          <p className="text-xs font-semibold text-foreground">{t('addMember')}</p>
-          <div className="flex gap-2">
-            <input
-              value={addUsername}
-              onChange={e => setAddUsername(e.target.value)}
-              placeholder={t('usernamePlaceholder')}
-              className="flex-1 bg-muted/50 border border-border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-              dir="ltr"
-            />
-            <button
-              onClick={() => { setAddErr(''); addMemberMut.mutate(); }}
-              disabled={!addUsername.trim() || addMemberMut.isPending}
-              className="px-3 py-2 bg-primary text-primary-foreground rounded-xl text-sm font-medium disabled:opacity-40 flex items-center gap-1"
-            >
-              <UserPlus className="w-3.5 h-3.5" />
-            </button>
-          </div>
-          {addErr && <p className="text-xs text-destructive">{addErr}</p>}
+          <p className="text-xs font-semibold text-foreground">{t('inviteFriendsToGroup')}</p>
+          {invitableFriends.length === 0 ? (
+            <p className="text-xs text-muted-foreground bg-muted/30 rounded-xl px-3 py-2.5">{t('noFriendsToInvite')}</p>
+          ) : (
+            <div className="space-y-1.5">
+              {invitableFriends.map(f => (
+                <div key={f.id} className="flex items-center gap-3 bg-card border border-border rounded-xl p-2.5">
+                  <Avatar name={f.displayName || f.username} color={f.avatarColor} url={f.avatarUrl} size={34} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-foreground truncate">{f.displayName || f.username}</p>
+                    <p className="text-[11px] text-muted-foreground">@{f.username}</p>
+                  </div>
+                  <button
+                    onClick={() => handleAddFriend(f.id, f.username)}
+                    disabled={addingFriendId === f.id}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-primary/10 text-primary text-xs font-medium hover:bg-primary/20 transition disabled:opacity-50"
+                  >
+                    {addingFriendId === f.id
+                      ? <Loader2 className="w-3 h-3 animate-spin" />
+                      : <UserPlus className="w-3 h-3" />}
+                    {t('addMember')}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
