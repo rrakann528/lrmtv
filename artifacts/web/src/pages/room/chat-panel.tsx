@@ -107,6 +107,8 @@ export default function ChatPanel({
           const isFirstInGroup = !prevMsg || prevMsg.type === 'system' || prevMsg.username !== msg.username;
           const isLastInGroup  = !nextMsg || nextMsg.type === 'system'  || nextMsg.username !== msg.username;
 
+          const roomUser = users.find(u => u.username === msg.username);
+
           if (isSystem) {
             // Admin broadcast messages (from 'النظام') appear as prominent banners
             const isAdminBroadcast = msg.username === 'النظام';
