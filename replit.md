@@ -74,17 +74,17 @@ artifacts-monorepo/
 ├── artifacts/
 │   ├── api-server/
 │   │   └── src/
-│   │       ├── lib/socket.ts          ← Socket.io events (sync, chat, heartbeat 2s)
+│   │       ├── lib/socket.ts          ← Socket.io events (sync, chat, heartbeat 1.5s)
 │   │       ├── routes/admin.ts        ← 26 admin API endpoints
 │   │       ├── routes/rooms.ts        ← Room CRUD
 │   │       ├── routes/hls-proxy.ts    ← manifest/segment/video proxy مع KEY/MAP rewrite
 │   │       └── middlewares/security.ts ← rate limiter (proxy paths exempt)
 │   └── web/
 │       └── src/
-│           ├── pages/room.tsx         ← Room page + sync logic
+│           ├── pages/room.tsx         ← Room page + sync logic + "Press to Watch" overlay
 │           ├── components/player/
 │           │   ├── hls-player.tsx     ← HLS 7-stage fallback + HLS_CONFIG
-│           │   ├── smart-player.tsx   ← Player switcher (YouTube/HLS/HTML5)
+│           │   ├── smart-player.tsx   ← Player switcher (YouTube/HLS/HTML5) — no autoplay
 │           │   └── player-controls.tsx
 │           ├── hooks/
 │           │   └── use-socket.ts      ← Socket state + heartbeat handler
@@ -138,23 +138,26 @@ S1 HLS.js direct
 ## Sync & Playback (التزامن والتشغيل)
 
 ### Server (socket.ts)
-- Heartbeat: كل **2 ثانية** (يبث `computedTime` + `serverTs`)
+- Heartbeat: كل **1.5 ثانية** (يبث `computedTime` + `serverTs`)
 - `computedTime`: `currentTime + (Date.now() - lastSyncTimestamp) / 1000`
 
 ### Client (room.tsx)
 | المصدر | حد الانحراف للتصحيح |
 |--------|---------------------|
-| action (play/pause/seek) | **1.0 ثانية** |
-| heartbeat | **3 ثوانٍ** |
-| أول 8 ثوانٍ بعد الانضمام | لا يصحح (grace period) |
+| action (play/pause/seek) | **0.8 ثانية** |
+| heartbeat | **2 ثوانٍ** |
+| أول 5 ثوانٍ بعد الانضمام | لا يصحح (grace period) |
 
-- قفل seek بعد المزامنة: **600ms**
+- قفل seek بعد المزامنة: **400ms**
 - تعويض التأخر: `syncState.time + latencyS`
 
-### Autoplay
-- **DJ**: يشتغل تلقائياً دائماً (لا يرى overlay أبداً)
-- **المستخدم**: يرى "اضغط للتشغيل" **مرة واحدة فقط** عند دخول الغرفة — بعدها كل الفيديوهات تشتغل تلقائياً
-- **حظر التشغيل التلقائي**: يُحاول تشغيل بصمت (muted) → يعرض زر "اضغط لرفع الصوت" (لا يحجب الفيديو)
+### "Press to Watch" (اضغط للمشاهدة)
+- **كل مستخدم** (بما في ذلك DJ/Admin) يرى زر "اضغط للمشاهدة" عند:
+  - دخول غرفة فيها فيديو يعمل
+  - تغيير الفيديو الحالي
+- عند الضغط: يبدأ التشغيل + يقفز للوقت الحالي (sync)
+- يحل مشكلة التشغيل التلقائي على الجوال (يعطي user gesture)
+- **لا يوجد تشغيل تلقائي** — التشغيل دائماً يحتاج ضغطة من المستخدم
 
 ---
 
@@ -223,8 +226,8 @@ S1 HLS.js direct
 | Event | وصف |
 |---|---|
 | `join-room` | دخول غرفة |
-| `video-sync` | مزامنة الفيديو (play/pause/seek/change-video) |
-| `heartbeat` | نبض كل 2 ثانية (currentTime + serverTs) |
+| `video-sync` | مزامنة الفيديو (play/pause/seek/change-video) + serverTs |
+| `heartbeat` | نبض كل 1.5 ثانية (currentTime + serverTs) |
 | `chat-message` | رسالة دردشة |
 | `playlist-update` | تحديث قائمة التشغيل |
 | `dj-backgrounding` | DJ أخفى الـ PWA (يمنع إرسال pause وهمي) |
@@ -271,20 +274,22 @@ S1 HLS.js direct
 4. **DM Chat Improvements**: فواصل تواريخ، timestamps بلغة المستخدم، رسائل optimistic، UI محسّن.
 5. **Password Change**: المستخدمون يغيرون كلمة المرور من صفحة الملف الشخصي.
 6. **Room Username Fix**: المستخدمون المسجلون يدخلون الغرف تلقائياً بأسماء حساباتهم (لا prompt).
+7. **"Press to Watch" button**: زر اضغط للمشاهدة يظهر لكل مستخدم عند كل فيديو جديد — يحل مشكلة autoplay ويحسن التزامن.
+8. **Ads removed**: كود الإعلانات (ad-banner, pre-roll-ad, vast-proxy) أُزيل بالكامل.
 
 ---
 
 ## ملاحظات مهمة
 
 1. **P2P والـ Relay تم إزالتهم بالكامل** — المشغل يعتمد على سلسلة fallback مباشرة فقط
-8. **DB Indexes**: `idx_chat_room_created` (chat_messages), `idx_rooms_creator` (rooms), `idx_dm_sender/receiver/pair` (direct_messages), `idx_friendships_addressee`
-9. **N+1 fix**: `/friends/conversations` uses `DISTINCT ON` + single unread COUNT query instead of per-friend loops
-2. **الـ stall watchdog** يفحص كل 1 ثانية ويتدخل بعد 2 ثانية توقف
-3. **CF Worker** يحل CORS فقط — لا يحل IP blocking الحقيقي
-4. **TypeScript composite projects** — دائماً `typecheck` من الـ root
-5. **رسالة خطأ الفيديو**: "فشل تحميل البث" (لا تذكر IP أو شبكة) — تظهر فقط عند فشل حقيقي
-6. **Adcash AutoTag zone**: `gk0vdquftk` في `index.html`
-7. **siteSettingsTable**: يستخدم `key` كـ PRIMARY KEY (لا يوجد عمود `id`)
+2. **Ads removed**: لا يوجد أي كود إعلانات في المشروع
+3. **DB Indexes**: `idx_chat_room_created` (chat_messages), `idx_rooms_creator` (rooms), `idx_dm_sender/receiver/pair` (direct_messages), `idx_friendships_addressee`
+4. **N+1 fix**: `/friends/conversations` uses `DISTINCT ON` + single unread COUNT query instead of per-friend loops
+5. **الـ stall watchdog** يفحص كل 1 ثانية ويتدخل بعد 2 ثانية توقف
+6. **CF Worker** يحل CORS فقط — لا يحل IP blocking الحقيقي
+7. **TypeScript composite projects** — دائماً `typecheck` من الـ root
+8. **رسالة خطأ الفيديو**: "فشل تحميل البث" (لا تذكر IP أو شبكة) — تظهر فقط عند فشل حقيقي
+9. **siteSettingsTable**: يستخدم `key` كـ PRIMARY KEY (لا يوجد عمود `id`)
 
 ---
 
@@ -300,3 +305,4 @@ S1 HLS.js direct
 - **PWA**: Service worker v8 with offline page, manifest with categories/screenshots/shortcuts
 - **Avatar storage**: Base64 data URL in DB (not disk files). Frontend compresses to 256px JPEG before upload (max 500KB). Survives container restarts.
 - **Keyboard handling**: `useKeyboardOpen()` hook uses `visualViewport` API + active element check to hide nav bar when keyboard opens on mobile.
+- **Viewport**: `width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-visual` (no viewport-fit=cover to respect safe areas)

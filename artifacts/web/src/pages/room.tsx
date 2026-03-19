@@ -90,8 +90,7 @@ export default function RoomPage() {
   const [playerReady, setPlayerReady] = useState(false);
 
   const [watcherReadyState, setWatcherReadyState] = useState(false);
-  // Suppress pause emissions when DJ is hiding/closing — prevents false
-  // pause events from resetting all viewers' playback position.
+  const prevVideoUrlRef = useRef<string | null>(null);
   const suppressPauseRef = useRef(false);
 
   // Room settings panel (admin only) — controlled from header button
@@ -112,9 +111,7 @@ export default function RoomPage() {
   const isAdmin    = you?.isAdmin || false;
   const isGuest    = !you?.userId;
   const canControl = isDJ || allowGuestControl;
-  // DJs are always ready — no overlay needed. Non-DJs must click to watch.
-  // Computed directly so there's zero render-cycle lag (no useEffect needed).
-  const watcherReady = isDJ || watcherReadyState;
+  const watcherReady = watcherReadyState;
 
   // Tell the server when the DJ hides/closes so it can keep the room playing.
   // Also sets suppressPauseRef so the browser's auto-pause is NOT forwarded
@@ -197,42 +194,38 @@ export default function RoomPage() {
   useEffect(() => { isDJRef.current = isDJ; }, [isDJ]);
 
   useEffect(() => {
-    setPlayerReady(false);
-    readyTimeRef.current = 0;
+    if (syncState.url !== prevVideoUrlRef.current) {
+      prevVideoUrlRef.current = syncState.url;
+      setWatcherReadyState(false);
+      setPlayerReady(false);
+      readyTimeRef.current = 0;
+    }
   }, [syncState.url]);
 
-  // Sync effect — thresholds by source:
-  //   action:    1.5 s  — explicit play/pause/seek from a peer
-  //   heartbeat: 8 s    — gentle drift correction, only if video is playing (not buffering)
-  //   initial:   ∞ until 30 s grace, then falls back to 8 s
-  // live:  skip ALL time seeks — HLS.js auto-tracks the live edge
   useEffect(() => {
-    if (!playerRef.current || isSeeking || !playerReady) return;
+    if (!playerRef.current || isSeeking || !playerReady || !watcherReady) return;
     if (syncState.isLive) return;
 
     const playerTime = playerRef.current.getCurrentTime() || 0;
     const diff = Math.abs(playerTime - syncState.time);
     const sinceReady = Date.now() - readyTimeRef.current;
 
-    const threshold = syncState.source === 'action'    ? 1.0
-                    : syncState.source === 'heartbeat' ? 3
-                    : sinceReady > 8_000               ? 3
+    const threshold = syncState.source === 'action'    ? 0.8
+                    : syncState.source === 'heartbeat' ? 2.0
+                    : sinceReady > 5_000               ? 2.0
                     : Infinity;
 
     if (diff > threshold) {
-      // For heartbeat-only corrections, skip if the video is still buffering.
-      // Seeking while buffering restarts the buffer load from a new position,
-      // causing the DJ-returns-and-freezes loop.
       if (syncState.source === 'heartbeat') {
         const videoEl = playerRef.current.getVideoElement?.();
-        if (videoEl && videoEl.readyState < 3) return; // HAVE_FUTURE_DATA not reached yet
+        if (videoEl && videoEl.readyState < 3) return;
       }
       isRemoteSeekRef.current = true;
       playerRef.current.seekTo(syncState.time, 'seconds');
-      setTimeout(() => { isRemoteSeekRef.current = false; }, 600);
+      setTimeout(() => { isRemoteSeekRef.current = false; }, 400);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [syncState.time, syncState.playing, syncState.source, syncState.isLive, isSeeking, playerReady]);
+  }, [syncState.time, syncState.playing, syncState.source, syncState.isLive, isSeeking, playerReady, watcherReady]);
 
   const doEnableMic = useCallback(async () => {
     setMicOn(true);
@@ -513,19 +506,21 @@ export default function RoomPage() {
 
                 {!watcherReady && syncState.url && (
                   <div
-                    className="absolute inset-0 z-30 flex items-center justify-center bg-black/75 cursor-pointer select-none"
+                    className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 backdrop-blur-sm cursor-pointer select-none"
                     onClick={() => {
                       setWatcherReadyState(true);
-                      playerRef.current?.seekTo(syncState.time);
+                      if (syncState.time > 1) {
+                        setTimeout(() => playerRef.current?.seekTo(syncState.time), 300);
+                      }
                     }}
                   >
-                    <div className="text-center space-y-4">
-                      <div className="w-24 h-24 rounded-full bg-white/15 backdrop-blur-md flex items-center justify-center mx-auto border-2 border-white/30 hover:bg-white/25 transition-colors">
-                        <Play className="w-12 h-12 text-white fill-white ms-1" />
+                    <div className="text-center space-y-3 animate-pulse">
+                      <div className="w-20 h-20 md:w-24 md:h-24 rounded-full bg-primary/30 backdrop-blur-md flex items-center justify-center mx-auto border-2 border-primary/60 hover:bg-primary/40 hover:scale-105 transition-all duration-200 shadow-lg shadow-primary/20">
+                        <Play className="w-10 h-10 md:w-12 md:h-12 text-white fill-white ms-1" />
                       </div>
                       <div>
-                        <p className="text-white text-xl font-bold">{t('tapToPlay')}</p>
-                        <p className="text-white/50 text-sm mt-1">Click to Watch</p>
+                        <p className="text-white text-lg md:text-xl font-bold">{t('pressToWatch')}</p>
+                        <p className="text-white/40 text-xs mt-1">{t('pressToWatchDesc')}</p>
                       </div>
                     </div>
                   </div>

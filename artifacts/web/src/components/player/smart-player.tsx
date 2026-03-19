@@ -152,7 +152,6 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
     const [rpDuration, setRpDuration] = useState(0);
     const [rpVolume, setRpVolume] = useState(1);
     const [rpMuted, setRpMuted] = useState(false);
-    const [mutedForAutoplay, setMutedForAutoplay] = useState(false);
 
     // ── Subtitle state (ReactPlayer branch only) ─────────────────────────────
     const [showSubtitleSearch, setShowSubtitleSearch] = useState(false);
@@ -170,7 +169,6 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       setError(null);
       setReady(false);
       setAutoplayBlocked(false);
-      setMutedForAutoplay(false);
       setProxyUrl(null);
       setNativeVideo(false);
     }, [normalizedUrl]);
@@ -357,13 +355,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       }
       const e = err as { name?: string } | null;
       if (e?.name === 'NotAllowedError' || (typeof err === 'string' && err.toLowerCase().includes('not allowed'))) {
-        setMutedForAutoplay(true);
-        try {
-          const ip = reactPlayerRef.current?.getInternalPlayer();
-          if (ip?.mute) ip.mute();
-          if (ip?.playVideo) ip.playVideo();
-          else if (ip?.play) ip.play().catch(() => { setAutoplayBlocked(true); setMutedForAutoplay(false); });
-        } catch { setAutoplayBlocked(true); setMutedForAutoplay(false); }
+        setAutoplayBlocked(true);
         return;
       }
       // Generic YouTube errors (2=bad param, 5=html5, 100=not found) — show tap-to-play
@@ -492,7 +484,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
           playing={nativeVideo ? false : (autoplayBlocked ? false : playing)}
           controls={false}
           volume={rpMuted ? 0 : rpVolume}
-          muted={rpMuted || mutedForAutoplay}
+          muted={rpMuted}
           playsinline
           onPlay={() => { setAutoplayBlocked(false); setError(null); onPlay?.(); }}
           onPause={onPause}
@@ -504,22 +496,8 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
             setReady(true);
             onReady?.();
 
-            // Seek to room's current position so latecomers are in sync
             if (initialTime > 2) {
               try { reactPlayerRef.current?.seekTo(initialTime, 'seconds'); } catch {}
-            }
-
-            if (playing && !autoplayBlocked) {
-              // Muted autoplay: the ONLY reliable way to autoplay on iOS/Android.
-              // Mobile browsers block audio autoplay for cross-origin iframes,
-              // but allow muted autoplay. We start muted and show an unmute button.
-              setMutedForAutoplay(true);
-              try {
-                const ip = reactPlayerRef.current?.getInternalPlayer();
-                if (ip?.mute) ip.mute();
-                if (ip?.playVideo) ip.playVideo();
-                else if (ip?.play) ip.play().catch(() => {});
-              } catch {}
             }
           }}
           onError={handleError}
@@ -553,33 +531,6 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
           />
         )}
 
-        {/* Muted-autoplay banner — always visible until user unmutes */}
-        <AnimatePresence>
-          {mutedForAutoplay && !error && (
-            <motion.div
-              initial={{ opacity: 0, y: -8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              className="absolute top-2 inset-x-0 flex justify-center z-20 pointer-events-none"
-            >
-              <button
-                className="pointer-events-auto flex items-center gap-2 bg-black/70 backdrop-blur-sm text-white text-sm px-4 py-2 rounded-full border border-white/20 shadow-lg hover:bg-black/80 transition"
-                onClick={() => {
-                  setMutedForAutoplay(false);
-                  try {
-                    const ip = reactPlayerRef.current?.getInternalPlayer();
-                    if (ip?.unMute) ip.unMute();
-                    if (ip?.setVolume) ip.setVolume(100);
-                  } catch {}
-                  resetOverlayTimer();
-                }}
-              >
-                <VolumeX className="w-4 h-4 text-amber-400" />
-                <span>{t('mutedTapUnmute')}</span>
-              </button>
-            </motion.div>
-          )}
-        </AnimatePresence>
 
         {/* Full custom controls overlay */}
         <AnimatePresence>
@@ -705,24 +656,11 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
                     </button>
                     <button
                       className="p-2.5 text-white hover:bg-white/10 rounded-full transition"
-                      onClick={() => {
-                        if (mutedForAutoplay) {
-                          setMutedForAutoplay(false);
-                          try {
-                            const ip = reactPlayerRef.current?.getInternalPlayer();
-                            if (ip?.unMute) ip.unMute();
-                            if (ip?.setVolume) ip.setVolume(100);
-                          } catch {}
-                        } else {
-                          setRpMuted((m) => !m);
-                        }
-                      }}
+                      onClick={() => setRpMuted((m) => !m)}
                     >
-                      {(rpMuted && !mutedForAutoplay) || rpVolume === 0
+                      {rpMuted || rpVolume === 0
                         ? <VolumeX className="w-5 h-5" />
-                        : mutedForAutoplay
-                          ? <VolumeX className="w-5 h-5 text-amber-400" />
-                          : <Volume2 className="w-5 h-5" />
+                        : <Volume2 className="w-5 h-5" />
                       }
                     </button>
                     <button
