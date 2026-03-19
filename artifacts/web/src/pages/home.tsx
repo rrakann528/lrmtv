@@ -114,7 +114,7 @@ export default function HomePage() {
         style={{ height: HEADER_H }}
       >
         <div className="flex items-center gap-2">
-          <Tv className="w-6 h-6 text-primary" />
+          <img src="/icon-512.png" alt="LrmTV" className="w-8 h-8 rounded-lg" />
           <span className="font-bold text-lg text-foreground tracking-tight">LrmTV</span>
         </div>
         {user ? (

@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { motion } from 'framer-motion';
-import { Tv, UserCircle, LogIn, UserPlus } from 'lucide-react';
+import { UserCircle, LogIn, UserPlus } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -35,9 +35,7 @@ export default function LandingPage() {
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-background gap-4">
-        <div className="w-16 h-16 rounded-2xl bg-primary/20 border border-primary/30 flex items-center justify-center shadow-lg shadow-primary/20">
-          <Tv className="w-8 h-8 text-primary" />
-        </div>
+        <img src="/icon-512.png" alt="LrmTV" className="w-16 h-16 rounded-2xl shadow-lg shadow-primary/20" />
         <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
       </div>
     );
@@ -51,9 +49,7 @@ export default function LandingPage() {
       </div>
 
       <div className="relative z-10 flex flex-col items-center text-center max-w-sm w-full">
-        <div className="w-20 h-20 rounded-2xl bg-primary/20 border border-primary/30 flex items-center justify-center mb-6 shadow-lg shadow-primary/20">
-          <Tv className="w-10 h-10 text-primary" />
-        </div>
+        <img src="/icon-512.png" alt="LrmTV" className="w-20 h-20 rounded-2xl mb-6 shadow-lg shadow-primary/20" />
 
         <h1 className="text-4xl font-bold tracking-tight text-foreground mb-1">LrmTV</h1>
         <p className="text-muted-foreground text-sm mb-10">شاهد مع أصدقائك في وقت واحد</p>
