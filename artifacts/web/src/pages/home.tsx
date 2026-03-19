@@ -1,18 +1,19 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useLocation, useSearch } from 'wouter';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Tv, Users, User } from 'lucide-react';
+import { Tv, Users, User, Users2 } from 'lucide-react';
 import { useAuth, apiFetch } from '@/hooks/use-auth';
 import { Avatar } from '@/components/avatar';
 import { RoomsTab } from './home/rooms-tab';
 import { FriendsTab } from './home/friends-tab';
+import { GroupsTab } from './home/groups-tab';
 import { ProfileTab } from './home/profile-tab';
 import { NotifBanner } from '@/components/notif-banner';
 import { useQuery } from '@tanstack/react-query';
 import { useUserSocket } from '@/hooks/use-user-socket';
 import { useI18n } from '@/lib/i18n';
 
-type Tab = 'rooms' | 'friends' | 'profile';
+type Tab = 'rooms' | 'friends' | 'groups' | 'profile';
 
 const HEADER_H  = 56;
 const NAV_H     = 64;
@@ -28,12 +29,13 @@ export default function HomePage() {
   const TABS: { id: Tab; label: string; Icon: typeof Tv }[] = [
     { id: 'rooms',   label: t('tabRooms'),   Icon: Tv },
     { id: 'friends', label: t('tabFriends'), Icon: Users },
+    { id: 'groups',  label: t('tabGroups'),  Icon: Users2 },
     { id: 'profile', label: t('tabProfile'), Icon: User },
   ];
 
   const { user, loading } = useAuth();
   const tabParam = params.get('tab') as Tab | null;
-  const validTabs: Tab[] = ['rooms', 'friends', 'profile'];
+  const validTabs: Tab[] = ['rooms', 'friends', 'groups', 'profile'];
   const [activeTab, setActiveTab] = useState<Tab>(
     tabParam && validTabs.includes(tabParam) ? tabParam : 'rooms'
   );
@@ -151,6 +153,7 @@ export default function HomePage() {
           >
             {activeTab === 'rooms'   && <RoomsTab />}
             {activeTab === 'friends' && <FriendsTab acceptedToast={acceptedToast} onDismissAcceptedToast={() => setAcceptedToast(null)} />}
+            {activeTab === 'groups'  && <GroupsTab />}
             {activeTab === 'profile' && (
               user
                 ? <ProfileTab />

@@ -78,6 +78,10 @@ export const oauthLimiter = rateLimit({
 
 // ── Payload Size Guard ─────────────────────────────────────────────────────────
 export function payloadGuard(req: Request, res: Response, next: NextFunction) {
+  if (req.path.includes("/avatar-upload")) {
+    next();
+    return;
+  }
   const contentLength = parseInt(req.get("content-length") || "0", 10);
   if (contentLength > 1_000_000) {
     res.status(413).json({ error: "حجم الطلب كبير جداً" });

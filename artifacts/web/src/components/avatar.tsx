@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { findAvatar, isPresetAvatar, getPresetId } from '@/lib/avatars';
 
 interface AvatarProps {
@@ -11,6 +12,11 @@ interface AvatarProps {
 export function Avatar({ name, color, url, size = 40, className = '' }: AvatarProps) {
   const initials = name.slice(0, 2).toUpperCase();
   const style = { width: size, height: size, minWidth: size, minHeight: size };
+  const [imgError, setImgError] = useState(false);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [url]);
 
   if (isPresetAvatar(url)) {
     const avatar = findAvatar(getPresetId(url!));
@@ -26,12 +32,13 @@ export function Avatar({ name, color, url, size = 40, className = '' }: AvatarPr
     }
   }
 
-  if (url) {
+  if (url && !imgError) {
     return (
       <img
         src={url}
         alt={name}
         style={style}
+        onError={() => setImgError(true)}
         className={`rounded-full object-cover flex-shrink-0 ${className}`}
       />
     );

@@ -82,7 +82,7 @@ artifacts-monorepo/
 │   ├── api-client-react/  ← Generated React Query hooks
 │   ├── api-zod/           ← Generated Zod schemas
 │   └── db/
-│       └── src/schema/    ← rooms, users, playlist_items, chat_messages
+│       └── src/schema/    ← rooms, users, playlist_items, chat_messages, groups, group_members
 ├── lib/db/migrate.cjs     ← DB migration (runs on start)
 └── scripts/
 ```
@@ -247,6 +247,17 @@ S1 HLS.js direct
 **الأمان:** IP محظورة — سجل محاولات الدخول الفاشلة
 
 **النظام:** معلومات الخادم — مشتركو push — نسخ احتياطي
+
+---
+
+## الميزات الجديدة (مارس 2026)
+
+1. **Groups (المجموعات)**: مستخدمون يمكنهم إنشاء مجموعات خاصة، إضافة أعضاء، ودعوة المجموعة بأكملها لغرفة واحدة. جداول: `groups`, `group_members`. Routes: `/api/groups/*`. UI: تبويب "المجموعات" في الصفحة الرئيسية.
+2. **Profile Photo Upload**: المستخدمون يرفعون صور الملف الشخصي عبر `/api/auth/avatar-upload` (multer, max 5MB). الصور تُقدَّم من `/api/uploads/`. الـ preset avatars أُزيلت.
+3. **Room Header Improvements**: عرض عنوان الفيديو الحالي (YouTube/Twitch/etc) واسم الأدمن في header الغرفة.
+4. **DM Chat Improvements**: فواصل تواريخ، timestamps بلغة المستخدم، رسائل optimistic، UI محسّن.
+5. **Password Change**: المستخدمون يغيرون كلمة المرور من صفحة الملف الشخصي.
+6. **Room Username Fix**: المستخدمون المسجلون يدخلون الغرف تلقائياً بأسماء حساباتهم (لا prompt).
 
 ---
 

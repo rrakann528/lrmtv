@@ -160,6 +160,26 @@ CREATE TABLE IF NOT EXISTS email_otps (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_email_otps_email ON email_otps(email);
+
+CREATE TABLE IF NOT EXISTS groups (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(60) NOT NULL,
+  description VARCHAR(200),
+  avatar_color VARCHAR(7) NOT NULL DEFAULT '#8B5CF6',
+  creator_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  is_private BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS group_members (
+  id SERIAL PRIMARY KEY,
+  group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role VARCHAR(10) NOT NULL DEFAULT 'member',
+  joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (group_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_group_members_user ON group_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_group_members_group ON group_members(group_id);
 `;
 
 export async function runMigrations(): Promise<void> {

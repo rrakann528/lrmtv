@@ -1,10 +1,34 @@
 import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
+import { randomUUID } from "crypto";
 import { db, usersTable, loginAttemptsTable, pool } from "@workspace/db";
 import { requireAuth, signToken, type AuthRequest } from "../middlewares/auth";
 import { z } from "zod";
 import { sendOtpEmail, verifySmtp } from "../lib/email";
+
+const UPLOADS_DIR = path.join(process.cwd(), "uploads");
+if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+
+const avatarUpload = multer({
+  storage: multer.diskStorage({
+    destination: UPLOADS_DIR,
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+      cb(null, `avatar-${randomUUID()}${ext}`);
+    },
+  }),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowedExt = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
+    const allowedMime = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, allowedExt.includes(ext) && allowedMime.includes(file.mimetype));
+  },
+});
 
 const router: IRouter = Router();
 
@@ -281,6 +305,21 @@ router.patch("/auth/profile", requireAuth, async (req: AuthRequest, res): Promis
 
   const [updated] = await db.update(usersTable).set(updates).where(eq(usersTable.id, req.userId!)).returning();
   res.json(userPublic(updated));
+});
+
+router.post("/auth/avatar-upload", requireAuth, avatarUpload.single("file"), async (req: AuthRequest, res): Promise<void> => {
+  try {
+    if (!req.file) { res.status(400).json({ error: "No file" }); return; }
+    const avatarUrl = `/api/uploads/${req.file.filename}`;
+    const [updated] = await db.update(usersTable)
+      .set({ avatarUrl })
+      .where(eq(usersTable.id, req.userId!))
+      .returning();
+    res.json(userPublic(updated));
+  } catch (err) {
+    console.error("[avatar-upload]", err);
+    res.status(500).json({ error: "Upload failed" });
+  }
 });
 
 export default router;

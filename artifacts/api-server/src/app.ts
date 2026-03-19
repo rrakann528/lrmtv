@@ -105,6 +105,9 @@ app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);
 app.use("/api/auth/google", oauthLimiter);
 
+// ── Serve uploaded avatars ───────────────────────────────────────────────────
+app.use("/api/uploads", express.static(path.join(process.cwd(), "uploads"), { maxAge: "7d", etag: true }));
+
 // ── Routes ─────────────────────────────────────────────────────────────────────
 app.use("/api", router);
 

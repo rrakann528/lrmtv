@@ -1,15 +1,11 @@
-import { useState, type ReactNode } from 'react';
+import { useState, useRef, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
-import { Edit3, LogOut, Save, X, Bell, BellOff, Shield } from 'lucide-react';
+import { Edit3, LogOut, Save, X, Bell, BellOff, Shield, Camera, Trash2 } from 'lucide-react';
 import { Avatar } from '@/components/avatar';
-import { useAuth } from '@/hooks/use-auth';
+import { useAuth, apiFetch } from '@/hooks/use-auth';
 import { usePush } from '@/hooks/use-push';
 import { useI18n, LANGUAGES } from '@/lib/i18n';
 import { useLocation } from 'wouter';
-import {
-  AVATARS, AVATAR_CATEGORIES, CATEGORY_LABELS,
-  toPresetUrl, isPresetAvatar, getPresetId,
-} from '@/lib/avatars';
 
 const AVATAR_COLORS = [
   '#06B6D4', '#8B5CF6', '#EC4899', '#F59E0B',
@@ -20,7 +16,7 @@ const AVATAR_COLORS = [
 type Section = null | 'name' | 'username' | 'bio' | 'avatar' | 'password';
 
 export function ProfileTab() {
-  const { user, logout, updateProfile } = useAuth();
+  const { user, logout, updateProfile, setUser } = useAuth();
   const { lang, setLang, t } = useI18n();
   const [, setLocation] = useLocation();
   const { permission, loading: pushLoading, subscribe, refresh: refreshPush, test: testPush, isSupported } = usePush(user?.id);
@@ -29,13 +25,13 @@ export function ProfileTab() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const [displayName, setDisplayName] = useState(user?.displayName || '');
   const [username, setUsername] = useState(user?.username || '');
   const [bio, setBio] = useState(user?.bio || '');
   const [avatarColor, setAvatarColor] = useState(user?.avatarColor || '#06B6D4');
-  const [avatarUrl, setAvatarUrl] = useState(user?.avatarUrl || '');
-  const [avatarCategory, setAvatarCategory] = useState<typeof AVATAR_CATEGORIES[number]>('boy');
 
   if (!user) return null;
 
@@ -55,29 +51,72 @@ export function ProfileTab() {
     }
   };
 
-  const name = user.displayName || user.username;
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setError('');
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const token = localStorage.getItem('lrmtv_auth_token');
+      const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
+      const res = await fetch(`${BASE}/api/auth/avatar-upload`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      });
+      if (!res.ok) throw new Error('Upload failed');
+      const updated = await res.json();
+      setUser(updated);
+      setSuccess(t('saveSuccess'));
+      setTimeout(() => setSuccess(''), 3000);
+    } catch {
+      setError(t('saveError'));
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
 
-  const currentPresetId = isPresetAvatar(user.avatarUrl) ? getPresetId(user.avatarUrl!) : null;
+  const handleRemovePhoto = async () => {
+    await save({ avatarUrl: '' });
+  };
+
+  const name = user.displayName || user.username;
 
   return (
     <div className="flex flex-col h-full overflow-y-auto">
-      {/* Profile header */}
       <div className="flex flex-col items-center pt-8 pb-6 px-4 bg-card border-b border-border">
         <div className="relative mb-3">
           <Avatar name={name} color={user.avatarColor} url={user.avatarUrl} size={88} />
+          <input ref={fileRef} type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" />
           <button
-            onClick={() => { setSection('avatar'); }}
-            className="absolute -bottom-1 -left-1 w-8 h-8 bg-primary rounded-full flex items-center justify-center shadow-lg text-primary-foreground text-base leading-none"
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading}
+            className="absolute -bottom-1 -right-1 w-9 h-9 bg-primary rounded-full flex items-center justify-center shadow-lg text-primary-foreground"
           >
-            ✏️
+            {uploading ? (
+              <div className="w-4 h-4 border-2 border-primary-foreground/50 border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <Camera className="w-4 h-4" />
+            )}
           </button>
+          {user.avatarUrl && (
+            <button
+              onClick={handleRemovePhoto}
+              className="absolute -bottom-1 -left-1 w-7 h-7 bg-destructive rounded-full flex items-center justify-center shadow-lg text-white"
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
+          )}
         </div>
         <h2 className="text-xl font-bold text-foreground">{name}</h2>
         <p className="text-sm text-muted-foreground">@{user.username}</p>
         {user.bio && <p className="text-sm text-muted-foreground mt-1 text-center">{user.bio}</p>}
       </div>
 
-      {/* Success/Error banner */}
       {success && (
         <div className="mx-4 mt-3 px-4 py-2 bg-green-500/10 border border-green-500/30 rounded-xl text-green-500 text-sm text-center">{success}</div>
       )}
@@ -87,7 +126,6 @@ export function ProfileTab() {
 
       <div className="flex-1 px-4 py-4 space-y-3">
 
-        {/* Display Name */}
         <ProfileSection
           label={t('displayNameLabel')}
           value={user.displayName || t('notSet')}
@@ -105,7 +143,6 @@ export function ProfileTab() {
           <SaveBtn saving={saving} onClick={() => save({ displayName })} label={t('save')} />
         </ProfileSection>
 
-        {/* Username */}
         <ProfileSection
           label={t('usernameLabel')}
           value={`@${user.username}`}
@@ -124,7 +161,6 @@ export function ProfileTab() {
           <SaveBtn saving={saving} onClick={() => save({ username })} label={t('save')} />
         </ProfileSection>
 
-        {/* Bio */}
         <ProfileSection
           label={t('bioLabel')}
           value={user.bio || t('bioEmpty')}
@@ -140,101 +176,39 @@ export function ProfileTab() {
             rows={3}
             className="w-full bg-muted/50 border border-border rounded-xl px-4 py-2.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-primary"
           />
-          <p className="text-xs text-muted-foreground text-left">{bio.length}/160</p>
+          <p className="text-xs text-muted-foreground text-start">{bio.length}/160</p>
           <SaveBtn saving={saving} onClick={() => save({ bio })} label={t('save')} />
         </ProfileSection>
 
-        {/* Avatar Picker */}
         <ProfileSection
           label={t('avatarLabel')}
-          value={t('avatarCustomize')}
+          value={t('initialsColor')}
           onEdit={() => setSection('avatar')}
           isOpen={section === 'avatar'}
           onClose={() => setSection(null)}
         >
-          {/* Preview */}
           <div className="flex justify-center py-1">
-            <Avatar
-              name={name}
-              color={avatarColor}
-              url={isPresetAvatar(avatarUrl) ? avatarUrl : undefined}
-              size={72}
-            />
+            <Avatar name={name} color={avatarColor} size={72} />
           </div>
-
-          {/* Category tabs — only show non-empty categories */}
-          <div className="flex gap-1.5 justify-center">
-            {AVATAR_CATEGORIES.filter(cat => AVATARS[cat].length > 0).map(cat => (
-              <button
-                key={cat}
-                onClick={() => setAvatarCategory(cat)}
-                className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-colors ${
-                  avatarCategory === cat
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-muted text-muted-foreground'
-                }`}
-              >
-                {lang === 'ar' ? CATEGORY_LABELS[cat].ar : CATEGORY_LABELS[cat].en}
-              </button>
-            ))}
-          </div>
-
-          {/* Avatar grid */}
-          <div className="grid grid-cols-4 gap-2">
-            {AVATARS[avatarCategory].map(av => {
-              const selected = (avatarUrl === toPresetUrl(av.id)) || (currentPresetId === av.id && !avatarUrl);
-              return (
+          <div className="space-y-1.5">
+            <p className="text-xs text-muted-foreground text-center">{t('initialsColor')}</p>
+            <div className="flex flex-wrap gap-2 justify-center">
+              {AVATAR_COLORS.map(c => (
                 <button
-                  key={av.id}
-                  onClick={() => setAvatarUrl(toPresetUrl(av.id))}
-                  className={`aspect-square rounded-2xl overflow-hidden transition-all bg-white ${
-                    selected
-                      ? 'ring-2 ring-primary scale-105 shadow-lg'
-                      : 'ring-1 ring-border opacity-80 hover:opacity-100'
-                  }`}
-                >
-                  <img src={av.url} alt={av.label} className="w-full h-full object-cover" />
-                </button>
-              );
-            })}
-            {/* No avatar / initials option */}
-            <button
-              onClick={() => setAvatarUrl('')}
-              className={`aspect-square rounded-2xl overflow-hidden transition-all flex items-center justify-center text-xs font-bold ${
-                !avatarUrl || !isPresetAvatar(avatarUrl)
-                  ? 'ring-2 ring-primary scale-105 shadow-lg bg-primary/20 text-primary'
-                  : 'ring-1 ring-border bg-muted text-muted-foreground'
-              }`}
-            >
-              <span style={{ fontSize: 22 }}>{name.slice(0, 1).toUpperCase()}</span>
-            </button>
-          </div>
-
-          {/* Color picker (for initials avatar) */}
-          {(!avatarUrl || !isPresetAvatar(avatarUrl)) && (
-            <div className="space-y-1.5">
-              <p className="text-xs text-muted-foreground text-center">{t('initialsColor')}</p>
-              <div className="flex flex-wrap gap-2 justify-center">
-                {AVATAR_COLORS.map(c => (
-                  <button
-                    key={c}
-                    onClick={() => setAvatarColor(c)}
-                    style={{ backgroundColor: c }}
-                    className={`w-8 h-8 rounded-full transition-transform ${avatarColor === c ? 'scale-110 ring-2 ring-white ring-offset-1 ring-offset-background' : ''}`}
-                  />
-                ))}
-              </div>
+                  key={c}
+                  onClick={() => setAvatarColor(c)}
+                  style={{ backgroundColor: c }}
+                  className={`w-8 h-8 rounded-full transition-transform ${avatarColor === c ? 'scale-110 ring-2 ring-white ring-offset-1 ring-offset-background' : ''}`}
+                />
+              ))}
             </div>
-          )}
-
-          <SaveBtn saving={saving} onClick={() => save({ avatarColor, avatarUrl })} label={t('save')} />
+          </div>
+          <SaveBtn saving={saving} onClick={() => save({ avatarColor, avatarUrl: '' })} label={t('save')} />
         </ProfileSection>
 
-
-        {/* Notifications */}
         <div className="bg-card border border-border rounded-2xl overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3.5">
-            <div className="text-right">
+            <div>
               <p className="text-xs text-muted-foreground">{t('notificationsLabel')}</p>
               <p className="text-sm font-medium text-foreground mt-0.5">
                 {!isSupported
@@ -300,7 +274,16 @@ export function ProfileTab() {
           )}
         </div>
 
-        {/* Admin panel link — visible to site admins only */}
+        <ProfileSection
+          label={t('passwordLabel') || 'Password'}
+          value="••••••••"
+          onEdit={() => setSection('password')}
+          isOpen={section === 'password'}
+          onClose={() => setSection(null)}
+        >
+          <PasswordChange saving={saving} save={save} t={t} />
+        </ProfileSection>
+
         {user?.isSiteAdmin && (
           <motion.button
             whileTap={{ scale: 0.97 }}
@@ -312,7 +295,6 @@ export function ProfileTab() {
           </motion.button>
         )}
 
-        {/* ── Language selector ───────────────────────────── */}
         <div className="mt-4 bg-card border border-border rounded-2xl overflow-hidden">
           <p className="text-xs text-muted-foreground px-4 pt-3 pb-2">
             {t('interfaceLanguage')}
@@ -335,7 +317,6 @@ export function ProfileTab() {
           </div>
         </div>
 
-        {/* Logout */}
         <motion.button
           whileTap={{ scale: 0.97 }}
           onClick={async () => { await logout(); setLocation('/'); }}
@@ -345,6 +326,30 @@ export function ProfileTab() {
           {t('logout')}
         </motion.button>
       </div>
+    </div>
+  );
+}
+
+function PasswordChange({ saving, save, t }: { saving: boolean; save: (u: any) => Promise<void>; t: (k: any) => string }) {
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  return (
+    <div className="space-y-3">
+      <input
+        type="password"
+        value={currentPassword}
+        onChange={e => setCurrentPassword(e.target.value)}
+        placeholder={t('currentPassword') || 'Current password'}
+        className="w-full bg-muted/50 border border-border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+      />
+      <input
+        type="password"
+        value={newPassword}
+        onChange={e => setNewPassword(e.target.value)}
+        placeholder={t('newPassword') || 'New password'}
+        className="w-full bg-muted/50 border border-border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+      />
+      <SaveBtn saving={saving} onClick={() => save({ currentPassword, newPassword })} label={t('save')} />
     </div>
   );
 }
@@ -363,7 +368,7 @@ function ProfileSection({ label, value, onEdit, isOpen, onClose, children }: {
         onClick={isOpen ? onClose : onEdit}
         className="w-full flex items-center justify-between px-4 py-3.5"
       >
-        <div className="text-right">
+        <div>
           <p className="text-xs text-muted-foreground">{label}</p>
           <p className="text-sm font-medium text-foreground mt-0.5">{value}</p>
         </div>
@@ -382,7 +387,7 @@ function ProfileSection({ label, value, onEdit, isOpen, onClose, children }: {
   );
 }
 
-function SaveBtn({ saving, onClick, label = 'حفظ' }: { saving: boolean; onClick: () => void; label?: string }) {
+function SaveBtn({ saving, onClick, label = 'Save' }: { saving: boolean; onClick: () => void; label?: string }) {
   return (
     <button
       onClick={onClick}

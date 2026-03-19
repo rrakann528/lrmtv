@@ -123,7 +123,7 @@ export function RoomsTab() {
         body: JSON.stringify({ name: roomName, type: isPrivate ? 'private' : 'public', username: user?.username || 'guest' }),
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error || 'فشل إنشاء الغرفة');
+      if (!r.ok) throw new Error(d.error || 'Failed to create room');
       return d;
     },
     onSuccess: (room) => {

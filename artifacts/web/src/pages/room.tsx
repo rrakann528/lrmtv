@@ -54,10 +54,19 @@ export default function RoomPage() {
   const [, navigate] = useLocation();
 
   const { t, lang } = useI18n();
-  const { username, setUsername } = useUserSession();
+  const { username: sessionUsername, setUsername } = useUserSession();
   const [nicknameInput, setNicknameInput] = useState('');
 
   const { data: room, isLoading: roomLoading } = useGetRoom(slug);
+
+  const { user: authUser } = useAuth();
+  const username = authUser ? (authUser.displayName || authUser.username) : sessionUsername;
+
+  useEffect(() => {
+    if (authUser && !sessionUsername) {
+      setUsername(authUser.displayName || authUser.username);
+    }
+  }, [authUser, sessionUsername, setUsername]);
 
   const {
     socket, users, you, syncState, isLocked, allowGuestControl, allowGuestEntry, background, roomName,
@@ -70,7 +79,6 @@ export default function RoomPage() {
 
   const [activeTab, setActiveTab] = useState<'chat' | 'playlist' | 'users' | 'friends'>('chat');
   const [roomProfile, setRoomProfile] = useState<{ username: string; userId?: number } | null>(null);
-  const { user: authUser } = useAuth();
   const [micOn, setMicOn]       = useState(false);
   const [cameraOn, setCameraOn] = useState(false);
   const [bgImage, setBgImage]   = useState('');
@@ -334,7 +342,7 @@ export default function RoomPage() {
   if (roomLoading) return <div className="h-dvh bg-background flex items-center justify-center text-white">{t('loading')}</div>;
   if (!room)       return <div className="h-dvh bg-background flex items-center justify-center text-white">{t('roomNotFound')}</div>;
 
-  if (!username) {
+  if (!username && !authUser) {
     return (
       <div className="h-dvh bg-background flex items-center justify-center p-4">
         <div className="glass-panel rounded-2xl p-8 w-full max-w-sm space-y-4">
@@ -427,15 +435,40 @@ export default function RoomPage() {
           </div>
         </div>
 
-        {/* Left (second in RTL): room name + viewer count */}
         <div className="flex items-center gap-2 min-w-0">
-          <h1 className="text-sm md:text-lg font-display font-bold text-glow truncate max-w-[130px] sm:max-w-xs md:max-w-md">
-            {roomName || room.name}
-          </h1>
-          <span className="hidden sm:flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-white/10 text-white/70 shrink-0">
-            <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-            {users.length}
-          </span>
+          <div className="min-w-0">
+            <h1 className="text-sm md:text-base font-display font-bold text-glow truncate max-w-[130px] sm:max-w-xs md:max-w-md">
+              {roomName || room.name}
+            </h1>
+            {syncState.url && (
+              <p className="text-[10px] text-white/50 truncate max-w-[130px] sm:max-w-xs md:max-w-md hidden sm:block">
+                {t('nowPlaying')}: {(() => {
+                  try {
+                    const u = new URL(syncState.url);
+                    if (u.hostname.includes('youtube')) return 'YouTube';
+                    if (u.hostname.includes('twitch')) return 'Twitch';
+                    if (u.hostname.includes('vimeo')) return 'Vimeo';
+                    return u.hostname.replace('www.', '');
+                  } catch { return 'Stream'; }
+                })()}
+              </p>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-white/10 text-white/70">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+              {users.length}
+            </span>
+            {(() => {
+              const admin = users.find(u => u.isAdmin);
+              return admin ? (
+                <span className="hidden md:flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-400 border border-cyan-500/20">
+                  <Shield className="w-3 h-3" />
+                  {admin.displayName || admin.username}
+                </span>
+              ) : null;
+            })()}
+          </div>
         </div>
       </header>
 
