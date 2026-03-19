@@ -1,4 +1,4 @@
-/* Service Worker v7 — LrmTV PWA
+/* Service Worker v8 — LrmTV PWA
  *
  * Caching strategy:
  *  • JS / CSS (content-hashed)  → cache-first  (safe forever — hash changes on update)
@@ -9,8 +9,8 @@
  *  • Stream segments (.m3u8/.ts) → network-only (live data, huge, never cache)
  */
 
-const CACHE_STATIC  = 'lrmtv-static-v7';   // JS / CSS / fonts / images
-const CACHE_PAGES   = 'lrmtv-pages-v7';    // HTML shells
+const CACHE_STATIC  = 'lrmtv-static-v8';
+const CACHE_PAGES   = 'lrmtv-pages-v8';
 
 const PRECACHE = [
   '/',
@@ -137,14 +137,19 @@ self.addEventListener('fetch', e => {
           fetchPromise.catch(() => {});
           return cached;
         }
-        // No cache: try network, fallback to root shell
-        return (await fetchPromise) ?? await cache.match('/') ?? new Response('', { status: 503 });
+        return (await fetchPromise) ?? await cache.match('/') ?? offlinePage();
       })
     );
     return;
   }
-  // Everything else: network-only
 });
+
+function offlinePage() {
+  return new Response(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LrmTV — Offline</title><style>*{margin:0;padding:0;box-sizing:border-box}body{min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0A0A0A;color:#e5e5e5;font-family:system-ui,-apple-system,sans-serif;text-align:center;padding:2rem}.c{max-width:360px}.logo{font-size:2.5rem;font-weight:800;background:linear-gradient(135deg,#06B6D4,#8B5CF6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:1rem}.icon{font-size:3rem;margin-bottom:1rem}.msg{font-size:1rem;color:#a3a3a3;line-height:1.6;margin-bottom:1.5rem}button{padding:.75rem 2rem;border:none;border-radius:12px;background:linear-gradient(135deg,#06B6D4,#8B5CF6);color:#fff;font-size:.9rem;font-weight:600;cursor:pointer}</style></head><body><div class="c"><div class="icon">📡</div><div class="logo">LrmTV</div><p class="msg">أنت غير متصل بالإنترنت حالياً.<br>تحقق من اتصالك وحاول مرة أخرى.</p><button onclick="location.reload()">إعادة المحاولة</button></div></body></html>`, {
+    status: 503,
+    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+  });
+}
 
 /* ─── Push notifications ───────────────────────────────────────────────────── */
 self.addEventListener('push', e => {

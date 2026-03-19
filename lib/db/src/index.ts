@@ -188,6 +188,16 @@ CREATE TABLE IF NOT EXISTS group_messages (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_group_messages_group ON group_messages(group_id);
+CREATE TABLE IF NOT EXISTS group_invitations (
+  id SERIAL PRIMARY KEY,
+  group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+  inviter_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  invitee_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  status VARCHAR(10) NOT NULL DEFAULT 'pending',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (group_id, invitee_id)
+);
+CREATE INDEX IF NOT EXISTS idx_group_invitations_invitee ON group_invitations(invitee_id);
 `;
 
 export async function runMigrations(): Promise<void> {

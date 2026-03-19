@@ -95,7 +95,7 @@ artifacts-monorepo/
 │   ├── api-client-react/  ← Generated React Query hooks
 │   ├── api-zod/           ← Generated Zod schemas
 │   └── db/
-│       └── src/schema/    ← rooms, users, playlist_items, chat_messages, groups, group_members
+│       └── src/schema/    ← rooms, users, playlist_items, chat_messages, groups, group_members, group_invitations
 ├── lib/db/migrate.cjs     ← DB migration (runs on start)
 └── scripts/
 ```
@@ -285,3 +285,16 @@ S1 HLS.js direct
 5. **رسالة خطأ الفيديو**: "فشل تحميل البث" (لا تذكر IP أو شبكة) — تظهر فقط عند فشل حقيقي
 6. **Adcash AutoTag zone**: `gk0vdquftk` في `index.html`
 7. **siteSettingsTable**: يستخدم `key` كـ PRIMARY KEY (لا يوجد عمود `id`)
+
+---
+
+## Groups & Invitations (المجموعات والدعوات)
+
+- **Schema**: `groups`, `group_members`, `group_invitations` tables
+- **group_invitations**: UNIQUE(group_id, invitee_id), status: pending/accepted/rejected
+- **Invite flow**: Admin sends invite → recipient gets push + socket `group:invite` event → accepts/rejects from pending invites section
+- **API routes**: POST `/groups/:id/invite`, GET `/group-invitations`, POST `/group-invitations/:id/accept`, POST `/group-invitations/:id/reject`
+- **Group settings (admin)**: Edit name/description, change avatar color (8 preset colors), toggle private/public
+- **Push**: Group messages + invites trigger push notifications via `sendGroupPush()` in groups.ts
+- **JWT Secret**: Both `auth.ts` and `socket.ts` use `process.env.JWT_SECRET || 'lrmtv_jwt_fallback_secret_2025_please_set_in_env'`
+- **PWA**: Service worker v8 with offline page, manifest with categories/screenshots/shortcuts

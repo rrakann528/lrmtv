@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Users2, X, Trash2, UserPlus, Crown, LogOut, ChevronRight, ChevronLeft, Send, MessageCircle, Settings, Search, Globe, Lock, Loader2 } from 'lucide-react';
+import { Plus, Users2, X, Trash2, UserPlus, Crown, LogOut, ChevronRight, ChevronLeft, Send, MessageCircle, Settings, Search, Globe, Lock, Loader2, Bell, Check, Palette, Pencil } from 'lucide-react';
 import { Avatar } from '@/components/avatar';
 import { useAuth, apiFetch } from '@/hooks/use-auth';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -52,6 +52,19 @@ interface GroupMsg {
   senderAvatarUrl: string | null;
 }
 
+interface GroupInvite {
+  id: number;
+  groupId: number;
+  inviterId: number;
+  groupName: string;
+  groupAvatarColor: string;
+  inviterUsername: string;
+  inviterDisplayName: string | null;
+  inviterAvatarColor: string;
+  inviterAvatarUrl: string | null;
+  createdAt: string;
+}
+
 const GROUP_COLORS = ['#8B5CF6', '#EC4899', '#06B6D4', '#F59E0B', '#10B981', '#EF4444', '#3B82F6', '#F97316'];
 
 export function GroupsTab() {
@@ -72,6 +85,13 @@ export function GroupsTab() {
     queryFn: () => apiFetch('/groups').then(r => r.json()).then(d => Array.isArray(d) ? d : []),
     enabled: !!user,
     refetchInterval: 15_000,
+  });
+
+  const { data: pendingInvites = [] } = useQuery<GroupInvite[]>({
+    queryKey: ['group-invitations'],
+    queryFn: () => apiFetch('/group-invitations').then(r => r.json()).then(d => Array.isArray(d) ? d : []),
+    enabled: !!user,
+    refetchInterval: 10_000,
   });
 
   const createMut = useMutation({
@@ -149,6 +169,9 @@ export function GroupsTab() {
 
             {view === 'my' ? (
               <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-2">
+                {pendingInvites.length > 0 && (
+                  <PendingInvitesSection invites={pendingInvites} onAccepted={(gId) => setSelectedGroupId(gId)} />
+                )}
                 {isLoading ? (
                   Array.from({ length: 3 }).map((_, i) => (
                     <div key={i} className="h-16 bg-muted/40 rounded-2xl animate-pulse" />
@@ -296,6 +319,71 @@ export function GroupsTab() {
         </AnimatePresence>,
         document.body
       )}
+    </div>
+  );
+}
+
+function PendingInvitesSection({ invites, onAccepted }: { invites: GroupInvite[]; onAccepted: (groupId: number) => void }) {
+  const { t } = useI18n();
+  const qc = useQueryClient();
+  const [processingId, setProcessingId] = useState<number | null>(null);
+
+  const handleAction = async (invId: number, action: 'accept' | 'reject', groupId?: number) => {
+    setProcessingId(invId);
+    try {
+      const r = await apiFetch(`/group-invitations/${invId}/${action}`, { method: 'POST' });
+      if (r.ok) {
+        qc.invalidateQueries({ queryKey: ['group-invitations'] });
+        qc.invalidateQueries({ queryKey: ['groups'] });
+        if (action === 'accept' && groupId) onAccepted(groupId);
+      }
+    } catch {}
+    setProcessingId(null);
+  };
+
+  return (
+    <div className="space-y-2 mb-3">
+      <div className="flex items-center gap-2 px-1">
+        <Bell className="w-3.5 h-3.5 text-amber-500" />
+        <p className="text-xs font-semibold text-foreground">{t('pendingInvites')} ({invites.length})</p>
+      </div>
+      {invites.map(inv => (
+        <motion.div
+          key={inv.id}
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="flex items-center gap-3 bg-amber-500/5 border border-amber-500/20 rounded-2xl p-3"
+        >
+          <div
+            className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-base flex-shrink-0"
+            style={{ backgroundColor: inv.groupAvatarColor + '33', color: inv.groupAvatarColor }}
+          >
+            {inv.groupName.slice(0, 1).toUpperCase()}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-foreground truncate">{inv.groupName}</p>
+            <p className="text-[11px] text-muted-foreground">
+              {t('invitedBy')} {inv.inviterDisplayName || inv.inviterUsername}
+            </p>
+          </div>
+          <div className="flex gap-1.5">
+            <button
+              onClick={() => handleAction(inv.id, 'accept', inv.groupId)}
+              disabled={processingId === inv.id}
+              className="w-8 h-8 rounded-full bg-green-500/15 text-green-500 flex items-center justify-center hover:bg-green-500/25 transition disabled:opacity-50"
+            >
+              {processingId === inv.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-4 h-4" />}
+            </button>
+            <button
+              onClick={() => handleAction(inv.id, 'reject')}
+              disabled={processingId === inv.id}
+              className="w-8 h-8 rounded-full bg-destructive/10 text-destructive flex items-center justify-center hover:bg-destructive/20 transition disabled:opacity-50"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </motion.div>
+      ))}
     </div>
   );
 }
@@ -689,10 +777,13 @@ function GroupSettingsView({ groupId, group, onBack }: { groupId: number; group:
   const { user } = useAuth();
   const { t, dir } = useI18n();
   const qc = useQueryClient();
-  const [inviteSlug, setInviteSlug] = useState('');
-  const [inviteResult, setInviteResult] = useState('');
-  const [addingFriendId, setAddingFriendId] = useState<number | null>(null);
-  const [addedFriends, setAddedFriends] = useState<Set<number>>(new Set());
+  const [invitingFriendId, setInvitingFriendId] = useState<number | null>(null);
+  const [invitedFriends, setInvitedFriends] = useState<Set<number>>(new Set());
+  const [editingName, setEditingName] = useState(false);
+  const [editingDesc, setEditingDesc] = useState(false);
+  const [editName, setEditName] = useState(group.name);
+  const [editDesc, setEditDesc] = useState(group.description || '');
+  const [showColorPicker, setShowColorPicker] = useState(false);
 
   const { data: friends = [] } = useQuery<FriendItem[]>({
     queryKey: ['friends'],
@@ -701,23 +792,50 @@ function GroupSettingsView({ groupId, group, onBack }: { groupId: number; group:
 
   const memberIds = new Set(group.members.map(m => m.id));
   const acceptedFriends = friends.filter(f => f.status === 'accepted');
-  const invitableFriends = acceptedFriends.filter(f => !memberIds.has(f.id) && !addedFriends.has(f.id));
-  const alreadyMemberFriends = acceptedFriends.filter(f => memberIds.has(f.id) || addedFriends.has(f.id));
+  const invitableFriends = acceptedFriends.filter(f => !memberIds.has(f.id) && !invitedFriends.has(f.id));
 
-  const handleAddFriend = async (friendId: number, username: string) => {
-    setAddingFriendId(friendId);
+  const handleInviteFriend = async (friendId: number) => {
+    setInvitingFriendId(friendId);
     try {
-      const r = await apiFetch(`/groups/${groupId}/members`, {
+      const r = await apiFetch(`/groups/${groupId}/invite`, {
         method: 'POST',
-        body: JSON.stringify({ username }),
+        body: JSON.stringify({ friendId }),
       });
       if (r.ok) {
-        setAddedFriends(prev => new Set(prev).add(friendId));
-        qc.invalidateQueries({ queryKey: ['group', groupId] });
-        qc.invalidateQueries({ queryKey: ['groups'] });
+        setInvitedFriends(prev => new Set(prev).add(friendId));
       }
-    } catch {}
-    setAddingFriendId(null);
+    } catch { /* network error — spinner stops */ }
+    setInvitingFriendId(null);
+  };
+
+  const handleSaveName = async () => {
+    if (!editName.trim()) return;
+    try {
+      const r = await apiFetch(`/groups/${groupId}`, { method: 'PUT', body: JSON.stringify({ name: editName.trim() }) });
+      if (!r.ok) { setEditName(group.name); return; }
+      qc.invalidateQueries({ queryKey: ['group', groupId] });
+      qc.invalidateQueries({ queryKey: ['groups'] });
+    } catch { setEditName(group.name); }
+    setEditingName(false);
+  };
+
+  const handleSaveDesc = async () => {
+    try {
+      const r = await apiFetch(`/groups/${groupId}`, { method: 'PUT', body: JSON.stringify({ description: editDesc.trim() || null }) });
+      if (!r.ok) { setEditDesc(group.description || ''); return; }
+      qc.invalidateQueries({ queryKey: ['group', groupId] });
+    } catch { setEditDesc(group.description || ''); }
+    setEditingDesc(false);
+  };
+
+  const handleChangeColor = async (color: string) => {
+    try {
+      const r = await apiFetch(`/groups/${groupId}`, { method: 'PUT', body: JSON.stringify({ avatarColor: color }) });
+      if (!r.ok) return;
+      qc.invalidateQueries({ queryKey: ['group', groupId] });
+      qc.invalidateQueries({ queryKey: ['groups'] });
+    } catch { /* silent — color stays as-is */ }
+    setShowColorPicker(false);
   };
 
   const removeMemberMut = useMutation({
@@ -737,80 +855,93 @@ function GroupSettingsView({ groupId, group, onBack }: { groupId: number; group:
     },
   });
 
-  const inviteGroupMut = useMutation({
-    mutationFn: async () => {
-      const slug = inviteSlug.replace(/^(.*\/room\/)/, '').trim();
-      if (!slug) throw new Error('Enter room link');
-      const r = await apiFetch(`/groups/${groupId}/invite-room`, {
-        method: 'POST',
-        body: JSON.stringify({ roomSlug: slug, roomName: slug }),
-      });
-      if (!r.ok) throw new Error('Failed');
-      return r.json();
-    },
-    onSuccess: (data) => {
-      setInviteResult(`${t('invited')} ${data.invited} ${t('members')}`);
-      setInviteSlug('');
-    },
-  });
-
   const isAdmin = group.myRole === 'admin';
   const isCreator = group.creatorId === user?.id;
 
   return (
     <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
-      {group.description && (
-        <p className="text-sm text-muted-foreground bg-muted/30 rounded-xl px-3 py-2">{group.description}</p>
-      )}
-
       {isAdmin && (
-        <div className="flex items-center gap-3 bg-card border border-border rounded-xl p-3">
-          <div className="flex-1">
-            <div className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-              {group.isPrivate ? <Lock className="w-3.5 h-3.5" /> : <Globe className="w-3.5 h-3.5 text-cyan-500" />}
-              {group.isPrivate ? t('privateGroup') : t('publicGroup')}
-            </div>
-            <p className="text-[11px] text-muted-foreground mt-0.5">
-              {group.isPrivate ? t('privateGroupDesc') : t('publicGroupDesc')}
-            </p>
-          </div>
-          <button
-            onClick={async () => {
-              await apiFetch(`/groups/${groupId}`, {
-                method: 'PUT',
-                body: JSON.stringify({ isPrivate: !group.isPrivate }),
-              });
-              qc.invalidateQueries({ queryKey: ['group', groupId] });
-              qc.invalidateQueries({ queryKey: ['groups'] });
-              qc.invalidateQueries({ queryKey: ['public-groups'] });
-            }}
-            className="px-3 py-1.5 rounded-lg bg-muted/50 text-xs font-medium text-muted-foreground hover:bg-muted"
-          >
-            {group.isPrivate ? t('publicGroup') : t('privateGroup')}
-          </button>
-        </div>
-      )}
+        <div className="space-y-3 bg-card border border-border rounded-2xl p-3.5">
+          <p className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+            <Settings className="w-3.5 h-3.5" />
+            {t('groupSettings')}
+          </p>
 
-      {isAdmin && (
-        <div className="space-y-2">
-          <p className="text-xs font-semibold text-foreground">{t('inviteGroupToRoom')}</p>
-          <div className="flex gap-2">
-            <input
-              value={inviteSlug}
-              onChange={e => setInviteSlug(e.target.value)}
-              placeholder={t('pasteRoomLink')}
-              className="flex-1 bg-muted/50 border border-border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-            />
+          <div className="flex items-center gap-3">
             <button
-              onClick={() => inviteGroupMut.mutate()}
-              disabled={!inviteSlug.trim() || inviteGroupMut.isPending}
-              className="px-3 py-2 bg-violet-600 text-white rounded-xl text-sm font-medium disabled:opacity-40 flex items-center gap-1"
+              onClick={() => setShowColorPicker(!showColorPicker)}
+              className="w-11 h-11 rounded-xl flex items-center justify-center font-bold text-lg flex-shrink-0 relative group"
+              style={{ backgroundColor: group.avatarColor + '33', color: group.avatarColor }}
             >
-              <Send className="w-3.5 h-3.5" />
+              {group.name.slice(0, 1).toUpperCase()}
+              <div className="absolute inset-0 rounded-xl bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition">
+                <Palette className="w-4 h-4 text-white" />
+              </div>
+            </button>
+            <div className="flex-1 min-w-0">
+              {editingName ? (
+                <div className="flex gap-1.5">
+                  <input value={editName} onChange={e => setEditName(e.target.value)} maxLength={60}
+                    className="flex-1 bg-muted/50 border border-border rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary" autoFocus />
+                  <button onClick={handleSaveName} className="px-2.5 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs"><Check className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => { setEditingName(false); setEditName(group.name); }} className="px-2.5 py-1.5 bg-muted rounded-lg text-xs"><X className="w-3.5 h-3.5" /></button>
+                </div>
+              ) : (
+                <button onClick={() => setEditingName(true)} className="flex items-center gap-1.5 text-sm font-semibold text-foreground hover:text-primary transition">
+                  {group.name} <Pencil className="w-3 h-3 text-muted-foreground" />
+                </button>
+              )}
+              {editingDesc ? (
+                <div className="flex gap-1.5 mt-1">
+                  <input value={editDesc} onChange={e => setEditDesc(e.target.value)} maxLength={200} placeholder={t('groupDescPlaceholder')}
+                    className="flex-1 bg-muted/50 border border-border rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary" />
+                  <button onClick={handleSaveDesc} className="px-2 py-1 bg-primary text-primary-foreground rounded-lg text-xs"><Check className="w-3 h-3" /></button>
+                  <button onClick={() => { setEditingDesc(false); setEditDesc(group.description || ''); }} className="px-2 py-1 bg-muted rounded-lg text-xs"><X className="w-3 h-3" /></button>
+                </div>
+              ) : (
+                <button onClick={() => setEditingDesc(true)} className="text-[11px] text-muted-foreground hover:text-foreground mt-0.5 flex items-center gap-1">
+                  {group.description || t('addDescription')} <Pencil className="w-2.5 h-2.5" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {showColorPicker && (
+            <div className="flex gap-2 justify-center py-1.5 bg-muted/30 rounded-xl">
+              {GROUP_COLORS.map(c => (
+                <button key={c} onClick={() => handleChangeColor(c)} style={{ backgroundColor: c }}
+                  className={`w-7 h-7 rounded-full transition-transform ${group.avatarColor === c ? 'scale-110 ring-2 ring-white/50' : ''}`} />
+              ))}
+            </div>
+          )}
+
+          <div className="flex items-center gap-3">
+            <div className="flex-1">
+              <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+                {group.isPrivate ? <Lock className="w-3 h-3" /> : <Globe className="w-3 h-3 text-cyan-500" />}
+                {group.isPrivate ? t('privateGroup') : t('publicGroup')}
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                {group.isPrivate ? t('privateGroupDesc') : t('publicGroupDesc')}
+              </p>
+            </div>
+            <button
+              onClick={async () => {
+                await apiFetch(`/groups/${groupId}`, { method: 'PUT', body: JSON.stringify({ isPrivate: !group.isPrivate }) });
+                qc.invalidateQueries({ queryKey: ['group', groupId] });
+                qc.invalidateQueries({ queryKey: ['groups'] });
+                qc.invalidateQueries({ queryKey: ['public-groups'] });
+              }}
+              className="px-3 py-1.5 rounded-lg bg-muted/50 text-xs font-medium text-muted-foreground hover:bg-muted"
+            >
+              {group.isPrivate ? t('publicGroup') : t('privateGroup')}
             </button>
           </div>
-          {inviteResult && <p className="text-xs text-green-500">{inviteResult}</p>}
         </div>
+      )}
+
+      {!isAdmin && group.description && (
+        <p className="text-sm text-muted-foreground bg-muted/30 rounded-xl px-3 py-2">{group.description}</p>
       )}
 
       {isAdmin && acceptedFriends.length > 0 && (
@@ -828,14 +959,14 @@ function GroupSettingsView({ groupId, group, onBack }: { groupId: number; group:
                     <p className="text-[11px] text-muted-foreground">@{f.username}</p>
                   </div>
                   <button
-                    onClick={() => handleAddFriend(f.id, f.username)}
-                    disabled={addingFriendId === f.id}
+                    onClick={() => handleInviteFriend(f.id)}
+                    disabled={invitingFriendId === f.id}
                     className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-primary/10 text-primary text-xs font-medium hover:bg-primary/20 transition disabled:opacity-50"
                   >
-                    {addingFriendId === f.id
+                    {invitingFriendId === f.id
                       ? <Loader2 className="w-3 h-3 animate-spin" />
                       : <UserPlus className="w-3 h-3" />}
-                    {t('addMember')}
+                    {t('invite')}
                   </button>
                 </div>
               ))}

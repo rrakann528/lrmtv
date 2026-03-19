@@ -8,12 +8,16 @@
   "scope": "/",
   "id": "/",
   "display": "standalone",
-  "display_override": ["standalone", "browser"],
+  "display_override": ["standalone", "minimal-ui"],
   "background_color": "#0A0A0A",
   "theme_color": "#06B6D4",
-  "orientation": "portrait-primary",
+  "orientation": "any",
   "prefer_related_applications": false,
-  "categories": ["entertainment", "social"],
+  "categories": ["entertainment", "social", "video"],
+  "handle_links": "preferred",
+  "launch_handler": {
+    "client_mode": "navigate-existing"
+  },
   "icons": [
     {
       "src": "/favicon-16.png",
@@ -55,7 +59,8 @@
       "src": "/opengraph.jpg",
       "sizes": "1200x630",
       "type": "image/jpeg",
-      "label": "LrmTV — Watch Together"
+      "label": "LrmTV — Watch Together",
+      "form_factor": "wide"
     }
   ],
   "shortcuts": [
@@ -66,5 +71,8 @@
       "url": "/home",
       "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
     }
-  ]
+  ],
+  "edge_side_panel": {
+    "preferred_width": 400
+  }
 }

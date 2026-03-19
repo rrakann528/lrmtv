@@ -27,6 +27,16 @@ export const groupMessagesTable = pgTable("group_messages", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const groupInvitationsTable = pgTable("group_invitations", {
+  id: serial("id").primaryKey(),
+  groupId: integer("group_id").notNull().references(() => groupsTable.id, { onDelete: "cascade" }),
+  inviterId: integer("inviter_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  inviteeId: integer("invitee_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  status: varchar("status", { length: 10 }).notNull().default("pending"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export type Group = typeof groupsTable.$inferSelect;
 export type GroupMember = typeof groupMembersTable.$inferSelect;
 export type GroupMessage = typeof groupMessagesTable.$inferSelect;
+export type GroupInvitation = typeof groupInvitationsTable.$inferSelect;
