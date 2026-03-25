@@ -385,14 +385,16 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
         setAutoplayBlocked(true);
         return;
       }
-      // For direct video URLs (html5) that failed — auto-retry through CF Worker proxy
-      // which bypasses CORS and hotlink-protection restrictions on CDN servers
       if (videoType === 'html5' && !proxyUrl && !nativeVideo) {
         const CF_PROXY = (import.meta.env.VITE_CF_PROXY_URL as string | undefined)?.replace(/\/$/, '');
-        const px = CF_PROXY
-          ? `${CF_PROXY}?url=${encodeURIComponent(normalizedUrl)}&ref=${encodeURIComponent(normalizedUrl)}&mode=video`
-          : `/api/proxy/video?url=${encodeURIComponent(normalizedUrl)}`;
-        setProxyUrl(px);
+        if (CF_PROXY) {
+          const px = `${CF_PROXY}?url=${encodeURIComponent(normalizedUrl)}&ref=${encodeURIComponent(normalizedUrl)}&mode=video`;
+          setProxyUrl(px);
+          setError(null);
+          setReady(false);
+          return;
+        }
+        setNativeVideo(true);
         setError(null);
         setReady(false);
         return;

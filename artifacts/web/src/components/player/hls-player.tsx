@@ -700,57 +700,9 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           }
         };
 
-        // S7 — API proxy with native <video> (for iOS Safari where HLS.js is not supported)
-        // Loads the manifest through our server proxy which rewrites ALL segment URLs
-        // to go through /api/proxy/segment — fixing CORS / Referer issues on iOS.
-        const s7_nativeApiProxy = () => {
-          if (cancelled) return;
-          destroyAll();
-          const proxyUrl = `/api/proxy/manifest?url=${encodeURIComponent(src)}`;
-          setStatusMsg('hls-proxy');
-          video.removeAttribute('crossorigin');
-          video.setAttribute('referrerpolicy', 'no-referrer');
-          video.removeAttribute('src');
-          video.load();
-          video.src = proxyUrl;
-          video.load();
-          let done = false;
-          const onMeta = () => {
-            if (done || cancelled) return; done = true; clearTimeout(nTimer);
-            const live = !isFinite(video.duration) || video.duration === Infinity;
-            isLiveRef.current = live; setIsLive(live);
-            onDurationChange(); setStatusMsg(null); setError(null); startStallWatchdog(); signalReady();
-          };
-          const onErr = () => {
-            if (done || cancelled) return; done = true; clearTimeout(nTimer);
-            setError('ip-locked'); setStatusMsg(null);
-          };
-          const nTimer = setTimeout(() => {
-            if (done) return; done = true;
-            video.removeEventListener('loadedmetadata', onMeta);
-            video.removeEventListener('error', onErr);
-            if (!cancelled) { setError('ip-locked'); setStatusMsg(null); }
-          }, 20_000);
-          video.addEventListener('loadedmetadata', onMeta, { once: true });
-          video.addEventListener('error',          onErr,  { once: true });
-        };
-
-        // S6 — API server proxy (always available; fetches manifest server-side, rewrites segments)
-        // On iOS Safari (no HLS.js), delegates to S7 which uses native <video>.
-        const s6_apiProxy = () => {
-          if (cancelled) return;
-          if (!Hls.isSupported()) { s7_nativeApiProxy(); return; }
-          const proxyUrl = `/api/proxy/manifest?url=${encodeURIComponent(src)}`;
-          setStatusMsg('hls-proxy');
-          const hls = makeHls(() => { setError('ip-locked'); setStatusMsg(null); });
-          hlsRef.current = hls;
-          hls.loadSource(proxyUrl);
-          hls.attachMedia(video);
-        };
-
         const s5_cfFullProxy = () => {
           if (cancelled) return;
-          if (!CF_PROXY) { s6_apiProxy(); return; }
+          if (!CF_PROXY) { setError('ip-locked'); setStatusMsg(null); return; }
           const cfUrl = `${CF_PROXY}?url=${encodeURIComponent(src)}&ref=${encodeURIComponent(src)}&mode=full`;
           setStatusMsg('hls-proxy');
           const hls = makeHls(() => { setError('ip-locked'); setStatusMsg(null); });
@@ -784,7 +736,7 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         };
 
         if (src.startsWith('http:') && window.location.protocol === 'https:') {
-          CF_PROXY ? s5_cfFullProxy() : s6_apiProxy();
+          s5_cfFullProxy();
           return;
         }
 
@@ -795,17 +747,17 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           s2_native(() => {
             if (cancelled) return;
             if (Hls.isSupported()) {
-              const onHlsFail = () => CF_PROXY ? s3_cfManifestProxy() : s6_apiProxy();
+              const onHlsFail = () => s3_cfManifestProxy();
               const hls = makeHls(onHlsFail);
               hlsRef.current = hls;
               hls.loadSource(src);
               hls.attachMedia(video);
             } else {
-              s7_nativeApiProxy();
+              s5_cfFullProxy();
             }
           }, 12_000);
         } else if (Hls.isSupported()) {
-          const onS1Fail = () => CF_PROXY ? s3_cfManifestProxy() : s6_apiProxy();
+          const onS1Fail = () => s3_cfManifestProxy();
           const hls = makeHls(onS1Fail);
           hlsRef.current = hls;
           hls.loadSource(src);

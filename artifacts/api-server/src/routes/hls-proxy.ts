@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import { Readable } from 'stream';
 
 const router = Router();
+
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -16,21 +16,12 @@ const BASE_HEADERS = {
   'Accept-Encoding': 'identity',
 };
 
-/**
- * Extract candidate Referer values to try for a given URL.
- * Priority:
- *   1. No referer (many open CDNs need none)
- *   2. Stream host itself  (e.g. https://cdn.example.com/)
- *   3. Any domain embedded in the URL path (e.g. faselhdx.top found in path)
- */
 function candidateReferers(targetUrl: string): string[] {
   const parsed = new URL(targetUrl);
   const candidates: string[] = [
-    '',                                          // 1. no Referer
-    `${parsed.protocol}//${parsed.hostname}/`,   // 2. CDN host
+    '',
+    `${parsed.protocol}//${parsed.hostname}/`,
   ];
-
-  // 3. Domains found inside the URL path/query
   const domainRe = /([a-z0-9-]+\.[a-z]{2,}(?:\.[a-z]{2,})?)/gi;
   const pathStr = parsed.pathname + parsed.search;
   let m: RegExpExecArray | null;
@@ -40,16 +31,9 @@ function candidateReferers(targetUrl: string): string[] {
       candidates.push(candidate);
     }
   }
-
   return candidates;
 }
 
-/**
- * Fetch a URL trying multiple Referer values until one succeeds (status 2xx).
- * Returns { response, referer } of the first successful attempt, or the last
- * failed response if nothing worked.
- *
- */
 async function fetchWithRefererFallback(
   url: string,
   extraHeaders: Record<string, string> = {},
@@ -57,11 +41,9 @@ async function fetchWithRefererFallback(
 ): Promise<{ response: Response; referer: string }> {
   const referers = candidateReferers(url);
   let last!: Response;
-
   for (const referer of referers) {
     const headers: Record<string, string> = { ...BASE_HEADERS, ...extraHeaders };
     if (referer) headers['Referer'] = referer;
-
     try {
       const response = await fetch(url, {
         headers,
@@ -70,68 +52,9 @@ async function fetchWithRefererFallback(
       });
       if (response.ok) return { response, referer };
       last = response;
-    } catch {
-      // network error on this attempt — try next referer
-    }
+    } catch {}
   }
-
   return { response: last, referer: '' };
-}
-
-/** Build a proxy URL for any resource URI found in an M3U8 line */
-function proxyUri(uri: string, baseDir: string, referer: string): string {
-  const absolute = uri.startsWith('http') ? uri : new URL(uri, baseDir).href;
-  let p = `/api/proxy/segment?url=${encodeURIComponent(absolute)}`;
-  if (referer) p += `&referer=${encodeURIComponent(referer)}`;
-  return p;
-}
-
-/**
- * Rewrite an M3U8 manifest so that ALL resource URIs are tunnelled through
- * our server proxy.  This includes:
- *   • segment lines (non-comment, non-empty)
- *   • #EXT-X-KEY  URI="…"   — AES-128 / SAMPLE-AES decryption keys
- *   • #EXT-X-MAP  URI="…"   — fMP4 initialisation segment
- *   • #EXT-X-MEDIA URI="…"  — alternate rendition playlists
- *
- * Without rewriting the key URI, AES-128-encrypted streams load the manifest
- * fine (correct duration) but the browser cannot fetch the decryption key
- * due to CORS / IP-lock restrictions → black screen.
- */
-function rewriteManifest(text: string, baseDir: string, referer: string): string {
-  return text.split('\n').map(line => {
-    const trimmed = line.trim();
-    if (!trimmed) return line;
-
-    // ── Segment line (non-tag) ────────────────────────────────────────────────
-    if (!trimmed.startsWith('#')) {
-      return proxyUri(trimmed, baseDir, referer);
-    }
-
-    // ── #EXT-X-KEY  URI="…" ──────────────────────────────────────────────────
-    if (trimmed.startsWith('#EXT-X-KEY')) {
-      return line.replace(/URI="([^"]+)"/, (_match, uri) =>
-        `URI="${proxyUri(uri, baseDir, referer)}"`,
-      );
-    }
-
-    // ── #EXT-X-MAP  URI="…" ──────────────────────────────────────────────────
-    if (trimmed.startsWith('#EXT-X-MAP')) {
-      return line.replace(/URI="([^"]+)"/, (_match, uri) =>
-        `URI="${proxyUri(uri, baseDir, referer)}"`,
-      );
-    }
-
-    // ── #EXT-X-MEDIA  URI="…" (alternate audio/subtitle renditions) ──────────
-    if (trimmed.startsWith('#EXT-X-MEDIA') && trimmed.includes('URI=')) {
-      return line.replace(/URI="([^"]+)"/, (_match, uri) =>
-        `URI="${proxyUri(uri, baseDir, referer)}"`,
-      );
-    }
-
-    // All other tags pass through unchanged
-    return line;
-  }).join('\n');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -232,184 +155,5 @@ router.get('/proxy/check', async (req, res) => {
 });
 
 router.options('/proxy/check', (_req, res) => { res.set(CORS_HEADERS).sendStatus(204); });
-
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/proxy/manifest?url=<encoded>
-//
-// Fetches an HLS manifest server-side (bypasses mixed-content & CORS).
-// Automatically tries several Referer headers so Referer-protected CDNs
-// are handled without any extra configuration.
-// ─────────────────────────────────────────────────────────────────────────────
-router.get('/proxy/manifest', async (req, res) => {
-  const rawUrl = req.query.url as string | undefined;
-  if (!rawUrl) { res.status(400).send('Missing url'); return; }
-
-  let targetUrl: string;
-  try { targetUrl = decodeURIComponent(rawUrl); new URL(targetUrl); }
-  catch { res.status(400).send('Invalid url'); return; }
-
-  try {
-    const { response, referer } = await fetchWithRefererFallback(targetUrl, {}, 10000);
-
-    if (!response.ok) {
-      res.status(response.status).send('Upstream error');
-      return;
-    }
-
-    const text = await response.text();
-    const baseDir = targetUrl.substring(0, targetUrl.lastIndexOf('/') + 1);
-    const rewritten = rewriteManifest(text, baseDir, referer);
-
-    res.set({
-      ...CORS_HEADERS,
-      'Content-Type': 'application/vnd.apple.mpegurl',
-      'Cache-Control': 'no-cache, no-store',
-    }).send(rewritten);
-  } catch {
-    res.status(502).send('Manifest proxy error');
-  }
-});
-
-router.options('/proxy/manifest', (_req, res) => { res.set(CORS_HEADERS).sendStatus(204); });
-
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/proxy/segment?url=<encoded>[&referer=<encoded>]
-//
-// Streams a single TS segment (or sub-playlist).
-// The optional `referer` param is forwarded so the CDN sees the same auth
-// header that was used when fetching the manifest.
-// ─────────────────────────────────────────────────────────────────────────────
-router.get('/proxy/segment', async (req, res) => {
-  const rawUrl     = req.query.url     as string | undefined;
-  const rawReferer = req.query.referer as string | undefined;
-  if (!rawUrl) { res.status(400).send('Missing url'); return; }
-
-  let targetUrl: string;
-  try { targetUrl = decodeURIComponent(rawUrl); new URL(targetUrl); }
-  catch { res.status(400).send('Invalid url'); return; }
-
-  const knownReferer = rawReferer ? decodeURIComponent(rawReferer) : '';
-  const isPlaylist   = targetUrl.toLowerCase().includes('.m3u8');
-
-  try {
-    let upstreamRes: Response;
-    let usedReferer = knownReferer;
-
-    if (knownReferer) {
-      const headers: Record<string, string> = { ...BASE_HEADERS };
-      if (knownReferer) headers['Referer'] = knownReferer;
-      if (req.headers.range) headers['Range'] = req.headers.range as string;
-      upstreamRes = await fetch(targetUrl, { headers, redirect: 'follow', signal: AbortSignal.timeout(20000) });
-    } else {
-      const extra: Record<string, string> = {};
-      if (req.headers.range) extra['Range'] = req.headers.range as string;
-      const result = await fetchWithRefererFallback(targetUrl, extra, 20000);
-      upstreamRes  = result.response;
-      usedReferer  = result.referer;
-    }
-
-    if (!upstreamRes.ok) { res.status(upstreamRes.status).send('Upstream error'); return; }
-
-    if (isPlaylist) {
-      const text    = await upstreamRes.text();
-      const baseDir = targetUrl.substring(0, targetUrl.lastIndexOf('/') + 1);
-      const rewritten = rewriteManifest(text, baseDir, usedReferer);
-      res.set({ ...CORS_HEADERS, 'Content-Type': 'application/vnd.apple.mpegurl', 'Cache-Control': 'no-cache' }).send(rewritten);
-      return;
-    }
-
-    // Stream the segment directly to the browser without buffering it fully
-    // on the server — reduces latency for live streams significantly.
-    // Some CDNs serve TS segments with wrong Content-Type (text/html, text/plain) — override to video/mp2t.
-    const upstreamCt    = upstreamRes.headers.get('content-type') ?? '';
-    const contentType   = (upstreamCt.startsWith('text/') || upstreamCt === '') ? 'video/mp2t' : upstreamCt;
-    const contentLength = upstreamRes.headers.get('content-length');
-    const responseHeaders: Record<string, string> = {
-      ...CORS_HEADERS,
-      'Content-Type':  contentType,
-      'Cache-Control': 'max-age=30',
-    };
-    if (contentLength) responseHeaders['Content-Length'] = contentLength;
-    res.set(responseHeaders);
-
-    if (upstreamRes.body) {
-      const readable = Readable.fromWeb(upstreamRes.body as Parameters<typeof Readable.fromWeb>[0]);
-      readable.pipe(res);
-      readable.on('error', () => { try { res.destroy(); } catch { /* ignore */ } });
-    } else {
-      res.end();
-    }
-  } catch {
-    res.status(502).send('Segment proxy error');
-  }
-});
-
-router.options('/proxy/segment', (_req, res) => { res.set(CORS_HEADERS).sendStatus(204); });
-
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/proxy/video?url=<encoded>[&referer=<encoded>]
-//
-// Streams a direct video file (MP4, WebM, …) through the server so
-// browser CORS and hotlink-protection restrictions are bypassed.
-// Supports Range requests so the browser can seek inside the video.
-// ─────────────────────────────────────────────────────────────────────────────
-router.get('/proxy/video', async (req, res) => {
-  const rawUrl     = req.query.url     as string | undefined;
-  const rawReferer = req.query.referer as string | undefined;
-  if (!rawUrl) { res.status(400).send('Missing url'); return; }
-
-  let targetUrl: string;
-  try { targetUrl = decodeURIComponent(rawUrl); new URL(targetUrl); }
-  catch { res.status(400).send('Invalid url'); return; }
-
-  try {
-    let upstreamRes: Response;
-
-    if (rawReferer) {
-      const knownReferer = decodeURIComponent(rawReferer);
-      const headers: Record<string, string> = { ...BASE_HEADERS, Referer: knownReferer };
-      if (req.headers.range) headers['Range'] = req.headers.range as string;
-      upstreamRes = await fetch(targetUrl, { headers, redirect: 'follow', signal: AbortSignal.timeout(20000) });
-    } else {
-      const extra: Record<string, string> = {};
-      if (req.headers.range) extra['Range'] = req.headers.range as string;
-      const result = await fetchWithRefererFallback(targetUrl, extra, 20000);
-      upstreamRes  = result.response;
-    }
-
-    if (!upstreamRes.ok && upstreamRes.status !== 206) {
-      res.status(upstreamRes.status).send('Upstream error');
-      return;
-    }
-
-    const contentType   = upstreamRes.headers.get('content-type') ?? 'video/mp4';
-    const contentLength = upstreamRes.headers.get('content-length');
-    const contentRange  = upstreamRes.headers.get('content-range');
-
-    const responseHeaders: Record<string, string> = {
-      ...CORS_HEADERS,
-      'Content-Type':  contentType,
-      'Accept-Ranges': 'bytes',
-      'Cache-Control': 'no-store',
-    };
-    if (contentLength) responseHeaders['Content-Length'] = contentLength;
-    if (contentRange)  responseHeaders['Content-Range']  = contentRange;
-
-    res.status(upstreamRes.status === 206 ? 206 : 200).set(responseHeaders);
-
-    if (upstreamRes.body) {
-      const readable = Readable.fromWeb(upstreamRes.body as Parameters<typeof Readable.fromWeb>[0]);
-      readable.pipe(res);
-      readable.on('error', () => { try { res.destroy(); } catch { /* ignore */ } });
-    } else {
-      res.end();
-    }
-  } catch (err: any) {
-    console.error('[proxy/video] error:', err?.message);
-    if (!res.headersSent) res.status(502).send('Video proxy error');
-  }
-});
-
-router.options('/proxy/video', (_req, res) => { res.set(CORS_HEADERS).sendStatus(204); });
 
 export default router;

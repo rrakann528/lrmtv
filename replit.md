@@ -77,7 +77,7 @@ artifacts-monorepo/
 │   │       ├── lib/socket.ts          ← Socket.io events (sync, chat, heartbeat 1.5s)
 │   │       ├── routes/admin.ts        ← 26 admin API endpoints
 │   │       ├── routes/rooms.ts        ← Room CRUD
-│   │       ├── routes/hls-proxy.ts    ← manifest/segment/video proxy مع KEY/MAP rewrite (بدون IP forwarding)
+│   │       ├── routes/hls-proxy.ts    ← detect + check فقط (البروكسي انتقل لـ CF Worker)
 │   │       └── middlewares/security.ts ← rate limiter (proxy paths exempt)
 │   └── web/
 │       └── src/
@@ -102,7 +102,7 @@ artifacts-monorepo/
 
 ---
 
-## HLS Fallback Chain (7 مراحل)
+## HLS Fallback Chain (5 مراحل — CF Worker)
 
 ```
 S1 HLS.js direct
@@ -110,28 +110,36 @@ S1 HLS.js direct
     → S3 CF manifest proxy (CF Worker → manifest فقط)
       → S4 CF full proxy (كل شيء عبر CF Worker)
         → S5 CF full + segment rewrite
-          → S6 API proxy + HLS.js (/api/proxy/manifest + /api/proxy/segment)
-            → S7 API proxy + native (iOS Safari — manifest + segments كلها عبر السيرفر)
-              → Error (فشل تحميل البث)
+          → Error (فشل تحميل البث)
 ```
 
-- **HTTP على HTTPS**: يتخطى مباشرة إلى S6 (mixed content)
-- **iOS Safari بدون MSE**: يذهب مباشرة إلى S7
-- **CF Worker URL**: `VITE_CF_PROXY_URL` (اختياري)
+- **HTTP على HTTPS**: يتخطى مباشرة إلى S5 (mixed content)
+- **iOS Safari بدون MSE بعد فشل S2**: يذهب لـ S5
+- **CF Worker URL**: `VITE_CF_PROXY_URL` (**مطلوب** لتفعيل المراحل S3-S5)
+- بدون CF Worker، المشغل يحاول S1+S2 فقط ثم يظهر خطأ
 
-## API Proxy (hls-proxy.ts) — مهم جداً
+## CF Worker (cf-worker/)
 
-`rewriteManifest()` تُعيد كتابة **جميع** الموارد في المانيفست عبر بروكسي السيرفر:
-- **Segment lines** (غير تعليق) → `/api/proxy/segment?url=...`
-- **`#EXT-X-KEY URI="..."`** → مفاتيح تشفير AES-128 عبر البروكسي
-- **`#EXT-X-MAP URI="..."`** → fMP4 init segments عبر البروكسي
-- **`#EXT-X-MEDIA URI="..."`** → renditions بديلة عبر البروكسي
+كود Worker كامل في `cf-worker/worker.js` + `wrangler.toml`:
+- **mode=manifest**: بروكسي المانيفست مع إعادة كتابة الروابط
+- **mode=full**: كشف تلقائي (manifest → rewrite, segments → stream)
+- **mode=segment**: بروكسي السيجمنتات مع Referer
+- **mode=video**: بروكسي فيديو مباشر (MP4/WebM) مع Range
 
-بدون هذا، البث المشفر يُظهر شاشة سوداء مع المدة الصحيحة (المانيفست يتحمّل لكن المفتاح لا).
+`rewriteManifest()` تُعيد كتابة segments + `#EXT-X-KEY` + `#EXT-X-MAP` + `#EXT-X-MEDIA` عبر الـ Worker.
 
-**تغيير مهم**: تم إزالة تمرير عنوان IP العميل (`X-Forwarded-For` / `X-Real-IP`) — البروكسي لا يحاول تجاوز قيود IP، فقط يحل مشاكل CORS والـ Referer.
+**نشر الـ Worker:**
+```bash
+cd cf-worker && npx wrangler deploy
+```
+ثم حط الرابط في `VITE_CF_PROXY_URL` (مثلاً `https://lrmtv-proxy.username.workers.dev`)
 
-**Rate limiter**: مسارات `/proxy/*` و`/auth/me` مُعفاة من حد 300 req/15min.
+## API Server Proxy (hls-proxy.ts)
+
+- `GET /api/proxy/detect?url=...` — كشف نوع الفيديو (hls/dash/mp4/webm)
+- `GET /api/proxy/check?url=...` — فحص وصول السيرفر للرابط (كشف IP-lock)
+- تم حذف manifest/segment/video من السيرفر — الآن كلها عبر CF Worker
+- **Rate limiter**: مسارات `/proxy/*` و`/auth/me` مُعفاة من حد 300 req/15min
 
 ---
 
@@ -286,7 +294,7 @@ S1 HLS.js direct
 3. **DB Indexes**: `idx_chat_room_created` (chat_messages), `idx_rooms_creator` (rooms), `idx_dm_sender/receiver/pair` (direct_messages), `idx_friendships_addressee`
 4. **N+1 fix**: `/friends/conversations` uses `DISTINCT ON` + single unread COUNT query instead of per-friend loops
 5. **الـ stall watchdog** يفحص كل 1 ثانية ويتدخل بعد 2 ثانية توقف
-6. **البروكسي يحل CORS/Referer فقط** — لا يمرر IP العميل (لا يحاول تجاوز قيود IP)
+6. **البروكسي انتقل لـ CF Worker** — لا يستهلك موارد السيرفر، لا يمرر IP العميل
 7. **TypeScript composite projects** — دائماً `typecheck` من الـ root
 8. **رسالة خطأ الفيديو**: "فشل تحميل البث" (لا تذكر IP أو شبكة) — تظهر فقط عند فشل حقيقي
 9. **siteSettingsTable**: يستخدم `key` كـ PRIMARY KEY (لا يوجد عمود `id`)
