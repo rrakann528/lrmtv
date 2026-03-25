@@ -138,9 +138,6 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
     const [error, setError] = useState<string | null>(null);
     const [ready, setReady] = useState(false);
     const [autoplayBlocked, setAutoplayBlocked] = useState(false);
-    const [proxyUrl, setProxyUrl] = useState<string | null>(null);
-    const [nativeVideo, setNativeVideo] = useState(false);
-    const nativeVideoRef = useRef<HTMLVideoElement>(null);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [showOverlay, setShowOverlay] = useState(true);
@@ -169,8 +166,6 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       setError(null);
       setReady(false);
       setAutoplayBlocked(false);
-      setProxyUrl(null);
-      setNativeVideo(false);
     }, [normalizedUrl]);
 
     // Fullscreen tracking
@@ -367,8 +362,6 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
     }, [isHls, ready, playing]);
 
     const handleError = useCallback((err: unknown) => {
-      // YouTube IFrame API error codes (passed as numeric data)
-      // 101 / 150 = video not allowed in embedded players → show "blocked" not error
       const ytCode = (err as { data?: number })?.data;
       if (ytCode === 101 || ytCode === 150) {
         setError('embed_blocked');
@@ -379,36 +372,16 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
         setAutoplayBlocked(true);
         return;
       }
-      // Generic YouTube errors (2=bad param, 5=html5, 100=not found) — show tap-to-play
-      // instead of a hard error so the user can try manually
       if (typeof ytCode === 'number') {
         setAutoplayBlocked(true);
         return;
       }
-      // For direct video URLs (html5) that failed — auto-retry through CF Worker proxy
-      // which bypasses CORS and hotlink-protection restrictions on CDN servers
-      if (videoType === 'html5' && !proxyUrl && !nativeVideo) {
-        const CF_PROXY = (import.meta.env.VITE_CF_PROXY_URL as string | undefined)?.replace(/\/$/, '');
-        const px = CF_PROXY
-          ? `${CF_PROXY}?url=${encodeURIComponent(normalizedUrl)}&ref=${encodeURIComponent(normalizedUrl)}&mode=video`
-          : `/api/proxy/video?url=${encodeURIComponent(normalizedUrl)}`;
-        setProxyUrl(px);
-        setError(null);
-        setReady(false);
-        return;
-      }
-      // If proxy also failed — last resort: try a bare <video> element with the
-      // original URL (no ReactPlayer, no crossOrigin). Works for IP-locked CDN
-      // tokens where only the user's browser IP is accepted.
-      if (videoType === 'html5' && proxyUrl && !nativeVideo) {
-        setNativeVideo(true);
-        setProxyUrl(null);
-        setError(null);
-        setReady(false);
+      if (videoType === 'html5') {
+        setError('playback');
         return;
       }
       setError('playback');
-    }, [videoType, normalizedUrl, proxyUrl, nativeVideo]);
+    }, [videoType]);
 
     // ── HLS: custom player with built-in controls ────────────────────────────
     if (isHls) {
@@ -454,11 +427,15 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
               <p className="text-white font-semibold">
                 {error === 'embed_blocked'
                   ? t('videoNoEmbed')
+                  : error === 'ip-locked'
+                  ? t('videoErrorIpLocked')
                   : t('videoError')}
               </p>
               <p className="text-white/50 text-sm max-w-md">
                 {error === 'embed_blocked'
                   ? t('videoNoEmbedDesc')
+                  : error === 'ip-locked'
+                  ? t('videoErrorIpLockedDesc')
                   : t('videoErrorDesc')}
               </p>
             </div>
@@ -479,30 +456,13 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
           </div>
         )}
 
-        {/* S3: last-resort native <video> — no crossOrigin, direct browser fetch */}
-        {nativeVideo && (
-          <video
-            ref={nativeVideoRef}
-            key={normalizedUrl + '__native'}
-            src={normalizedUrl}
-            style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain' }}
-            autoPlay={playing}
-            playsInline
-            controls={false}
-            onLoadedMetadata={() => { setError(null); setReady(true); onReady?.(); }}
-            onError={() => setError('playback')}
-            onPlay={() => { setError(null); onPlay?.(); }}
-            onPause={onPause}
-          />
-        )}
-
         <ReactPlayer
-          key={proxyUrl ?? normalizedUrl}
+          key={normalizedUrl}
           ref={reactPlayerRef}
-          url={proxyUrl ?? normalizedUrl}
+          url={normalizedUrl}
           width="100%"
           height="100%"
-          playing={nativeVideo ? false : (autoplayBlocked ? false : playing)}
+          playing={autoplayBlocked ? false : playing}
           controls={false}
           volume={rpMuted ? 0 : rpVolume}
           muted={rpMuted}
@@ -522,7 +482,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
             }
           }}
           onError={handleError}
-          style={{ position: 'absolute', top: 0, left: 0, display: nativeVideo ? 'none' : undefined }}
+          style={{ position: 'absolute', top: 0, left: 0 }}
           config={{
             youtube: {
               playerVars: {

@@ -77,13 +77,13 @@ artifacts-monorepo/
 │   │       ├── lib/socket.ts          ← Socket.io events (sync, chat, heartbeat 1.5s)
 │   │       ├── routes/admin.ts        ← 26 admin API endpoints
 │   │       ├── routes/rooms.ts        ← Room CRUD
-│   │       ├── routes/hls-proxy.ts    ← manifest/segment/video proxy مع KEY/MAP rewrite
+│   │       ├── routes/hls-proxy.ts    ← /api/proxy/detect (نوع الفيديو فقط)
 │   │       └── middlewares/security.ts ← rate limiter (proxy paths exempt)
 │   └── web/
 │       └── src/
 │           ├── pages/room.tsx         ← Room page + sync logic + "Press to Watch" overlay
 │           ├── components/player/
-│           │   ├── hls-player.tsx     ← HLS 7-stage fallback + HLS_CONFIG
+│           │   ├── hls-player.tsx     ← HLS direct playback + HLS_CONFIG
 │           │   ├── smart-player.tsx   ← Player switcher (YouTube/HLS/HTML5) — no autoplay
 │           │   └── player-controls.tsx
 │           ├── hooks/
@@ -102,36 +102,23 @@ artifacts-monorepo/
 
 ---
 
-## HLS Fallback Chain (7 مراحل)
+## HLS Playback (مبسّط)
 
 ```
-S1 HLS.js direct
-  → S2 Native HTML5 <video>
-    → S3 CF manifest proxy (CF Worker → manifest فقط)
-      → S4 CF full proxy (كل شيء عبر CF Worker)
-        → S5 CF full + segment rewrite
-          → S6 API proxy + HLS.js (/api/proxy/manifest + /api/proxy/segment)
-            → S7 API proxy + native (iOS Safari — manifest + segments كلها عبر السيرفر)
-              → Error (فشل تحميل البث)
+HLS.js direct → Error
+Native Safari HLS → Error
 ```
 
-- **HTTP على HTTPS**: يتخطى مباشرة إلى S6 (mixed content)
-- **iOS Safari بدون MSE**: يذهب مباشرة إلى S7
-- **CF Worker URL**: `VITE_CF_PROXY_URL` (اختياري)
+- لا يوجد بروكسي fallback — المشغل يحاول التشغيل المباشر فقط
+- إذا فشل بسبب CORS/IP → رسالة "رابط مقيّد بالـ IP" (ip-locked)
+- إذا فشل لسبب آخر → رسالة "فشل تحميل البث" (playback error)
+- الروابط المقيدة بالـ IP لا يمكن لمستخدمين آخرين في الغرفة مشاهدتها
 
----
+## API Proxy (hls-proxy.ts)
 
-## API Proxy (hls-proxy.ts) — مهم جداً
-
-`rewriteManifest()` تُعيد كتابة **جميع** الموارد في المانيفست عبر بروكسي السيرفر:
-- **Segment lines** (غير تعليق) → `/api/proxy/segment?url=...`
-- **`#EXT-X-KEY URI="..."`** → مفاتيح تشفير AES-128 عبر البروكسي
-- **`#EXT-X-MAP URI="..."`** → fMP4 init segments عبر البروكسي
-- **`#EXT-X-MEDIA URI="..."`** → renditions بديلة عبر البروكسي
-
-بدون هذا، البث المشفر يُظهر شاشة سوداء مع المدة الصحيحة (المانيفست يتحمّل لكن المفتاح لا).
-
-**Rate limiter**: مسارات `/proxy/*` و`/auth/me` مُعفاة من حد 300 req/15min.
+- **الوظيفة الوحيدة المتبقية**: `GET /api/proxy/detect?url=...` — كشف نوع الفيديو (hls/dash/mp4/webm)
+- تم إزالة جميع وظائف البروكسي (manifest/segment/video/check) — لم تعد مستخدمة
+- **Rate limiter**: مسارات `/proxy/*` و`/auth/me` مُعفاة من حد 300 req/15min
 
 ---
 
@@ -281,14 +268,14 @@ S1 HLS.js direct
 
 ## ملاحظات مهمة
 
-1. **P2P والـ Relay تم إزالتهم بالكامل** — المشغل يعتمد على سلسلة fallback مباشرة فقط
+1. **P2P والـ Relay والبروكسي تم إزالتهم بالكامل** — المشغل يعتمد على التشغيل المباشر فقط (لا CF Worker، لا API proxy)
 2. **Ads removed**: لا يوجد أي كود إعلانات في المشروع
 3. **DB Indexes**: `idx_chat_room_created` (chat_messages), `idx_rooms_creator` (rooms), `idx_dm_sender/receiver/pair` (direct_messages), `idx_friendships_addressee`
 4. **N+1 fix**: `/friends/conversations` uses `DISTINCT ON` + single unread COUNT query instead of per-friend loops
 5. **الـ stall watchdog** يفحص كل 1 ثانية ويتدخل بعد 2 ثانية توقف
-6. **CF Worker** يحل CORS فقط — لا يحل IP blocking الحقيقي
+6. **CF Worker والبروكسي أُزيلوا** — المشغل لا يحاول أي bypass
 7. **TypeScript composite projects** — دائماً `typecheck` من الـ root
-8. **رسالة خطأ الفيديو**: "فشل تحميل البث" (لا تذكر IP أو شبكة) — تظهر فقط عند فشل حقيقي
+8. **رسائل خطأ الفيديو**: `ip-locked` = "رابط مقيّد بالـ IP" (CORS block فقط)، `playback` = "فشل تحميل البث" (أخطاء عامة)
 9. **siteSettingsTable**: يستخدم `key` كـ PRIMARY KEY (لا يوجد عمود `id`)
 
 ---
