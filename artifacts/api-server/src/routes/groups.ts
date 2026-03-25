@@ -1,10 +1,12 @@
 import { Router } from "express";
-import { db, groupsTable, groupMembersTable, groupMessagesTable, groupInvitationsTable, usersTable, pushSubscriptionsTable } from "@workspace/db";
+import { db, groupsTable, groupMembersTable, groupMessagesTable, groupInvitationsTable, usersTable, pushSubscriptionsTable, friendshipsTable } from "@workspace/db";
 import { eq, and, desc, asc, sql, inArray, ilike, not } from "drizzle-orm";
 import { requireAuth, type AuthRequest } from "../middlewares/auth";
 import webpush from "web-push";
+import multer from "multer";
 
 const router = Router();
+const groupAvatarUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
 
 router.get("/groups", requireAuth, async (req: AuthRequest, res) => {
   try {
@@ -15,8 +17,10 @@ router.get("/groups", requireAuth, async (req: AuthRequest, res) => {
         name: groupsTable.name,
         description: groupsTable.description,
         avatarColor: groupsTable.avatarColor,
+        avatarUrl: groupsTable.avatarUrl,
         creatorId: groupsTable.creatorId,
         isPrivate: groupsTable.isPrivate,
+        allowMemberInvite: groupsTable.allowMemberInvite,
         createdAt: groupsTable.createdAt,
         role: groupMembersTable.role,
       })
@@ -99,6 +103,7 @@ router.get("/groups/public", requireAuth, async (req: AuthRequest, res) => {
         name: groupsTable.name,
         description: groupsTable.description,
         avatarColor: groupsTable.avatarColor,
+        avatarUrl: groupsTable.avatarUrl,
         creatorId: groupsTable.creatorId,
         isPrivate: groupsTable.isPrivate,
         createdAt: groupsTable.createdAt,
@@ -190,7 +195,7 @@ router.get("/groups/:id", requireAuth, async (req: AuthRequest, res) => {
       .where(eq(groupMembersTable.groupId, groupId))
       .orderBy(groupMembersTable.joinedAt);
 
-    res.json({ ...group, myRole: membership.role, members });
+    res.json({ ...group, myRole: membership.role, myMuteNotifs: membership.muteNotifs, members });
   } catch (err: any) {
     console.error("[groups] detail error:", err.message);
     res.status(500).json({ error: "Failed to fetch group" });
@@ -224,7 +229,13 @@ router.post("/groups/:id/invite", requireAuth, async (req: AuthRequest, res) => 
     const [membership] = await db.select().from(groupMembersTable)
       .where(and(eq(groupMembersTable.groupId, groupId), eq(groupMembersTable.userId, userId)))
       .limit(1);
-    if (!membership || membership.role !== "admin") {
+    if (!membership) {
+      res.status(403).json({ error: "Not a member" });
+      return;
+    }
+
+    const [groupData] = await db.select({ allowMemberInvite: groupsTable.allowMemberInvite }).from(groupsTable).where(eq(groupsTable.id, groupId)).limit(1);
+    if (membership.role !== "admin" && !groupData?.allowMemberInvite) {
       res.status(403).json({ error: "Only admins can invite" });
       return;
     }
@@ -234,6 +245,14 @@ router.post("/groups/:id/invite", requireAuth, async (req: AuthRequest, res) => 
 
     const [targetUser] = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.id, friendId)).limit(1);
     if (!targetUser) { res.status(404).json({ error: "User not found" }); return; }
+
+    const [friendship] = await db.select().from(friendshipsTable)
+      .where(and(
+        sql`((${friendshipsTable.requesterId} = ${userId} AND ${friendshipsTable.addresseeId} = ${friendId}) OR (${friendshipsTable.requesterId} = ${friendId} AND ${friendshipsTable.addresseeId} = ${userId}))`,
+        eq(friendshipsTable.status, "accepted"),
+      ))
+      .limit(1);
+    if (!friendship) { res.status(403).json({ error: "Must be friends to invite" }); return; }
 
     const [existingMember] = await db.select().from(groupMembersTable)
       .where(and(eq(groupMembersTable.groupId, groupId), eq(groupMembersTable.userId, friendId)))
@@ -486,12 +505,14 @@ router.put("/groups/:id", requireAuth, async (req: AuthRequest, res) => {
       return;
     }
 
-    const { name, description, avatarColor, isPrivate } = req.body;
+    const { name, description, avatarColor, avatarUrl, isPrivate, allowMemberInvite } = req.body;
     const updates: any = {};
     if (name) updates.name = name.trim().slice(0, 60);
     if (description !== undefined) updates.description = description?.trim()?.slice(0, 200) || null;
     if (avatarColor) updates.avatarColor = avatarColor;
+    if (avatarUrl !== undefined) updates.avatarUrl = avatarUrl || null;
     if (typeof isPrivate === 'boolean') updates.isPrivate = isPrivate;
+    if (typeof allowMemberInvite === 'boolean') updates.allowMemberInvite = allowMemberInvite;
 
     if (Object.keys(updates).length === 0) {
       res.status(400).json({ error: "No updates" });
@@ -503,6 +524,56 @@ router.put("/groups/:id", requireAuth, async (req: AuthRequest, res) => {
   } catch (err: any) {
     console.error("[groups] update error:", err.message);
     res.status(500).json({ error: "Failed to update group" });
+  }
+});
+
+router.post("/groups/:id/avatar-upload", requireAuth, groupAvatarUpload.single("file"), async (req: AuthRequest, res): Promise<void> => {
+  try {
+    const userId = req.userId!;
+    const groupId = parseInt(req.params.id as string);
+    if (isNaN(groupId)) { res.status(400).json({ error: "Invalid group ID" }); return; }
+
+    const [membership] = await db.select().from(groupMembersTable)
+      .where(and(eq(groupMembersTable.groupId, groupId), eq(groupMembersTable.userId, userId)))
+      .limit(1);
+    if (!membership || membership.role !== "admin") {
+      res.status(403).json({ error: "Only admins can change group avatar" }); return;
+    }
+
+    if (!req.file) { res.status(400).json({ error: "No file" }); return; }
+    const base64 = req.file.buffer.toString('base64');
+    const avatarUrl = `data:${req.file.mimetype};base64,${base64}`;
+
+    const [updated] = await db.update(groupsTable)
+      .set({ avatarUrl })
+      .where(eq(groupsTable.id, groupId))
+      .returning();
+    res.json(updated);
+  } catch (err: any) {
+    console.error("[group-avatar-upload]", err.message);
+    res.status(500).json({ error: "Upload failed" });
+  }
+});
+
+router.post("/groups/:id/mute", requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const userId = req.userId!;
+    const groupId = parseInt(req.params.id as string);
+    if (isNaN(groupId)) { res.status(400).json({ error: "Invalid group ID" }); return; }
+
+    const [membership] = await db.select().from(groupMembersTable)
+      .where(and(eq(groupMembersTable.groupId, groupId), eq(groupMembersTable.userId, userId)))
+      .limit(1);
+    if (!membership) { res.status(403).json({ error: "Not a member" }); return; }
+
+    const mute = req.body.mute !== false;
+    await db.update(groupMembersTable)
+      .set({ muteNotifs: mute })
+      .where(and(eq(groupMembersTable.groupId, groupId), eq(groupMembersTable.userId, userId)));
+    res.json({ success: true, muteNotifs: mute });
+  } catch (err: any) {
+    console.error("[groups] mute error:", err.message);
+    res.status(500).json({ error: "Failed to update" });
   }
 });
 
@@ -632,7 +703,7 @@ router.post("/groups/:id/messages", requireAuth, async (req: AuthRequest, res) =
 
     const { getIO } = await import("../lib/socket");
     const io = getIO();
-    const members = await db.select({ userId: groupMembersTable.userId })
+    const members = await db.select({ userId: groupMembersTable.userId, muteNotifs: groupMembersTable.muteNotifs })
       .from(groupMembersTable)
       .where(eq(groupMembersTable.groupId, groupId));
     const [group] = await db.select({ name: groupsTable.name }).from(groupsTable).where(eq(groupsTable.id, groupId)).limit(1);
@@ -642,6 +713,7 @@ router.post("/groups/:id/messages", requireAuth, async (req: AuthRequest, res) =
       if (io) {
         io.to(`user:${m.userId}`).emit("group:message", fullMsg);
       }
+      if (m.muteNotifs) continue;
       sendGroupPush(m.userId, {
         title: `${group?.name || 'مجموعة'}`,
         body: `${sender?.displayName || sender?.username}: ${content.trim().slice(0, 80)}`,

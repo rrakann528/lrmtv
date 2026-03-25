@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Users2, X, Trash2, UserPlus, Crown, LogOut, ChevronRight, ChevronLeft, Send, MessageCircle, Settings, Search, Globe, Lock, Loader2, Bell, Check, Palette, Pencil } from 'lucide-react';
+import { Plus, Users2, X, Trash2, UserPlus, Crown, LogOut, ChevronRight, ChevronLeft, Send, MessageCircle, Settings, Search, Globe, Lock, Loader2, Bell, BellOff, Check, Palette, Pencil, Camera, ImagePlus, UserCheck } from 'lucide-react';
 import { Avatar } from '@/components/avatar';
 import { useAuth, apiFetch } from '@/hooks/use-auth';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -19,7 +19,10 @@ interface GroupSummary {
   name: string;
   description: string | null;
   avatarColor: string;
+  avatarUrl: string | null;
   creatorId: number;
+  isPrivate: boolean;
+  allowMemberInvite: boolean;
   role: string;
   memberCount: number;
 }
@@ -38,9 +41,12 @@ interface GroupDetail {
   name: string;
   description: string | null;
   avatarColor: string;
+  avatarUrl: string | null;
   creatorId: number;
   isPrivate: boolean;
+  allowMemberInvite: boolean;
   myRole: string;
+  myMuteNotifs: boolean;
   members: GroupMember[];
 }
 
@@ -73,6 +79,21 @@ interface GroupInvite {
 }
 
 const GROUP_COLORS = ['#8B5CF6', '#EC4899', '#06B6D4', '#F59E0B', '#10B981', '#EF4444', '#3B82F6', '#F97316'];
+
+function GroupAvatarIcon({ name, color, url, size = 44 }: { name: string; color: string; url?: string | null; size?: number }) {
+  const radius = size <= 36 ? 'rounded-lg' : 'rounded-xl';
+  if (url) {
+    return <img src={url} alt={name} className={`${radius} object-cover flex-shrink-0`} style={{ width: size, height: size }} />;
+  }
+  return (
+    <div
+      className={`${radius} flex items-center justify-center font-bold flex-shrink-0`}
+      style={{ width: size, height: size, backgroundColor: color + '33', color, fontSize: size * 0.4 }}
+    >
+      {name.slice(0, 1).toUpperCase()}
+    </div>
+  );
+}
 
 export function GroupsTab() {
   const { user } = useAuth();
@@ -199,18 +220,13 @@ export function GroupsTab() {
                       onClick={() => setSelectedGroupId(group.id)}
                       className="w-full flex items-center gap-3 bg-card border border-border rounded-2xl p-3.5 text-start"
                     >
-                      <div
-                        className="w-11 h-11 rounded-xl flex items-center justify-center text-white font-bold text-lg flex-shrink-0"
-                        style={{ backgroundColor: group.avatarColor + '33', color: group.avatarColor }}
-                      >
-                        {group.name.slice(0, 1).toUpperCase()}
-                      </div>
+                      <GroupAvatarIcon name={group.name} color={group.avatarColor} url={group.avatarUrl} size={44} />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5">
                           <p className="font-semibold text-sm text-foreground truncate">{group.name}</p>
                           {group.role === 'admin' && <Crown className="w-3 h-3 text-yellow-500 flex-shrink-0" />}
-                          {(group as any).isPrivate === false && <Globe className="w-3 h-3 text-cyan-500 flex-shrink-0" />}
-                          {(group as any).isPrivate !== false && <Lock className="w-3 h-3 text-muted-foreground/50 flex-shrink-0" />}
+                          {group.isPrivate === false && <Globe className="w-3 h-3 text-cyan-500 flex-shrink-0" />}
+                          {group.isPrivate !== false && <Lock className="w-3 h-3 text-muted-foreground/50 flex-shrink-0" />}
                         </div>
                         <p className="text-xs text-muted-foreground">
                           {group.memberCount} {t('members')}
@@ -360,12 +376,7 @@ function PendingInvitesSection({ invites, onAccepted }: { invites: GroupInvite[]
           animate={{ opacity: 1, scale: 1 }}
           className="flex items-center gap-3 bg-amber-500/5 border border-amber-500/20 rounded-2xl p-3"
         >
-          <div
-            className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-base flex-shrink-0"
-            style={{ backgroundColor: inv.groupAvatarColor + '33', color: inv.groupAvatarColor }}
-          >
-            {inv.groupName.slice(0, 1).toUpperCase()}
-          </div>
+          <GroupAvatarIcon name={inv.groupName} color={inv.groupAvatarColor} size={40} />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-foreground truncate">{inv.groupName}</p>
             <p className="text-[11px] text-muted-foreground">
@@ -399,6 +410,7 @@ interface PublicGroup {
   name: string;
   description: string | null;
   avatarColor: string;
+  avatarUrl: string | null;
   memberCount: number;
   isMember: boolean;
 }
@@ -456,12 +468,7 @@ function DiscoverGroupsView({ onSelectGroup }: { onSelectGroup: (id: number) => 
             transition={{ delay: i * 0.04 }}
             className="flex items-center gap-3 bg-card border border-border rounded-2xl p-3.5"
           >
-            <div
-              className="w-11 h-11 rounded-xl flex items-center justify-center text-white font-bold text-lg flex-shrink-0"
-              style={{ backgroundColor: g.avatarColor + '33', color: g.avatarColor }}
-            >
-              {g.name.slice(0, 1).toUpperCase()}
-            </div>
+            <GroupAvatarIcon name={g.name} color={g.avatarColor} url={g.avatarUrl} size={44} />
             <div className="flex-1 min-w-0">
               <p className="font-semibold text-sm text-foreground truncate">{g.name}</p>
               {g.description && <p className="text-xs text-muted-foreground truncate">{g.description}</p>}
@@ -542,12 +549,7 @@ function GroupDetailView({ groupId, onBack }: { groupId: number; onBack: () => v
         <button onClick={onBack} className="p-2 rounded-xl hover:bg-muted/50">
           <BackArrow className="w-5 h-5" />
         </button>
-        <div
-          className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg flex-shrink-0"
-          style={{ backgroundColor: group.avatarColor + '33', color: group.avatarColor }}
-        >
-          {group.name.slice(0, 1).toUpperCase()}
-        </div>
+        <GroupAvatarIcon name={group.name} color={group.avatarColor} url={group.avatarUrl} size={40} />
         <div className="flex-1 min-w-0">
           <p className="font-semibold text-foreground truncate">{group.name}</p>
           <p className="text-xs text-muted-foreground">{group.members.length} {t('members')}</p>
@@ -849,6 +851,84 @@ function GroupSettingsView({ groupId, group, onBack }: { groupId: number; group:
   const [editName, setEditName] = useState(group.name);
   const [editDesc, setEditDesc] = useState(group.description || '');
   const [showColorPicker, setShowColorPicker] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [isMuted, setIsMuted] = useState(group.myMuteNotifs);
+  const groupFileRef = useRef<HTMLInputElement>(null);
+
+  const compressGroupImage = (file: File, maxSize: number, quality: number): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let w = img.width, h = img.height;
+        if (w > maxSize || h > maxSize) {
+          const ratio = Math.min(maxSize / w, maxSize / h);
+          w = Math.round(w * ratio);
+          h = Math.round(h * ratio);
+        }
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { reject(new Error('Canvas error')); return; }
+        ctx.drawImage(img, 0, 0, w, h);
+        canvas.toBlob(blob => {
+          if (blob) resolve(blob); else reject(new Error('Compression failed'));
+        }, 'image/jpeg', quality);
+      };
+      img.onerror = () => reject(new Error('Image load failed'));
+      img.src = URL.createObjectURL(file);
+    });
+  };
+
+  const handleGroupPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingPhoto(true);
+    try {
+      const compressed = await compressGroupImage(file, 512, 0.8);
+      const formData = new FormData();
+      formData.append('file', compressed, 'group-avatar.jpg');
+      const token = localStorage.getItem('lrmtv_auth_token');
+      const res = await fetch(`${BASE}/api/groups/${groupId}/avatar-upload`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      });
+      if (res.ok) {
+        qc.invalidateQueries({ queryKey: ['group', groupId] });
+        qc.invalidateQueries({ queryKey: ['groups'] });
+      }
+    } catch {}
+    setUploadingPhoto(false);
+    if (groupFileRef.current) groupFileRef.current.value = '';
+  };
+
+  const handleRemoveGroupPhoto = async () => {
+    try {
+      await apiFetch(`/groups/${groupId}`, { method: 'PUT', body: JSON.stringify({ avatarUrl: '' }) });
+      qc.invalidateQueries({ queryKey: ['group', groupId] });
+      qc.invalidateQueries({ queryKey: ['groups'] });
+    } catch {}
+  };
+
+  const handleToggleMute = async () => {
+    const newMute = !isMuted;
+    setIsMuted(newMute);
+    try {
+      await apiFetch(`/groups/${groupId}/mute`, { method: 'POST', body: JSON.stringify({ mute: newMute }) });
+      qc.invalidateQueries({ queryKey: ['group', groupId] });
+    } catch { setIsMuted(!newMute); }
+  };
+
+  const handleToggleAllowMemberInvite = async () => {
+    const newVal = !group.allowMemberInvite;
+    try {
+      await apiFetch(`/groups/${groupId}`, { method: 'PUT', body: JSON.stringify({ allowMemberInvite: newVal }) });
+      qc.invalidateQueries({ queryKey: ['group', groupId] });
+      qc.invalidateQueries({ queryKey: ['groups'] });
+    } catch {}
+  };
 
   const { data: friends = [] } = useQuery<FriendItem[]>({
     queryKey: ['friends'],
@@ -925,6 +1005,27 @@ function GroupSettingsView({ groupId, group, onBack }: { groupId: number; group:
 
   return (
     <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
+      <div className="space-y-3 bg-card border border-border rounded-2xl p-3.5">
+        <p className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+          <Settings className="w-3.5 h-3.5" />
+          {t('groupOptions')}
+        </p>
+
+        <button
+          onClick={handleToggleMute}
+          className="w-full flex items-center gap-3 py-2 px-1 rounded-xl hover:bg-muted/30 transition text-start"
+        >
+          {isMuted ? <BellOff className="w-4 h-4 text-muted-foreground" /> : <Bell className="w-4 h-4 text-primary" />}
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium text-foreground">{isMuted ? t('unmuteNotifs') : t('muteNotifs')}</p>
+            <p className="text-[10px] text-muted-foreground">{isMuted ? t('unmuteNotifsDesc') : t('muteNotifsDesc')}</p>
+          </div>
+          <div className={`w-9 h-5 rounded-full transition-colors ${isMuted ? 'bg-muted' : 'bg-primary'}`}>
+            <motion.div animate={{ x: isMuted ? 2 : 16 }} transition={{ type: 'spring', stiffness: 500, damping: 30 }} className="w-4 h-4 mt-0.5 rounded-full bg-white shadow-sm" />
+          </div>
+        </button>
+      </div>
+
       {isAdmin && (
         <div className="space-y-3 bg-card border border-border rounded-2xl p-3.5">
           <p className="text-xs font-semibold text-foreground flex items-center gap-1.5">
@@ -933,16 +1034,26 @@ function GroupSettingsView({ groupId, group, onBack }: { groupId: number; group:
           </p>
 
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => setShowColorPicker(!showColorPicker)}
-              className="w-11 h-11 rounded-xl flex items-center justify-center font-bold text-lg flex-shrink-0 relative group"
-              style={{ backgroundColor: group.avatarColor + '33', color: group.avatarColor }}
-            >
-              {group.name.slice(0, 1).toUpperCase()}
-              <div className="absolute inset-0 rounded-xl bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition">
-                <Palette className="w-4 h-4 text-white" />
-              </div>
-            </button>
+            <div className="relative group/avatar">
+              <input ref={groupFileRef} type="file" accept="image/*" onChange={handleGroupPhotoUpload} className="hidden" />
+              {group.avatarUrl ? (
+                <img src={group.avatarUrl} alt={group.name} className="w-14 h-14 rounded-xl object-cover" />
+              ) : (
+                <div
+                  className="w-14 h-14 rounded-xl flex items-center justify-center font-bold text-xl"
+                  style={{ backgroundColor: group.avatarColor + '33', color: group.avatarColor }}
+                >
+                  {group.name.slice(0, 1).toUpperCase()}
+                </div>
+              )}
+              <button
+                onClick={() => groupFileRef.current?.click()}
+                disabled={uploadingPhoto}
+                className="absolute inset-0 rounded-xl bg-black/40 flex items-center justify-center opacity-0 group-hover/avatar:opacity-100 transition"
+              >
+                {uploadingPhoto ? <Loader2 className="w-5 h-5 text-white animate-spin" /> : <Camera className="w-5 h-5 text-white" />}
+              </button>
+            </div>
             <div className="flex-1 min-w-0">
               {editingName ? (
                 <div className="flex gap-1.5">
@@ -969,6 +1080,25 @@ function GroupSettingsView({ groupId, group, onBack }: { groupId: number; group:
                 </button>
               )}
             </div>
+          </div>
+
+          <div className="flex gap-2 flex-wrap">
+            <button
+              onClick={() => setShowColorPicker(!showColorPicker)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted/50 text-xs font-medium text-muted-foreground hover:bg-muted"
+            >
+              <Palette className="w-3 h-3" />
+              {t('groupColor')}
+            </button>
+            {group.avatarUrl && (
+              <button
+                onClick={handleRemoveGroupPhoto}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 text-xs font-medium text-red-400 hover:bg-red-500/20"
+              >
+                <X className="w-3 h-3" />
+                {t('removePhoto')}
+              </button>
+            )}
           </div>
 
           {showColorPicker && (
@@ -1002,6 +1132,20 @@ function GroupSettingsView({ groupId, group, onBack }: { groupId: number; group:
               {group.isPrivate ? t('publicGroup') : t('privateGroup')}
             </button>
           </div>
+
+          <button
+            onClick={handleToggleAllowMemberInvite}
+            className="w-full flex items-center gap-3 py-2 px-1 rounded-xl hover:bg-muted/30 transition text-start"
+          >
+            <UserCheck className="w-4 h-4 text-primary" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-foreground">{t('allowMemberInvite')}</p>
+              <p className="text-[10px] text-muted-foreground">{t('allowMemberInviteDesc')}</p>
+            </div>
+            <div className={`w-9 h-5 rounded-full transition-colors ${group.allowMemberInvite ? 'bg-primary' : 'bg-muted'}`}>
+              <motion.div animate={{ x: group.allowMemberInvite ? 16 : 2 }} transition={{ type: 'spring', stiffness: 500, damping: 30 }} className="w-4 h-4 mt-0.5 rounded-full bg-white shadow-sm" />
+            </div>
+          </button>
         </div>
       )}
 
@@ -1009,7 +1153,7 @@ function GroupSettingsView({ groupId, group, onBack }: { groupId: number; group:
         <p className="text-sm text-muted-foreground bg-muted/30 rounded-xl px-3 py-2">{group.description}</p>
       )}
 
-      {isAdmin && acceptedFriends.length > 0 && (
+      {(isAdmin || group.allowMemberInvite) && acceptedFriends.length > 0 && (
         <div className="space-y-2">
           <p className="text-xs font-semibold text-foreground">{t('inviteFriendsToGroup')}</p>
           {invitableFriends.length === 0 ? (
