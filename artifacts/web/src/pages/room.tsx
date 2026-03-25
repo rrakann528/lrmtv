@@ -4,10 +4,9 @@ import { useRoute, useLocation } from 'wouter';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   MessageSquare, ListVideo, Users, UserPlus,
-  Mic, MicOff, Video, VideoOff, Copy, Share2, Shield,
+  Mic, MicOff, Copy, Share2, Shield,
   LogOut, LogIn, Settings2, Play,
 } from 'lucide-react';
-import { DraggableCam } from '@/components/draggable-cam';
 
 import { useI18n } from '@/lib/i18n';
 import { useUserSession } from '@/hooks/use-user-session';
@@ -73,17 +72,16 @@ export default function RoomPage() {
 
   const {
     socket, users, you, syncState, isLocked, allowGuestControl, allowGuestEntry, background, roomName,
-    chatMessages, isPrivate, chatDisabled, micDisabled, cameraDisabled, sponsorSkipEnabled,
+    chatMessages, isPrivate, chatDisabled, micDisabled, sponsorSkipEnabled,
     emitSync, emitSeek, emitChatMessage, emitDeleteMessage,
     toggleLock, toggleAllowGuests, toggleGuestEntry, toggleDJ, renameRoom, toggleMedia, emitPlaylistUpdate, requestSync,
-    kickUser, transferAdmin, togglePrivacy, toggleChat, toggleMic, toggleCamera, toggleSponsorSkip,
+    kickUser, transferAdmin, togglePrivacy, toggleChat, toggleMic, toggleSponsorSkip,
     subtitleSync, emitSubtitleSync, emitStreamType,
   } = useSocket(slug);
 
   const [activeTab, setActiveTab] = useState<'chat' | 'playlist' | 'users' | 'friends'>('chat');
   const [roomProfile, setRoomProfile] = useState<{ username: string; userId?: number } | null>(null);
   const [micOn, setMicOn]       = useState(false);
-  const [cameraOn, setCameraOn] = useState(false);
   const [bgImage, setBgImage]   = useState('');
   const [copied, setCopied]     = useState(false);
   const [isSeeking]             = useState(false);
@@ -96,11 +94,7 @@ export default function RoomPage() {
   // Room settings panel (admin only) — controlled from header button
   const [showRoomSettings, setShowRoomSettings] = useState(false);
 
-  // Confirmation dialog before enabling mic/camera
-  const [mediaConfirm, setMediaConfirm] = useState<'mic' | 'camera' | null>(null);
-
-  // Minimised remote cams (socketIds of closed windows)
-  const [hiddenCams, setHiddenCams] = useState<Set<string>>(new Set());
+  const [mediaConfirm, setMediaConfirm] = useState(false);
 
   const playerRef = useRef<SmartPlayerHandle>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -231,62 +225,32 @@ export default function RoomPage() {
     setMicOn(true);
     toggleMedia({ isMuted: false });
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: cameraOn });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       setLocalStream(stream);
     } catch {
       setMicOn(false);
       toggleMedia({ isMuted: true });
     }
-  }, [cameraOn, toggleMedia]);
-
-  const doEnableCamera = useCallback(async () => {
-    setCameraOn(true);
-    toggleMedia({ isCameraOff: false });
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: micOn, video: true });
-      setLocalStream(stream);
-    } catch {
-      setCameraOn(false);
-      toggleMedia({ isCameraOff: true });
-    }
-  }, [micOn, toggleMedia]);
+  }, [toggleMedia]);
 
   const handleToggleMic = useCallback(async () => {
     if (!micOn) {
-      // Turning ON — show confirmation first
-      setMediaConfirm('mic');
+      setMediaConfirm(true);
       return;
     }
-    // Turning OFF — immediate
     setMicOn(false);
     toggleMedia({ isMuted: true });
     if (localStream) {
       localStream.getAudioTracks().forEach(t => t.stop());
-      if (!cameraOn) { setLocalStream(null); hangUp(); }
+      setLocalStream(null);
+      hangUp();
     }
-  }, [micOn, cameraOn, toggleMedia, localStream, hangUp]);
-
-  const handleToggleCamera = useCallback(async () => {
-    if (!cameraOn) {
-      // Turning ON — show confirmation first
-      setMediaConfirm('camera');
-      return;
-    }
-    // Turning OFF — immediate
-    setCameraOn(false);
-    toggleMedia({ isCameraOff: true });
-    if (localStream) {
-      localStream.getVideoTracks().forEach(t => t.stop());
-      if (!micOn) { setLocalStream(null); hangUp(); }
-    }
-  }, [cameraOn, micOn, toggleMedia, localStream, hangUp]);
+  }, [micOn, toggleMedia, localStream, hangUp]);
 
   const handleConfirmMedia = useCallback(async () => {
-    const type = mediaConfirm;
-    setMediaConfirm(null);
-    if (type === 'mic') await doEnableMic();
-    else if (type === 'camera') await doEnableCamera();
-  }, [mediaConfirm, doEnableMic, doEnableCamera]);
+    setMediaConfirm(false);
+    await doEnableMic();
+  }, [doEnableMic]);
 
   useEffect(() => {
     if (localStream && users.length > 1) {
@@ -297,22 +261,9 @@ export default function RoomPage() {
 
   useEffect(() => () => { localStream?.getTracks().forEach(t => t.stop()); }, [localStream]);
 
-  // Clean up hiddenCams when a peer disconnects
-  useEffect(() => {
-    setHiddenCams(prev => {
-      const active = new Set(remoteStreams.keys());
-      const next = new Set([...prev].filter(id => active.has(id)));
-      return next.size !== prev.size ? next : prev;
-    });
-  }, [remoteStreams]);
-
-  // Force turn off mic/camera when admin disables them
   useEffect(() => {
     if (micDisabled && micOn) { setMicOn(false); toggleMedia({ isMuted: true }); }
   }, [micDisabled]);
-  useEffect(() => {
-    if (cameraDisabled && cameraOn) { setCameraOn(false); toggleMedia({ isCameraOff: true }); }
-  }, [cameraDisabled]);
 
   const handlePlay  = () => {
     if (!canControl) return;
@@ -412,29 +363,17 @@ export default function RoomPage() {
             </button>
           )}
 
-          {/* Mic / Camera */}
-          <div className="flex bg-white/5 rounded-lg border border-white/10 p-0.5">
-            <button
-              onClick={handleToggleMic}
-              disabled={micDisabled || isGuest}
-              title={isGuest ? t('signInToUseMic') : micDisabled ? t('micDisabledByHost') : undefined}
-              className={cn('h-8 w-8 flex items-center justify-center rounded-md transition-colors',
-                (micDisabled || isGuest) ? 'opacity-40 cursor-not-allowed text-white/40'
-                : micOn ? 'bg-primary/20 text-primary' : 'text-white/70 hover:text-white hover:bg-white/10')}
-            >
-              {micOn && !micDisabled && !isGuest ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4 text-red-400" />}
-            </button>
-            <button
-              onClick={handleToggleCamera}
-              disabled={cameraDisabled || isGuest}
-              title={isGuest ? t('signInToUseCamera') : cameraDisabled ? t('cameraDisabledByHost') : undefined}
-              className={cn('h-8 w-8 flex items-center justify-center rounded-md transition-colors',
-                (cameraDisabled || isGuest) ? 'opacity-40 cursor-not-allowed text-white/40'
-                : cameraOn ? 'bg-primary/20 text-primary' : 'text-white/70 hover:text-white hover:bg-white/10')}
-            >
-              {cameraOn && !cameraDisabled && !isGuest ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4 text-red-400" />}
-            </button>
-          </div>
+          {/* Mic */}
+          <button
+            onClick={handleToggleMic}
+            disabled={micDisabled || isGuest}
+            title={isGuest ? t('signInToUseMic') : micDisabled ? t('micDisabledByHost') : undefined}
+            className={cn('h-8 w-8 flex items-center justify-center rounded-lg border border-white/10 transition-colors',
+              (micDisabled || isGuest) ? 'opacity-40 cursor-not-allowed text-white/40'
+              : micOn ? 'bg-primary/20 text-primary' : 'text-white/70 hover:text-white hover:bg-white/10')}
+          >
+            {micOn && !micDisabled && !isGuest ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4 text-red-400" />}
+          </button>
         </div>
 
         <div className="flex items-center gap-2 min-w-0">
@@ -558,35 +497,10 @@ export default function RoomPage() {
 
           </div>
 
-          {/* Local cam — draggable, bottom-left, audio muted to avoid echo */}
-          {localStream && localStream.getVideoTracks().length > 0 && (
-            <DraggableCam
-              key="local"
-              stream={localStream}
-              label={username ?? 'أنت'}
-              muteAudio
-              initialPos={{ x: 16, y: window.innerHeight - 140 - 80 }}
-            />
-          )}
-
-          {/* Floating draggable windows for remote peers */}
-          {Array.from(remoteStreams.entries()).map(([socketId, stream]) => {
-            const hasVideo = stream.getVideoTracks().length > 0;
-            const peer = users.find(u => u.socketId === socketId);
-            const label = peer?.displayName || peer?.username || 'Peer';
-            if (!hasVideo) {
-              return <audio key={socketId} autoPlay playsInline ref={el => { if (el) el.srcObject = stream; }} style={{ display: 'none' }} />;
-            }
-            if (hiddenCams.has(socketId)) return null;
-            return (
-              <DraggableCam
-                key={socketId}
-                stream={stream}
-                label={label}
-                onClose={() => setHiddenCams(prev => new Set([...prev, socketId]))}
-              />
-            );
-          })}
+          {/* Audio-only remote streams */}
+          {Array.from(remoteStreams.entries()).map(([socketId, stream]) => (
+            <audio key={socketId} autoPlay playsInline ref={el => { if (el) el.srcObject = stream; }} style={{ display: 'none' }} />
+          ))}
         </div>
 
         {/* ── Chat / Playlist / Users panel ───────────────────────── */}
@@ -613,7 +527,7 @@ export default function RoomPage() {
           <div className="flex border-b border-white/10 shrink-0">
             {TABS.map(({ id, Icon, label }) => {
               const hasChatAlert  = id === 'chat'  && chatDisabled;
-              const hasMediaAlert = id === 'users' && (micDisabled || cameraDisabled);
+              const hasMediaAlert = id === 'users' && micDisabled;
               const hasAlert = hasChatAlert || hasMediaAlert;
               return (
                 <button
@@ -675,7 +589,6 @@ export default function RoomPage() {
                   isAdmin={isAdmin}
                   allowGuestControl={allowGuestControl}
                   micDisabled={micDisabled}
-                  cameraDisabled={cameraDisabled}
                   toggleDJ={toggleDJ}
                   kickUser={kickUser}
                   transferAdmin={transferAdmin}
@@ -732,14 +645,12 @@ export default function RoomPage() {
               isPrivate={isPrivate}
               chatDisabled={chatDisabled}
               micDisabled={micDisabled}
-              cameraDisabled={cameraDisabled}
               sponsorSkipEnabled={sponsorSkipEnabled}
               toggleAllowGuests={toggleAllowGuests}
               toggleGuestEntry={toggleGuestEntry}
               togglePrivacy={togglePrivacy}
               toggleChat={toggleChat}
               toggleMic={toggleMic}
-              toggleCamera={toggleCamera}
               toggleSponsorSkip={toggleSponsorSkip}
               currentRoomName={roomName || room.name}
               renameRoom={renameRoom}
@@ -754,9 +665,7 @@ export default function RoomPage() {
       {/* ── Media Confirmation Dialog ────────────────────────────────── */}
       {mediaConfirm && createPortal(
         <div className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center">
-          {/* Backdrop */}
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setMediaConfirm(null)} />
-
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setMediaConfirm(false)} />
           <motion.div
             initial={{ opacity: 0, y: 40 }}
             animate={{ opacity: 1, y: 0 }}
@@ -764,42 +673,29 @@ export default function RoomPage() {
             className="relative w-full max-w-sm mx-4 mb-8 sm:mb-0 rounded-2xl overflow-hidden"
             style={{ background: 'rgba(18,18,20,0.97)', border: '1px solid rgba(255,255,255,0.10)' }}
           >
-            {/* Icon */}
             <div className="flex flex-col items-center gap-3 pt-8 pb-2 px-6">
-              <div className={`w-16 h-16 rounded-2xl flex items-center justify-center ${mediaConfirm === 'mic' ? 'bg-cyan-500/15' : 'bg-violet-500/15'}`}>
-                {mediaConfirm === 'mic'
-                  ? <Mic className="w-8 h-8 text-cyan-400" />
-                  : <Video className="w-8 h-8 text-violet-400" />
-                }
+              <div className="w-16 h-16 rounded-2xl flex items-center justify-center bg-cyan-500/15">
+                <Mic className="w-8 h-8 text-cyan-400" />
               </div>
-              <h3 className="text-white font-bold text-lg text-center">
-                {mediaConfirm === 'mic' ? 'فتح المايكروفون؟' : 'فتح الكاميرا؟'}
-              </h3>
+              <h3 className="text-white font-bold text-lg text-center">فتح المايكروفون؟</h3>
               <p className="text-white/50 text-sm text-center leading-relaxed">
-                {mediaConfirm === 'mic'
-                  ? 'سيتمكن المشاركون في الغرفة من سماعك. هل تريد المتابعة؟'
-                  : 'سيتمكن المشاركون في الغرفة من رؤيتك. هل تريد المتابعة؟'
-                }
+                سيتمكن المشاركون في الغرفة من سماعك. هل تريد المتابعة؟
               </p>
             </div>
-
-            {/* Buttons */}
             <div className="flex gap-2 p-4 pt-3">
               <button
-                onClick={() => setMediaConfirm(null)}
+                onClick={() => setMediaConfirm(false)}
                 className="flex-1 py-3 rounded-xl text-sm font-medium text-white/60 hover:text-white bg-white/5 hover:bg-white/10 transition"
               >
                 إلغاء
               </button>
               <button
                 onClick={handleConfirmMedia}
-                className={`flex-1 py-3 rounded-xl text-sm font-semibold text-black transition ${mediaConfirm === 'mic' ? 'bg-cyan-400 hover:bg-cyan-300' : 'bg-violet-400 hover:bg-violet-300'}`}
+                className="flex-1 py-3 rounded-xl text-sm font-semibold text-black bg-cyan-400 hover:bg-cyan-300 transition"
               >
-                {mediaConfirm === 'mic' ? 'نعم، افتح المايك' : 'نعم، افتح الكاميرا'}
+                نعم، افتح المايك
               </button>
             </div>
-
-            {/* Safe area */}
             <div style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }} />
           </motion.div>
         </div>,

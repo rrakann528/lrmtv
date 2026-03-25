@@ -4,7 +4,7 @@ import {
   Headphones, Crown,
   Users, Lock, Unlock, RefreshCw,
   MoreHorizontal, UserCircle, ShieldCheck, LogOut, X,
-  MicOff, VideoOff,
+  MicOff,
 } from 'lucide-react';
 import { RoomUser } from '@/hooks/use-socket';
 import { generateColorFromString, cn } from '@/lib/utils';
@@ -16,7 +16,6 @@ interface UsersPanelProps {
   isAdmin: boolean;
   allowGuestControl: boolean;
   micDisabled: boolean;
-  cameraDisabled: boolean;
   toggleDJ: (socketId: string) => void;
   kickUser: (socketId: string) => void;
   transferAdmin: (socketId: string) => void;
@@ -25,7 +24,7 @@ interface UsersPanelProps {
 }
 
 export default function UsersPanel({
-  users, you, isAdmin, allowGuestControl, micDisabled, cameraDisabled,
+  users, you, isAdmin, allowGuestControl, micDisabled,
   toggleDJ, kickUser, transferAdmin, requestSync, onUserClick,
 }: UsersPanelProps) {
   const { t } = useI18n();
@@ -71,20 +70,10 @@ export default function UsersPanel({
         </div>
 
         {/* Global restriction banners */}
-        {(micDisabled || cameraDisabled) && (
-          <div className="flex flex-col gap-1.5">
-            {micDisabled && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs bg-red-500/10 text-red-400 border border-red-500/20">
-                <MicOff className="w-3.5 h-3.5 shrink-0" />
-                {t('micDisabledAll')}
-              </div>
-            )}
-            {cameraDisabled && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs bg-red-500/10 text-red-400 border border-red-500/20">
-                <VideoOff className="w-3.5 h-3.5 shrink-0" />
-                {t('cameraDisabledAll')}
-              </div>
-            )}
+        {micDisabled && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs bg-red-500/10 text-red-400 border border-red-500/20">
+            <MicOff className="w-3.5 h-3.5 shrink-0" />
+            {t('micDisabledAll')}
           </div>
         )}
 

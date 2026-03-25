@@ -1,7 +1,7 @@
 import { useLocation } from 'wouter';
 import { ArrowRight, Lock } from 'lucide-react';
 
-const LAST_UPDATED = '١ مارس ٢٠٢٦';
+const LAST_UPDATED = '٢٥ مارس ٢٠٢٦';
 const APP_NAME = 'LrmTV';
 const CONTACT_EMAIL = 'support@lrmtv.sbs';
 
@@ -9,7 +9,7 @@ export default function PrivacyPage() {
   const [, setLocation] = useLocation();
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-background text-foreground overflow-y-auto">
       {/* Header */}
       <div className="sticky top-0 z-10 border-b border-white/10 bg-background/80 backdrop-blur-md">
         <div className="max-w-3xl mx-auto px-4 h-14 flex items-center gap-3">
@@ -24,7 +24,7 @@ export default function PrivacyPage() {
         </div>
       </div>
 
-      <div className="max-w-3xl mx-auto px-4 py-10">
+      <div className="max-w-3xl mx-auto px-4 py-10 pb-24">
         {/* Title */}
         <div className="mb-10">
           <h1 className="text-3xl font-bold text-white mb-2">سياسة الخصوصية</h1>
@@ -52,8 +52,8 @@ export default function PrivacyPage() {
               <InfoCard title="البيانات التقنية" color="blue">
                 عنوان IP، نوع المتصفح والجهاز، ونظام التشغيل — لأغراض الأمان وتحسين الخدمة.
               </InfoCard>
-              <InfoCard title="الكاميرا والمايكروفون" color="yellow">
-                يُستخدمان فقط داخل غرف المشاهدة عند موافقتك الصريحة. لا يُسجَّل أو يُخزَّن أي بث صوتي أو مرئي على خوادمنا.
+              <InfoCard title="المايكروفون" color="yellow">
+                يُستخدم فقط داخل غرف المشاهدة عند موافقتك الصريحة للمحادثات الصوتية. لا يُسجَّل أو يُخزَّن أي بث صوتي على خوادمنا.
               </InfoCard>
             </div>
           </Section>

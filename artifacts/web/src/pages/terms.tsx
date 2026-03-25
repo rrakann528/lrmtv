@@ -1,7 +1,7 @@
 import { useLocation } from 'wouter';
 import { ArrowRight, Shield } from 'lucide-react';
 
-const LAST_UPDATED = '١ مارس ٢٠٢٦';
+const LAST_UPDATED = '٢٥ مارس ٢٠٢٦';
 const APP_NAME = 'LrmTV';
 const CONTACT_EMAIL = 'support@lrmtv.sbs';
 
@@ -9,7 +9,7 @@ export default function TermsPage() {
   const [, setLocation] = useLocation();
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-background text-foreground overflow-y-auto">
       {/* Header */}
       <div className="sticky top-0 z-10 border-b border-white/10 bg-background/80 backdrop-blur-md">
         <div className="max-w-3xl mx-auto px-4 h-14 flex items-center gap-3">
@@ -24,7 +24,7 @@ export default function TermsPage() {
         </div>
       </div>
 
-      <div className="max-w-3xl mx-auto px-4 py-10">
+      <div className="max-w-3xl mx-auto px-4 py-10 pb-24">
         {/* Title */}
         <div className="mb-10">
           <h1 className="text-3xl font-bold text-white mb-2">شروط الاستخدام</h1>
@@ -41,7 +41,7 @@ export default function TermsPage() {
 
           <Section title="٢. وصف الخدمة">
             <p>
-              {APP_NAME} منصة اجتماعية تتيح للمستخدمين مشاهدة المحتوى الإعلامي بشكل جماعي في الوقت الفعلي عبر غرف مشاهدة مشتركة. المنصة لا تستضيف أي محتوى بذاتها، بل تُمكّن المستخدمين من مشاركة روابط خارجية.
+              {APP_NAME} منصة اجتماعية تتيح للمستخدمين مشاهدة المحتوى الإعلامي بشكل جماعي في الوقت الفعلي عبر غرف مشاهدة مشتركة مع إمكانية الدردشة والمحادثات الصوتية. المنصة لا تستضيف أي محتوى بذاتها، بل تُمكّن المستخدمين من مشاركة روابط خارجية.
             </p>
           </Section>
 

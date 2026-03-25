@@ -348,6 +348,16 @@ export function ProfileTab() {
           <LogOut className="w-4 h-4" />
           {t('logout')}
         </motion.button>
+
+        <div className="flex items-center justify-center gap-4 mt-6 text-xs text-muted-foreground">
+          <button onClick={() => setLocation('/terms')} className="hover:text-foreground transition">
+            {t('terms')}
+          </button>
+          <span className="text-white/20">·</span>
+          <button onClick={() => setLocation('/privacy')} className="hover:text-foreground transition">
+            {t('privacy')}
+          </button>
+        </div>
       </div>
     </div>
   );

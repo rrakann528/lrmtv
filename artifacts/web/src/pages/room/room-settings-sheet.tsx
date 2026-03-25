@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Shield, Lock, Unlock, Check, Pencil, X,
-  Globe, EyeOff, MessageSquareOff, MessageSquare, Mic, MicOff, Video, VideoOff,
+  Globe, EyeOff, MessageSquareOff, MessageSquare, Mic, MicOff,
   Trash2, AlertTriangle, UserX, UserCheck, SkipForward,
 } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
@@ -16,14 +16,12 @@ interface RoomSettingsSheetProps {
   isPrivate: boolean;
   chatDisabled: boolean;
   micDisabled: boolean;
-  cameraDisabled: boolean;
   sponsorSkipEnabled: boolean;
   toggleAllowGuests: () => void;
   toggleGuestEntry: () => void;
   togglePrivacy: () => void;
   toggleChat: () => void;
   toggleMic: () => void;
-  toggleCamera: () => void;
   toggleSponsorSkip: () => void;
   currentRoomName?: string;
   renameRoom?: (name: string) => void;
@@ -38,14 +36,12 @@ export function RoomSettingsSheet({
   isPrivate,
   chatDisabled,
   micDisabled,
-  cameraDisabled,
   sponsorSkipEnabled,
   toggleAllowGuests,
   toggleGuestEntry,
   togglePrivacy,
   toggleChat,
   toggleMic,
-  toggleCamera,
   toggleSponsorSkip,
   currentRoomName = '',
   renameRoom,
@@ -179,7 +175,7 @@ export function RoomSettingsSheet({
             <Switch checked={allowGuestEntry} onCheckedChange={toggleGuestEntry} />
           </div>
 
-          {/* Privacy / Chat / Mic / Camera group */}
+          {/* Privacy / Chat / Mic group */}
           <div className="bg-white/5 border border-white/10 rounded-xl divide-y divide-white/5">
 
             {/* Private room */}
@@ -234,24 +230,6 @@ export function RoomSettingsSheet({
                 </div>
               </div>
               <Switch checked={!micDisabled} onCheckedChange={toggleMic} />
-            </div>
-
-            {/* Camera */}
-            <div className="flex items-center justify-between gap-3 px-4 py-3">
-              <div className="flex items-center gap-3">
-                {cameraDisabled
-                  ? <VideoOff className="w-4 h-4 text-red-400 shrink-0" />
-                  : <Video className="w-4 h-4 text-white/40 shrink-0" />}
-                <div>
-                  <p className="text-sm font-medium text-white">
-                    {t('camera')}
-                  </p>
-                  <p className="text-xs text-white/50">
-                    {cameraDisabled ? t('disabledForAll') : t('openForAll')}
-                  </p>
-                </div>
-              </div>
-              <Switch checked={!cameraDisabled} onCheckedChange={toggleCamera} />
             </div>
 
             {/* Sponsor Skip */}

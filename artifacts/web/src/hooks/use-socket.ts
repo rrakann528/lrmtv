@@ -11,7 +11,6 @@ export interface RoomUser {
   isDJ: boolean;
   isAdmin: boolean;
   isMuted: boolean;
-  isCameraOff: boolean;
   isCalling?: boolean;
 }
 
@@ -55,7 +54,6 @@ export function useSocket(slug: string | null) {
   const [isPrivate, setIsPrivate] = useState(false);
   const [chatDisabled, setChatDisabled] = useState(false);
   const [micDisabled, setMicDisabled] = useState(false);
-  const [cameraDisabled, setCameraDisabled] = useState(false);
   const [sponsorSkipEnabled, setSponsorSkipEnabled] = useState(true);
   const [subtitleSync, setSubtitleSync] = useState<{
     type: 'url' | 'content' | 'clear';
@@ -155,16 +153,14 @@ export function useSocket(slug: string | null) {
       if (state.isPrivate !== undefined) setIsPrivate(state.isPrivate);
       if (state.chatDisabled !== undefined) setChatDisabled(state.chatDisabled);
       if (state.micDisabled !== undefined) setMicDisabled(state.micDisabled);
-      if (state.cameraDisabled !== undefined) setCameraDisabled(state.cameraDisabled);
       if (state.sponsorSkipEnabled !== undefined) setSponsorSkipEnabled(state.sponsorSkipEnabled);
       if ((state as any).subtitle) setSubtitleSync((state as any).subtitle);
     });
 
-    socket.on('room-settings-updated', (data: { isPrivate: boolean; chatDisabled: boolean; micDisabled: boolean; cameraDisabled: boolean; sponsorSkipEnabled: boolean }) => {
+    socket.on('room-settings-updated', (data: { isPrivate: boolean; chatDisabled: boolean; micDisabled: boolean; sponsorSkipEnabled: boolean }) => {
       setIsPrivate(data.isPrivate);
       setChatDisabled(data.chatDisabled);
       setMicDisabled(data.micDisabled);
-      setCameraDisabled(data.cameraDisabled);
       setSponsorSkipEnabled(data.sponsorSkipEnabled);
     });
 
@@ -374,7 +370,7 @@ export function useSocket(slug: string | null) {
     }
   }, []);
 
-  const toggleMedia = useCallback((data: { isMuted?: boolean; isCameraOff?: boolean }) => {
+  const toggleMedia = useCallback((data: { isMuted?: boolean }) => {
     if (socketRef.current?.connected) {
       socketRef.current.emit('toggle-media', data);
     }
@@ -408,10 +404,6 @@ export function useSocket(slug: string | null) {
 
   const toggleMic = useCallback(() => {
     if (socketRef.current?.connected) socketRef.current.emit('toggle-mic');
-  }, []);
-
-  const toggleCamera = useCallback(() => {
-    if (socketRef.current?.connected) socketRef.current.emit('toggle-camera');
   }, []);
 
   const toggleSponsorSkip = useCallback(() => {
@@ -467,7 +459,6 @@ export function useSocket(slug: string | null) {
     isPrivate,
     chatDisabled,
     micDisabled,
-    cameraDisabled,
     sponsorSkipEnabled,
     emitSync,
     emitSeek,
@@ -487,7 +478,6 @@ export function useSocket(slug: string | null) {
     togglePrivacy,
     toggleChat,
     toggleMic,
-    toggleCamera,
     toggleSponsorSkip,
     subtitleSync,
     emitSubtitleSync,

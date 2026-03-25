@@ -29,7 +29,6 @@ interface RoomUser {
   isAdmin: boolean;
   isDJ: boolean;
   isMuted: boolean;
-  isCameraOff: boolean;
   /** True when a site-admin has globally muted this user — blocks chat */
   isSiteMuted: boolean;
 }
@@ -61,7 +60,6 @@ interface RoomState {
   isPrivate: boolean;
   chatDisabled: boolean;
   micDisabled: boolean;
-  cameraDisabled: boolean;
   sponsorSkipEnabled: boolean;
   /** True when the current video is a live stream (no time-based sync for guests) */
   isLive: boolean;
@@ -331,7 +329,6 @@ function createRoomState(slug: string, roomId: number, roomName: string): RoomSt
     isPrivate: false,
     chatDisabled: false,
     micDisabled: false,
-    cameraDisabled: false,
     sponsorSkipEnabled: true,
     isLive: false,
     subtitle: null,
@@ -467,7 +464,6 @@ export function initSocketServer(httpServer: HttpServer): Server {
         isAdmin,
         isDJ: isAdmin,
         isMuted: true,
-        isCameraOff: true,
         isSiteMuted,
       };
 
@@ -505,7 +501,6 @@ export function initSocketServer(httpServer: HttpServer): Server {
         isPrivate: roomState.isPrivate,
         chatDisabled: roomState.chatDisabled,
         micDisabled: roomState.micDisabled,
-        cameraDisabled: roomState.cameraDisabled,
         sponsorSkipEnabled: roomState.sponsorSkipEnabled,
         isLive: roomState.isLive,
         subtitle: roomState.subtitle,
@@ -786,7 +781,6 @@ export function initSocketServer(httpServer: HttpServer): Server {
         isPrivate: roomState.isPrivate,
         chatDisabled: roomState.chatDisabled,
         micDisabled: roomState.micDisabled,
-        cameraDisabled: roomState.cameraDisabled,
         sponsorSkipEnabled: roomState.sponsorSkipEnabled,
       });
     };
@@ -818,19 +812,6 @@ export function initSocketServer(httpServer: HttpServer): Server {
       roomState.micDisabled = !roomState.micDisabled;
       if (roomState.micDisabled) {
         for (const u of roomState.users.values()) u.isMuted = true;
-        io.to(currentRoomSlug).emit("users-updated", { users: Array.from(roomState.users.values()) });
-      }
-      emitRoomSettings(currentRoomSlug, roomState);
-    });
-
-    socket.on("toggle-camera", () => {
-      if (!currentRoomSlug) return;
-      const roomState = getRoomState(currentRoomSlug);
-      if (!roomState) return;
-      if (!roomState.users.get(socket.id)?.isAdmin) return;
-      roomState.cameraDisabled = !roomState.cameraDisabled;
-      if (roomState.cameraDisabled) {
-        for (const u of roomState.users.values()) u.isCameraOff = true;
         io.to(currentRoomSlug).emit("users-updated", { users: Array.from(roomState.users.values()) });
       }
       emitRoomSettings(currentRoomSlug, roomState);
@@ -953,7 +934,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
     });
 
     // ── Media toggle ─────────────────────────────────────────────────────────
-    socket.on("toggle-media", (data: { isMuted?: boolean; isCameraOff?: boolean }) => {
+    socket.on("toggle-media", (data: { isMuted?: boolean }) => {
       if (!currentRoomSlug) return;
       const roomState = getRoomState(currentRoomSlug);
       if (!roomState) return;
@@ -962,7 +943,6 @@ export function initSocketServer(httpServer: HttpServer): Server {
       if (!user) return;
 
       if (data.isMuted !== undefined) user.isMuted = data.isMuted;
-      if (data.isCameraOff !== undefined) user.isCameraOff = data.isCameraOff;
       io.to(currentRoomSlug).emit("users-updated", { users: Array.from(roomState.users.values()) });
     });
 
