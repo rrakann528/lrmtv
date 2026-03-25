@@ -21,6 +21,7 @@ import SubtitleSearch from './subtitle-search';
 import { generateColorFromString, cn } from '@/lib/utils';
 import type { ToastMessage } from './player-controls';
 import { fetchSponsorSegments, findActiveSegment, isYouTubeUrl, type SponsorSegment } from '@/lib/sponsorblock';
+import { getSettings } from '@/lib/settings';
 
 interface SubtitleCue { start: number; end: number; text: string }
 
@@ -153,7 +154,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
     // ReactPlayer playback tracking
     const [rpCurrentTime, setRpCurrentTime] = useState(0);
     const [rpDuration, setRpDuration] = useState(0);
-    const [rpVolume, setRpVolume] = useState(1);
+    const [rpVolume, setRpVolume] = useState(() => getSettings().defaultVolume / 100);
     const [rpMuted, setRpMuted] = useState(false);
 
     // ── Subtitle state (ReactPlayer branch only) ─────────────────────────────
