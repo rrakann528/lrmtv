@@ -36,6 +36,7 @@ export default function AuthPage() {
   const [step, setStep] = useState<'form' | 'otp'>('form');
   const [loginField, setLoginField] = useState('');
   const [email, setEmail] = useState('');
+  const [displayName, setDisplayName] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
@@ -82,7 +83,7 @@ export default function AuthPage() {
         const isEmail = loginField.includes('@');
         body = { [isEmail ? 'email' : 'username']: loginField.trim(), password };
       } else {
-        body = { email, username, password };
+        body = { email, username, password, displayName: displayName.trim() || username };
       }
 
       const res = await apiFetch(endpoint, { method: 'POST', body: JSON.stringify(body) });
@@ -314,12 +315,21 @@ export default function AuthPage() {
                   <AnimatePresence mode="wait">
                     {mode === 'register' && (
                       <motion.div
-                        key="username"
+                        key="register-fields"
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: 'auto' }}
                         exit={{ opacity: 0, height: 0 }}
                         transition={{ duration: 0.2 }}
+                        className="flex flex-col gap-3"
                       >
+                        <input
+                          type="text"
+                          placeholder={t('authDisplayName')}
+                          value={displayName}
+                          onChange={e => setDisplayName(e.target.value)}
+                          maxLength={40}
+                          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-primary/50 transition"
+                        />
                         <input
                           type="text"
                           placeholder={t('authUsername')}
@@ -329,6 +339,7 @@ export default function AuthPage() {
                           minLength={2}
                           maxLength={32}
                           className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-primary/50 transition"
+                          dir="ltr"
                         />
                       </motion.div>
                     )}
