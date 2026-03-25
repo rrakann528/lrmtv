@@ -4,9 +4,9 @@ import { initSocketServer } from "./lib/socket";
 import { runMigrations } from "@workspace/db";
 
 // ── Startup env checks ─────────────────────────────────────────────────────────
-const port = Number(process.env["PORT"]) || 3000;
+const port = Number(process.env["PORT"]) || 8080;
 if (Number.isNaN(port) || port <= 0) {
-  console.error(`[server] Invalid PORT value, defaulting to 3000`);
+  console.error(`[server] Invalid PORT value, defaulting to 8080`);
 }
 console.log(`[env] DATABASE_URL set: ${!!process.env.DATABASE_URL}`);
 console.log(`[env] JWT_SECRET set: ${!!process.env.JWT_SECRET}`);
