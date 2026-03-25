@@ -15,6 +15,7 @@ const AuthPage    = lazy(() => import("@/pages/auth"));
 const TermsPage   = lazy(() => import("@/pages/terms"));
 const PrivacyPage = lazy(() => import("@/pages/privacy"));
 const AdminPage   = lazy(() => import("@/pages/admin"));
+const SettingsPage = lazy(() => import("@/pages/settings"));
 const NotFound    = lazy(() => import("@/pages/not-found"));
 
 const queryClient = new QueryClient({
@@ -124,6 +125,7 @@ function Router() {
         <Route path="/terms"      component={TermsPage} />
         <Route path="/privacy"    component={PrivacyPage} />
         <Route path="/admin"      component={() => <VerifiedRoute component={AdminPage} />} />
+        <Route path="/settings"   component={() => <VerifiedRoute component={SettingsPage} />} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>

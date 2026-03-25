@@ -51,6 +51,7 @@ const token = conns[0].settings.access_token;
 - **Real-time**: Socket.io (sync, chat, WebRTC)
 - **State**: Zustand
 - **i18n**: Custom React context — 6 لغات (ar, en, fr, tr, es, id) — مفتاح LS: `lrmtv_lang`
+- **Settings**: `src/lib/settings.ts` — localStorage-based (`lrmtv_settings`) with 25 user settings across 6 categories (General, Notifications, Chat, Player, Privacy, Account). Dedicated `/settings` page.
 
 ---
 
