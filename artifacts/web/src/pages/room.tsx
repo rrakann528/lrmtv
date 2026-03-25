@@ -74,7 +74,7 @@ export default function RoomPage() {
   const {
     socket, users, you, syncState, isLocked, allowGuestControl, allowGuestEntry, background, roomName,
     chatMessages, isPrivate, chatDisabled, micDisabled, cameraDisabled,
-    emitSync, emitSeek, emitChatMessage,
+    emitSync, emitSeek, emitChatMessage, emitDeleteMessage,
     toggleLock, toggleAllowGuests, toggleGuestEntry, toggleDJ, renameRoom, toggleMedia, emitPlaylistUpdate, requestSync,
     kickUser, transferAdmin, togglePrivacy, toggleChat, toggleMic, toggleCamera,
     subtitleSync, emitSubtitleSync, emitStreamType,
@@ -645,6 +645,7 @@ export default function RoomPage() {
                   key="chat"
                   slug={slug}
                   emitChatMessage={emitChatMessage}
+                  emitDeleteMessage={emitDeleteMessage}
                   username={username}
                   liveMessages={chatMessages}
                   chatDisabled={chatDisabled}

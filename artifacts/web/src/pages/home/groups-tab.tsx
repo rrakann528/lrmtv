@@ -7,6 +7,10 @@ import { useAuth, apiFetch } from '@/hooks/use-auth';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useI18n } from '@/lib/i18n';
 import { io, Socket } from 'socket.io-client';
+import { MessageContextMenu } from '@/components/chat/message-context-menu';
+import { ReplyPreview } from '@/components/chat/reply-preview';
+import { QuotedMessage } from '@/components/chat/quoted-message';
+import { LinkifiedText } from '@/components/chat/linkified-text';
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -50,6 +54,9 @@ interface GroupMsg {
   senderDisplayName: string | null;
   senderAvatarColor: string;
   senderAvatarUrl: string | null;
+  replyToId?: number | null;
+  replyToContent?: string | null;
+  replyToSenderName?: string | null;
 }
 
 interface GroupInvite {
@@ -580,8 +587,10 @@ function GroupChatView({ groupId, group }: { groupId: number; group: GroupDetail
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const socketRef = useRef<Socket | null>(null);
   const seenIds = useRef<Set<number>>(new Set());
+  const [replyTarget, setReplyTarget] = useState<{ id: number; senderName: string; content: string } | null>(null);
 
   const { data: history = [], isLoading } = useQuery<GroupMsg[]>({
     queryKey: ['group-messages', groupId],
@@ -613,6 +622,11 @@ function GroupChatView({ groupId, group }: { groupId: number; group: GroupDetail
       setMessages(prev => [...prev, msg]);
     });
 
+    socket.on('group:message-deleted', (data: { groupId: number; messageId: number }) => {
+      if (data.groupId !== groupId) return;
+      setMessages(prev => prev.filter(m => m.id !== data.messageId));
+    });
+
     return () => {
       socket.disconnect();
       socketRef.current = null;
@@ -628,6 +642,9 @@ function GroupChatView({ groupId, group }: { groupId: number; group: GroupDetail
     if (!content || sending || !user) return;
     setSending(true);
     setText('');
+    const currentReply = replyTarget;
+    setReplyTarget(null);
+
     const tempId = -Date.now();
     const optimistic: GroupMsg = {
       id: tempId,
@@ -639,6 +656,9 @@ function GroupChatView({ groupId, group }: { groupId: number; group: GroupDetail
       senderDisplayName: user.displayName || null,
       senderAvatarColor: user.avatarColor || '#06B6D4',
       senderAvatarUrl: user.avatarUrl || null,
+      replyToId: currentReply?.id,
+      replyToContent: currentReply?.content,
+      replyToSenderName: currentReply?.senderName,
     };
     seenIds.current.add(tempId);
     setMessages(prev => [...prev, optimistic]);
@@ -646,7 +666,12 @@ function GroupChatView({ groupId, group }: { groupId: number; group: GroupDetail
     try {
       const res = await apiFetch(`/groups/${groupId}/messages`, {
         method: 'POST',
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({
+          content,
+          replyToId: currentReply?.id,
+          replyToContent: currentReply?.content?.slice(0, 200),
+          replyToSenderName: currentReply?.senderName,
+        }),
       });
       if (res.ok) {
         const saved: GroupMsg = await res.json();
@@ -662,6 +687,22 @@ function GroupChatView({ groupId, group }: { groupId: number; group: GroupDetail
     } finally {
       setSending(false);
     }
+  };
+
+  const handleReply = (msg: GroupMsg) => {
+    setReplyTarget({
+      id: msg.id,
+      senderName: msg.senderDisplayName || msg.senderUsername,
+      content: msg.content,
+    });
+    inputRef.current?.focus();
+  };
+
+  const handleDelete = async (msgId: number) => {
+    setMessages(prev => prev.filter(m => m.id !== msgId));
+    try {
+      await apiFetch(`/groups/${groupId}/messages/${msgId}`, { method: 'DELETE' });
+    } catch {}
   };
 
   const locale = lang === 'ar' ? 'ar-SA' : lang === 'fr' ? 'fr-FR' : lang === 'tr' ? 'tr-TR' : lang === 'es' ? 'es-ES' : lang === 'id' ? 'id-ID' : 'en-US';
@@ -687,6 +728,8 @@ function GroupChatView({ groupId, group }: { groupId: number; group: GroupDetail
       groupedMessages[groupedMessages.length - 1].msgs.push(msg);
     }
   }
+
+  const isGroupAdmin = group.myRole === 'admin';
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -714,24 +757,38 @@ function GroupChatView({ groupId, group }: { groupId: number; group: GroupDetail
                   const isOptimistic = msg.id < 0;
                   const senderName = msg.senderDisplayName || msg.senderUsername;
                   return (
-                    <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                      {!isMe && (
-                        <Avatar name={senderName} color={msg.senderAvatarColor} url={msg.senderAvatarUrl} size={28} />
-                      )}
-                      <div className={`max-w-[75%] px-3.5 py-2 rounded-2xl text-sm ${!isMe ? 'ms-2' : ''} ${
-                        isMe
-                          ? `bg-primary text-primary-foreground ${dir === 'rtl' ? 'rounded-tl-sm' : 'rounded-tr-sm'} ${isOptimistic ? 'opacity-60' : ''}`
-                          : `bg-muted text-foreground ${dir === 'rtl' ? 'rounded-tr-sm' : 'rounded-tl-sm'}`
-                      }`}>
+                    <MessageContextMenu
+                      key={msg.id}
+                      messageText={msg.content}
+                      isOwnMessage={isMe || isGroupAdmin}
+                      onReply={() => handleReply(msg)}
+                      onDelete={(isMe || isGroupAdmin) && !isOptimistic ? () => handleDelete(msg.id) : undefined}
+                    >
+                      <div className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
                         {!isMe && (
-                          <p className="text-[11px] font-bold mb-0.5" style={{ color: msg.senderAvatarColor }}>{senderName}</p>
+                          <Avatar name={senderName} color={msg.senderAvatarColor} url={msg.senderAvatarUrl} size={28} />
                         )}
-                        <p className="whitespace-pre-wrap break-words">{msg.content}</p>
-                        <p className={`text-[10px] mt-0.5 ${isMe ? 'text-primary-foreground/50 text-end' : 'text-muted-foreground text-start'}`}>
-                          {isOptimistic ? '...' : formatTime(msg.createdAt)}
-                        </p>
+                        <div className={`max-w-[75%] px-3.5 py-2 rounded-2xl text-sm ${!isMe ? 'ms-2' : ''} ${
+                          isMe
+                            ? `bg-primary text-primary-foreground ${dir === 'rtl' ? 'rounded-tl-sm' : 'rounded-tr-sm'} ${isOptimistic ? 'opacity-60' : ''}`
+                            : `bg-muted text-foreground ${dir === 'rtl' ? 'rounded-tr-sm' : 'rounded-tl-sm'}`
+                        }`}>
+                          {!isMe && (
+                            <p className="text-[11px] font-bold mb-0.5" style={{ color: msg.senderAvatarColor }}>{senderName}</p>
+                          )}
+                          {msg.replyToId && msg.replyToSenderName && (
+                            <QuotedMessage
+                              senderName={msg.replyToSenderName}
+                              text={msg.replyToContent || ''}
+                            />
+                          )}
+                          <LinkifiedText text={msg.content} className="whitespace-pre-wrap break-words" />
+                          <p className={`text-[10px] mt-0.5 ${isMe ? 'text-primary-foreground/50 text-end' : 'text-muted-foreground text-start'}`}>
+                            {isOptimistic ? '...' : formatTime(msg.createdAt)}
+                          </p>
+                        </div>
                       </div>
-                    </div>
+                    </MessageContextMenu>
                   );
                 })}
               </div>
@@ -741,9 +798,18 @@ function GroupChatView({ groupId, group }: { groupId: number; group: GroupDetail
         <div ref={bottomRef} />
       </div>
 
+      {replyTarget && (
+        <ReplyPreview
+          senderName={replyTarget.senderName}
+          text={replyTarget.content}
+          onCancel={() => setReplyTarget(null)}
+        />
+      )}
+
       <div className="p-3 border-t border-border bg-card/95 backdrop-blur-sm">
         <div className="flex items-center gap-2">
           <input
+            ref={inputRef}
             value={text}
             onChange={e => setText(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}

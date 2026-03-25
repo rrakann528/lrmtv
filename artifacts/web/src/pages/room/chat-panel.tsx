@@ -9,6 +9,10 @@ import { generateColorFromString, cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
 import { format } from 'date-fns';
 import type { RoomUser } from '@/hooks/use-socket';
+import { MessageContextMenu } from '@/components/chat/message-context-menu';
+import { ReplyPreview } from '@/components/chat/reply-preview';
+import { QuotedMessage } from '@/components/chat/quoted-message';
+import { LinkifiedText } from '@/components/chat/linkified-text';
 
 const EmojiPicker = lazy(() => import('emoji-picker-react'));
 
@@ -21,11 +25,15 @@ interface ChatMessage {
   content: string;
   type: string;
   createdAt: string;
+  replyToId?: number;
+  replyToUsername?: string;
+  replyToContent?: string;
 }
 
 interface ChatPanelProps {
   slug: string;
-  emitChatMessage: (content: string, type?: 'message' | 'emoji') => void;
+  emitChatMessage: (content: string, type?: 'message' | 'emoji', replyTo?: { id: number; username: string; content: string }) => void;
+  emitDeleteMessage: (messageId: number) => void;
   username: string;
   liveMessages: ChatMessage[];
   chatDisabled?: boolean;
@@ -35,7 +43,7 @@ interface ChatPanelProps {
 }
 
 export default function ChatPanel({
-  slug, emitChatMessage, username, liveMessages,
+  slug, emitChatMessage, emitDeleteMessage, username, liveMessages,
   chatDisabled, isAdmin, isGuest, users = [],
 }: ChatPanelProps) {
   const { t } = useI18n();
@@ -45,7 +53,9 @@ export default function ChatPanel({
   const [input, setInput] = useState('');
   const [showEmoji, setShowEmoji] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const [profileTarget, setProfileTarget] = useState<{ username: string; userId?: number } | null>(null);
+  const [replyTarget, setReplyTarget] = useState<{ id: number; username: string; content: string } | null>(null);
 
   useEffect(() => {
     if (history) {
@@ -54,23 +64,36 @@ export default function ChatPanel({
     }
   }, [history]);
 
+  const prevLiveRef = useRef<ChatMessage[]>([]);
   useEffect(() => {
-    if (liveMessages.length > 0) {
-      setMessages(prev => {
-        const existingIds = new Set(prev.map(m => m.id));
-        const newMsgs = liveMessages.filter(m => !existingIds.has(m.id));
-        if (newMsgs.length === 0) return prev;
-        const next = [...prev, ...newMsgs];
-        return next.length > MAX_MESSAGES ? next.slice(-MAX_MESSAGES) : next;
-      });
+    const prev = prevLiveRef.current;
+    prevLiveRef.current = liveMessages;
+
+    if (liveMessages.length > prev.length) {
+      const existingIds = new Set(messages.map(m => m.id));
+      const newMsgs = liveMessages.filter(m => !existingIds.has(m.id));
+      if (newMsgs.length > 0) {
+        setMessages(p => {
+          const next = [...p, ...newMsgs];
+          return next.length > MAX_MESSAGES ? next.slice(-MAX_MESSAGES) : next;
+        });
+      }
+    } else if (liveMessages.length < prev.length) {
+      const liveIds = new Set(liveMessages.map(m => m.id));
+      const deletedIds = prev.filter(m => !liveIds.has(m.id)).map(m => m.id);
+      if (deletedIds.length > 0) {
+        const deletedSet = new Set(deletedIds);
+        setMessages(p => p.filter(m => !deletedSet.has(m.id)));
+      }
     }
   }, [liveMessages]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim()) return;
-    emitChatMessage(input.trim());
+    emitChatMessage(input.trim(), 'message', replyTarget || undefined);
     setInput('');
+    setReplyTarget(null);
   };
 
   const handleEmojiClick = (emojiObj: { emoji: string }) => {
@@ -89,6 +112,16 @@ export default function ChatPanel({
     setProfileTarget({ username: msgUsername, userId: roomUser?.userId });
   };
 
+  const handleReply = (msg: ChatMessage) => {
+    setReplyTarget({ id: msg.id, username: msg.username, content: msg.content });
+    inputRef.current?.focus();
+  };
+
+  const handleDelete = (msgId: number) => {
+    emitDeleteMessage(msgId);
+    setMessages(prev => prev.filter(m => m.id !== msgId));
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, x: 20 }}
@@ -96,7 +129,6 @@ export default function ChatPanel({
       exit={{ opacity: 0, x: -20 }}
       className="flex flex-col h-full bg-black/20"
     >
-      {/* Messages area */}
       <div className="flex-grow overflow-y-auto px-3 py-3 flex flex-col gap-1" ref={scrollRef}>
         {messages.map((msg, i) => {
           const isMe = msg.username === username;
@@ -110,7 +142,6 @@ export default function ChatPanel({
           const roomUser = users.find(u => u.username === msg.username);
 
           if (isSystem) {
-            // Admin broadcast messages (from 'النظام') appear as prominent banners
             const isAdminBroadcast = msg.username === 'النظام';
             if (isAdminBroadcast) {
               return (
@@ -135,80 +166,87 @@ export default function ChatPanel({
           }
 
           return (
-            <div
+            <MessageContextMenu
               key={msg.id || i}
-              className={cn(
-                'flex items-end gap-2',
-                isMe ? 'flex-row-reverse' : 'flex-row',
-                isFirstInGroup ? 'mt-2' : 'mt-0.5',
-              )}
+              messageText={msg.content}
+              isOwnMessage={isMe || !!isAdmin}
+              onReply={() => handleReply(msg)}
+              onDelete={() => handleDelete(msg.id)}
             >
-              {/* Avatar — only on last message of group, for others */}
-              {!isMe && (
-                <div className="w-8 shrink-0 flex items-end">
-                  {isLastInGroup ? (
+              <div
+                className={cn(
+                  'flex items-end gap-2',
+                  isMe ? 'flex-row-reverse' : 'flex-row',
+                  isFirstInGroup ? 'mt-2' : 'mt-0.5',
+                )}
+              >
+                {!isMe && (
+                  <div className="w-8 shrink-0 flex items-end">
+                    {isLastInGroup ? (
+                      <button
+                        onClick={() => openProfile(msg.username)}
+                        className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold text-white shadow-lg active:scale-95 transition-transform shrink-0"
+                        style={{ backgroundColor: generateColorFromString(msg.username) }}
+                      >
+                        {(roomUser?.displayName || msg.username).substring(0, 2).toUpperCase()}
+                      </button>
+                    ) : (
+                      <div className="w-8 h-8" />
+                    )}
+                  </div>
+                )}
+
+                <div className={cn('flex flex-col max-w-[75%]', isMe ? 'items-end' : 'items-start')}>
+                  {!isMe && isFirstInGroup && (
                     <button
                       onClick={() => openProfile(msg.username)}
-                      className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold text-white shadow-lg active:scale-95 transition-transform shrink-0"
-                      style={{ backgroundColor: generateColorFromString(msg.username) }}
+                      className="text-[11px] font-bold mb-1 px-1 active:opacity-70 transition-opacity"
+                      style={{ color: generateColorFromString(msg.username) }}
                     >
-                      {(roomUser?.displayName || msg.username).substring(0, 2).toUpperCase()}
+                      {roomUser?.displayName || msg.username}
                     </button>
-                  ) : (
-                    <div className="w-8 h-8" />
                   )}
-                </div>
-              )}
 
-              {/* Bubble + name */}
-              <div className={cn('flex flex-col max-w-[75%]', isMe ? 'items-end' : 'items-start')}>
-                {/* Sender name — only on first message of group */}
-                {!isMe && isFirstInGroup && (
-                  <button
-                    onClick={() => openProfile(msg.username)}
-                    className="text-[11px] font-bold mb-1 px-1 active:opacity-70 transition-opacity"
-                    style={{ color: generateColorFromString(msg.username) }}
+                  <div
+                    className={cn(
+                      'px-3 py-2 text-sm break-words',
+                      isMe
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-white/10 text-white border border-white/8',
+                      isMe ? (
+                        isFirstInGroup && isLastInGroup ? 'rounded-2xl rounded-ee-sm'
+                        : isFirstInGroup                ? 'rounded-2xl rounded-ee-sm rounded-es-2xl'
+                        : isLastInGroup                 ? 'rounded-2xl rounded-es-2xl rounded-ss-2xl'
+                        :                                 'rounded-2xl rounded-ss-2xl rounded-es-2xl'
+                      ) : (
+                        isFirstInGroup && isLastInGroup ? 'rounded-2xl rounded-ss-sm'
+                        : isFirstInGroup                ? 'rounded-2xl rounded-ss-sm rounded-se-2xl'
+                        : isLastInGroup                 ? 'rounded-2xl rounded-se-2xl rounded-ee-2xl'
+                        :                                 'rounded-2xl rounded-se-2xl rounded-ee-2xl'
+                      ),
+                    )}
                   >
-                    {roomUser?.displayName || msg.username}
-                  </button>
-                )}
+                    {msg.replyToId && msg.replyToUsername && (
+                      <QuotedMessage
+                        senderName={msg.replyToUsername}
+                        text={msg.replyToContent || ''}
+                      />
+                    )}
+                    <LinkifiedText text={msg.content} />
+                  </div>
 
-                {/* Message bubble */}
-                <div
-                  className={cn(
-                    'px-3 py-2 text-sm break-words',
-                    isMe
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-white/10 text-white border border-white/8',
-                    isMe ? (
-                      isFirstInGroup && isLastInGroup ? 'rounded-2xl rounded-ee-sm'
-                      : isFirstInGroup                ? 'rounded-2xl rounded-ee-sm rounded-es-2xl'
-                      : isLastInGroup                 ? 'rounded-2xl rounded-es-2xl rounded-ss-2xl'
-                      :                                 'rounded-2xl rounded-ss-2xl rounded-es-2xl'
-                    ) : (
-                      isFirstInGroup && isLastInGroup ? 'rounded-2xl rounded-ss-sm'
-                      : isFirstInGroup                ? 'rounded-2xl rounded-ss-sm rounded-se-2xl'
-                      : isLastInGroup                 ? 'rounded-2xl rounded-se-2xl rounded-ee-2xl'
-                      :                                 'rounded-2xl rounded-se-2xl rounded-ee-2xl'
-                    ),
+                  {isLastInGroup && (
+                    <span className="text-[10px] text-white/30 mt-1 px-1">
+                      {format(new Date(msg.createdAt), 'HH:mm')}
+                    </span>
                   )}
-                >
-                  {msg.content}
                 </div>
-
-                {/* Timestamp — only on last message of group */}
-                {isLastInGroup && (
-                  <span className="text-[10px] text-white/30 mt-1 px-1">
-                    {format(new Date(msg.createdAt), 'HH:mm')}
-                  </span>
-                )}
               </div>
-            </div>
+            </MessageContextMenu>
           );
         })}
       </div>
 
-      {/* Chat disabled banner */}
       {chatDisabled && (
         <div className={`flex items-center gap-2 px-4 py-2 text-xs font-medium border-t ${
           isAdmin
@@ -220,7 +258,14 @@ export default function ChatPanel({
         </div>
       )}
 
-      {/* Input area */}
+      {replyTarget && (
+        <ReplyPreview
+          senderName={replyTarget.username}
+          text={replyTarget.content}
+          onCancel={() => setReplyTarget(null)}
+        />
+      )}
+
       <div className="p-3 bg-black/40 border-t border-white/10 relative">
         {showEmoji && !inputBlocked && (
           <div className="absolute bottom-full right-4 mb-2 z-50">
@@ -250,6 +295,7 @@ export default function ChatPanel({
           </Button>
 
           <Input
+            ref={inputRef}
             value={input}
             onChange={e => !inputBlocked && setInput(e.target.value)}
             disabled={inputBlocked}
@@ -274,7 +320,6 @@ export default function ChatPanel({
         </form>
       </div>
 
-      {/* User Profile Sheet */}
       <AnimatePresence>
         {profileTarget && (
           <UserProfileSheet

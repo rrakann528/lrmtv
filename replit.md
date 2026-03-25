@@ -236,7 +236,11 @@ cd cf-worker && npx wrangler deploy
 | `join-room` | دخول غرفة |
 | `video-sync` | مزامنة الفيديو (play/pause/seek/change-video) + serverTs |
 | `heartbeat` | نبض كل 1.5 ثانية (currentTime + serverTs) |
-| `chat-message` | رسالة دردشة |
+| `chat-message` | رسالة دردشة (يدعم replyTo) |
+| `delete-message` | حذف رسالة (غرفة) |
+| `message-deleted` | إشعار حذف رسالة (غرفة) |
+| `dm:deleted` | إشعار حذف رسالة خاصة |
+| `group:message-deleted` | إشعار حذف رسالة مجموعة |
 | `playlist-update` | تحديث قائمة التشغيل |
 | `dj-backgrounding` | DJ أخفى الـ PWA (يمنع إرسال pause وهمي) |
 | `subtitle-sync` | مزامنة الترجمة |
@@ -271,6 +275,28 @@ cd cf-worker && npx wrangler deploy
 **الأمان:** IP محظورة — سجل محاولات الدخول الفاشلة
 
 **النظام:** معلومات الخادم — مشتركو push — نسخ احتياطي
+
+---
+
+## Chat Features — ميزات الدردشة
+
+**مشتركة بين الثلاثة (غرفة، خاصة، مجموعة):**
+- **الرد على الرسائل**: اضغط مطوّل → "رد" → يظهر اقتباس فوق الإدخال، والرسالة المرسلة تحتوي على QuotedMessage
+- **قائمة خيارات (ضغط مطوّل/كلك يمين)**: رد، نسخ، حذف (رسائلك فقط + الأدمن)
+- **روابط قابلة للضغط**: أي URL في الرسالة يتحول لرابط clickable (LinkifiedText)
+- **حذف الرسائل**: المرسل يحذف رسالته، الأدمن يحذف أي رسالة (real-time عبر socket)
+
+**المكونات المشتركة:**
+- `artifacts/web/src/components/chat/message-context-menu.tsx` — قائمة خيارات
+- `artifacts/web/src/components/chat/reply-preview.tsx` — شريط الرد فوق الإدخال
+- `artifacts/web/src/components/chat/quoted-message.tsx` — الاقتباس داخل فقاعة الرسالة
+- `artifacts/web/src/components/chat/linkified-text.tsx` — تحويل URLs لروابط
+- `artifacts/web/src/lib/linkify.ts` — utility لكشف الروابط
+
+**DB columns added:**
+- `chat_messages`: `reply_to_id`, `reply_to_username`, `reply_to_content`
+- `direct_messages`: `reply_to_id`, `reply_to_content`, `reply_to_sender_name`
+- `group_messages`: `reply_to_id`, `reply_to_content`, `reply_to_sender_name`
 
 ---
 

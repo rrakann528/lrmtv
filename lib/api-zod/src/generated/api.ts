@@ -126,6 +126,9 @@ export const GetRoomMessagesResponseItem = zod.object({
   username: zod.string(),
   content: zod.string(),
   type: zod.enum(["message", "system", "emoji"]),
+  replyToId: zod.number().nullable().optional(),
+  replyToUsername: zod.string().nullable().optional(),
+  replyToContent: zod.string().nullable().optional(),
   createdAt: zod.date(),
 });
 export const GetRoomMessagesResponse = zod.array(GetRoomMessagesResponseItem);

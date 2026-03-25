@@ -24,6 +24,9 @@ export const groupMessagesTable = pgTable("group_messages", {
   groupId: integer("group_id").notNull().references(() => groupsTable.id, { onDelete: "cascade" }),
   senderId: integer("sender_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
   content: text("content").notNull(),
+  replyToId: integer("reply_to_id"),
+  replyToContent: text("reply_to_content"),
+  replyToSenderName: text("reply_to_sender_name"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

@@ -609,7 +609,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
     });
 
     // ── Chat ─────────────────────────────────────────────────────────────────
-    socket.on("chat-message", async (data: { content: string; type?: string }) => {
+    socket.on("chat-message", async (data: { content: string; type?: string; replyTo?: { id: number; username: string; content: string } }) => {
       if (!currentRoomSlug) return;
       const roomState = getRoomState(currentRoomSlug);
       if (!roomState) return;
@@ -618,24 +618,27 @@ export function initSocketServer(httpServer: HttpServer): Server {
       if (!user) return;
 
       if (roomState.chatDisabled && !user.isAdmin) return;
-      // Guests (no userId) cannot send chat messages
       if (!user.userId) return;
-      // Site-muted users cannot chat
       if (user.isSiteMuted && !user.isAdmin) {
         socket.emit("chat-blocked", { reason: "muted" });
         return;
       }
 
-      // Apply word filter
       const filteredContent = applyWordFilter(String(data.content || "").trim());
       if (!filteredContent) return;
 
-      const msg = {
+      const msg: Record<string, any> = {
         username: user.username,
         content: filteredContent,
         type: (data.type || "message") as string,
         roomId: roomState.roomId,
       };
+
+      if (data.replyTo) {
+        msg.replyToId = data.replyTo.id;
+        msg.replyToUsername = data.replyTo.username;
+        msg.replyToContent = String(data.replyTo.content || "").slice(0, 200);
+      }
 
       const [saved] = await db.insert(chatMessagesTable).values(msg).returning();
 
@@ -644,6 +647,23 @@ export function initSocketServer(httpServer: HttpServer): Server {
         ...msg,
         createdAt: saved.createdAt,
       });
+    });
+
+    socket.on("delete-message", async (data: { messageId: number }) => {
+      if (!currentRoomSlug) return;
+      const roomState = getRoomState(currentRoomSlug);
+      if (!roomState) return;
+      const user = roomState.users.get(socket.id);
+      if (!user || !user.userId) return;
+
+      const [msg] = await db.select().from(chatMessagesTable)
+        .where(and(eq(chatMessagesTable.id, data.messageId), eq(chatMessagesTable.roomId, roomState.roomId)))
+        .limit(1);
+      if (!msg) return;
+      if (msg.username !== user.username && !user.isAdmin) return;
+
+      await db.delete(chatMessagesTable).where(eq(chatMessagesTable.id, data.messageId));
+      io.to(currentRoomSlug).emit("message-deleted", { messageId: data.messageId });
     });
 
     // ── Private message (friend-to-friend in the same room) ──────────────────

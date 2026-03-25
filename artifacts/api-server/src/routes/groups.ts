@@ -567,6 +567,9 @@ router.get("/groups/:id/messages", requireAuth, async (req: AuthRequest, res) =>
         groupId: groupMessagesTable.groupId,
         senderId: groupMessagesTable.senderId,
         content: groupMessagesTable.content,
+        replyToId: groupMessagesTable.replyToId,
+        replyToContent: groupMessagesTable.replyToContent,
+        replyToSenderName: groupMessagesTable.replyToSenderName,
         createdAt: groupMessagesTable.createdAt,
         senderUsername: usersTable.username,
         senderDisplayName: usersTable.displayName,
@@ -592,7 +595,7 @@ router.post("/groups/:id/messages", requireAuth, async (req: AuthRequest, res) =
     const groupId = parseInt(req.params.id as string);
     if (isNaN(groupId)) { res.status(400).json({ error: "Invalid group ID" }); return; }
 
-    const { content } = req.body;
+    const { content, replyToId, replyToContent, replyToSenderName } = req.body;
     if (!content || typeof content !== "string" || content.trim().length === 0 || content.length > 1000) {
       res.status(400).json({ error: "Content required (max 1000 chars)" });
       return;
@@ -607,6 +610,9 @@ router.post("/groups/:id/messages", requireAuth, async (req: AuthRequest, res) =
       groupId,
       senderId: userId,
       content: content.trim(),
+      replyToId: replyToId ?? null,
+      replyToContent: typeof replyToContent === 'string' ? replyToContent.slice(0, 200) : null,
+      replyToSenderName: typeof replyToSenderName === 'string' ? replyToSenderName.slice(0, 100) : null,
     }).returning();
 
     const [sender] = await db.select({
@@ -648,6 +654,43 @@ router.post("/groups/:id/messages", requireAuth, async (req: AuthRequest, res) =
   } catch (err: any) {
     console.error("[groups] send message error:", err.message);
     res.status(500).json({ error: "Failed to send message" });
+  }
+});
+
+router.delete("/groups/:id/messages/:messageId", requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const userId = req.userId!;
+    const groupId = parseInt(req.params.id as string);
+    const messageId = parseInt(req.params.messageId as string);
+    if (isNaN(groupId) || isNaN(messageId)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+    const [msg] = await db.select().from(groupMessagesTable)
+      .where(and(eq(groupMessagesTable.id, messageId), eq(groupMessagesTable.groupId, groupId)))
+      .limit(1);
+    if (!msg) { res.status(404).json({ error: "Not found" }); return; }
+    if (msg.senderId !== userId) {
+      const [membership] = await db.select().from(groupMembersTable)
+        .where(and(eq(groupMembersTable.groupId, groupId), eq(groupMembersTable.userId, userId)))
+        .limit(1);
+      if (!membership || membership.role !== 'admin') { res.status(403).json({ error: "Not allowed" }); return; }
+    }
+
+    await db.delete(groupMessagesTable).where(eq(groupMessagesTable.id, messageId));
+
+    const { getIO } = await import("../lib/socket");
+    const io = getIO();
+    if (io) {
+      const members = await db.select({ userId: groupMembersTable.userId })
+        .from(groupMembersTable).where(eq(groupMembersTable.groupId, groupId));
+      for (const m of members) {
+        io.to(`user:${m.userId}`).emit("group:message-deleted", { groupId, messageId });
+      }
+    }
+
+    res.json({ ok: true });
+  } catch (err: any) {
+    console.error("[groups] delete message error:", err.message);
+    res.status(500).json({ error: "Failed to delete" });
   }
 });
 

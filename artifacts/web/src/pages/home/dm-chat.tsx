@@ -6,6 +6,10 @@ import { useAuth, apiFetch } from '@/hooks/use-auth';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { io, Socket } from 'socket.io-client';
 import { useI18n } from '@/lib/i18n';
+import { MessageContextMenu } from '@/components/chat/message-context-menu';
+import { ReplyPreview } from '@/components/chat/reply-preview';
+import { QuotedMessage } from '@/components/chat/quoted-message';
+import { LinkifiedText } from '@/components/chat/linkified-text';
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -15,6 +19,9 @@ interface DmMessage {
   receiverId: number;
   content: string;
   createdAt: string;
+  replyToId?: number | null;
+  replyToContent?: string | null;
+  replyToSenderName?: string | null;
 }
 
 interface Friend {
@@ -38,8 +45,10 @@ export function DmChat({ friend, onBack }: Props) {
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const socketRef = useRef<Socket | null>(null);
   const seenIds = useRef<Set<number>>(new Set());
+  const [replyTarget, setReplyTarget] = useState<{ id: number; senderName: string; content: string } | null>(null);
 
   const { data: history = [], isLoading } = useQuery<DmMessage[]>({
     queryKey: ['dm', friend.id],
@@ -85,6 +94,10 @@ export function DmChat({ friend, onBack }: Props) {
       }).catch(() => {});
     });
 
+    socket.on('dm:deleted', (data: { messageId: number }) => {
+      setMessages(prev => prev.filter(m => m.id !== data.messageId));
+    });
+
     return () => {
       socket.disconnect();
       socketRef.current = null;
@@ -95,18 +108,29 @@ export function DmChat({ friend, onBack }: Props) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  const getSenderName = (senderId: number) => {
+    if (senderId === user?.id) return user?.displayName || user?.username || '';
+    return friend.displayName || friend.username;
+  };
+
   const send = async () => {
-    const t = text.trim();
-    if (!t || sending || !user) return;
+    const content = text.trim();
+    if (!content || sending || !user) return;
     setSending(true);
     setText('');
+    const currentReply = replyTarget;
+    setReplyTarget(null);
+
     const tempId = -Date.now();
     const optimistic: DmMessage = {
       id: tempId,
       senderId: user.id,
       receiverId: friend.id,
-      content: t,
+      content,
       createdAt: new Date().toISOString(),
+      replyToId: currentReply?.id,
+      replyToContent: currentReply?.content,
+      replyToSenderName: currentReply?.senderName,
     };
     seenIds.current.add(tempId);
     setMessages(prev => [...prev, optimistic]);
@@ -114,7 +138,12 @@ export function DmChat({ friend, onBack }: Props) {
     try {
       const res = await apiFetch(`/dm/${friend.id}`, {
         method: 'POST',
-        body: JSON.stringify({ content: t }),
+        body: JSON.stringify({
+          content,
+          replyToId: currentReply?.id,
+          replyToContent: currentReply?.content?.slice(0, 200),
+          replyToSenderName: currentReply?.senderName,
+        }),
       });
       if (res.ok) {
         const saved: DmMessage = await res.json();
@@ -122,14 +151,30 @@ export function DmChat({ friend, onBack }: Props) {
         setMessages(prev => prev.map(m => m.id === tempId ? saved : m));
       } else {
         setMessages(prev => prev.filter(m => m.id !== tempId));
-        setText(t);
+        setText(content);
       }
     } catch {
       setMessages(prev => prev.filter(m => m.id !== tempId));
-      setText(t);
+      setText(content);
     } finally {
       setSending(false);
     }
+  };
+
+  const handleDelete = async (msgId: number) => {
+    setMessages(prev => prev.filter(m => m.id !== msgId));
+    try {
+      await apiFetch(`/dm/${msgId}`, { method: 'DELETE' });
+    } catch {}
+  };
+
+  const handleReply = (msg: DmMessage) => {
+    setReplyTarget({
+      id: msg.id,
+      senderName: getSenderName(msg.senderId),
+      content: msg.content,
+    });
+    inputRef.current?.focus();
   };
 
   const locale = lang === 'ar' ? 'ar-SA' : lang === 'fr' ? 'fr-FR' : lang === 'tr' ? 'tr-TR' : lang === 'es' ? 'es-ES' : lang === 'id' ? 'id-ID' : 'en-US';
@@ -206,18 +251,32 @@ export function DmChat({ friend, onBack }: Props) {
                   const isMe = msg.senderId === user?.id;
                   const isOptimistic = msg.id < 0;
                   return (
-                    <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`max-w-[80%] px-3.5 py-2 rounded-2xl text-sm ${
-                        isMe
-                          ? `bg-primary text-primary-foreground ${dir === 'rtl' ? 'rounded-tl-sm' : 'rounded-tr-sm'} ${isOptimistic ? 'opacity-60' : ''}`
-                          : `bg-muted text-foreground ${dir === 'rtl' ? 'rounded-tr-sm' : 'rounded-tl-sm'}`
-                      }`}>
-                        <p className="whitespace-pre-wrap break-words">{msg.content}</p>
-                        <p className={`text-[10px] mt-0.5 ${isMe ? 'text-primary-foreground/50' : 'text-muted-foreground'} ${isMe ? 'text-end' : 'text-start'}`}>
-                          {isOptimistic ? '...' : formatTime(msg.createdAt)}
-                        </p>
+                    <MessageContextMenu
+                      key={msg.id}
+                      messageText={msg.content}
+                      isOwnMessage={isMe}
+                      onReply={() => handleReply(msg)}
+                      onDelete={isMe && !isOptimistic ? () => handleDelete(msg.id) : undefined}
+                    >
+                      <div className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`max-w-[80%] px-3.5 py-2 rounded-2xl text-sm ${
+                          isMe
+                            ? `bg-primary text-primary-foreground ${dir === 'rtl' ? 'rounded-tl-sm' : 'rounded-tr-sm'} ${isOptimistic ? 'opacity-60' : ''}`
+                            : `bg-muted text-foreground ${dir === 'rtl' ? 'rounded-tr-sm' : 'rounded-tl-sm'}`
+                        }`}>
+                          {msg.replyToId && msg.replyToSenderName && (
+                            <QuotedMessage
+                              senderName={msg.replyToSenderName}
+                              text={msg.replyToContent || ''}
+                            />
+                          )}
+                          <LinkifiedText text={msg.content} className="whitespace-pre-wrap break-words" />
+                          <p className={`text-[10px] mt-0.5 ${isMe ? 'text-primary-foreground/50' : 'text-muted-foreground'} ${isMe ? 'text-end' : 'text-start'}`}>
+                            {isOptimistic ? '...' : formatTime(msg.createdAt)}
+                          </p>
+                        </div>
                       </div>
-                    </div>
+                    </MessageContextMenu>
                   );
                 })}
               </div>
@@ -227,9 +286,18 @@ export function DmChat({ friend, onBack }: Props) {
         <div ref={bottomRef} />
       </div>
 
+      {replyTarget && (
+        <ReplyPreview
+          senderName={replyTarget.senderName}
+          text={replyTarget.content}
+          onCancel={() => setReplyTarget(null)}
+        />
+      )}
+
       <div className="p-3 border-t border-border bg-card/95 backdrop-blur-sm">
         <div className="flex items-center gap-2">
           <input
+            ref={inputRef}
             value={text}
             onChange={e => setText(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}

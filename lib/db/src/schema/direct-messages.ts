@@ -6,6 +6,9 @@ export const directMessagesTable = pgTable("direct_messages", {
   senderId: integer("sender_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
   receiverId: integer("receiver_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
   content: text("content").notNull(),
+  replyToId: integer("reply_to_id"),
+  replyToContent: text("reply_to_content"),
+  replyToSenderName: text("reply_to_sender_name"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   index("idx_dm_sender").on(t.senderId),

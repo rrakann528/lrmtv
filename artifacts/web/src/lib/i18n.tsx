@@ -273,6 +273,9 @@ const translations = {
     chatDisabledByHostMsg: "Chat has been disabled by the host",
     signInToChat: "Sign in to chat",
     chatDisabledDots: "Chat is disabled...",
+    chatReply: "Reply",
+    chatCopy: "Copy",
+    chatDelete: "Delete",
     // Player controls
     off: "Off",
     searchSubtitles: "Search subtitles...",
@@ -563,6 +566,9 @@ const translations = {
     chatDisabledByHostMsg: "الدردشة معطّلة من المضيف",
     signInToChat: "سجّل دخولك للمشاركة في الدردشة",
     chatDisabledDots: "الدردشة معطّلة...",
+    chatReply: "رد",
+    chatCopy: "نسخ",
+    chatDelete: "حذف",
     // Player controls
     off: "إيقاف",
     searchSubtitles: "البحث عن ترجمة",
@@ -852,6 +858,9 @@ const translations = {
     chatDisabledByHostMsg: "Le chat a été désactivé par l'hôte",
     signInToChat: "Connectez-vous pour chatter",
     chatDisabledDots: "Chat désactivé...",
+    chatReply: "Répondre",
+    chatCopy: "Copier",
+    chatDelete: "Supprimer",
     // Player controls
     off: "Off",
     searchSubtitles: "Chercher des sous-titres...",
@@ -1141,6 +1150,9 @@ const translations = {
     chatDisabledByHostMsg: "Sohbet ev sahibi tarafından devre dışı bırakıldı",
     signInToChat: "Sohbet için giriş yapın",
     chatDisabledDots: "Sohbet devre dışı...",
+    chatReply: "Yanıtla",
+    chatCopy: "Kopyala",
+    chatDelete: "Sil",
     // Player controls
     off: "Kapalı",
     searchSubtitles: "Altyazı ara...",
@@ -1430,6 +1442,9 @@ const translations = {
     chatDisabledByHostMsg: "El chat ha sido desactivado por el anfitrión",
     signInToChat: "Inicia sesión para chatear",
     chatDisabledDots: "Chat desactivado...",
+    chatReply: "Responder",
+    chatCopy: "Copiar",
+    chatDelete: "Eliminar",
     // Player controls
     off: "Apagado",
     searchSubtitles: "Buscar subtítulos...",
@@ -1719,6 +1734,9 @@ const translations = {
     chatDisabledByHostMsg: "Chat telah dinonaktifkan oleh tuan rumah",
     signInToChat: "Masuk untuk chat",
     chatDisabledDots: "Chat dinonaktifkan...",
+    chatReply: "Balas",
+    chatCopy: "Salin",
+    chatDelete: "Hapus",
     // Player controls
     off: "Mati",
     searchSubtitles: "Cari subtitle...",

@@ -32,6 +32,9 @@ interface ChatMessageData {
   content: string;
   type: string;
   createdAt: string;
+  replyToId?: number;
+  replyToUsername?: string;
+  replyToContent?: string;
 }
 
 export function useSocket(slug: string | null) {
@@ -249,6 +252,10 @@ export function useSocket(slug: string | null) {
       setChatMessages(prev => [...prev, msg]);
     });
 
+    socket.on('message-deleted', (data: { messageId: number }) => {
+      setChatMessages(prev => prev.filter(m => m.id !== data.messageId));
+    });
+
     socket.on('lock-changed', (data: { isLocked: boolean; allowGuestControl?: boolean }) => {
       setIsLocked(data.isLocked);
       if (data.allowGuestControl !== undefined) setAllowGuestControl(data.allowGuestControl);
@@ -322,9 +329,15 @@ export function useSocket(slug: string | null) {
     }
   }, []);
 
-  const emitChatMessage = useCallback((content: string, type: 'message' | 'emoji' = 'message') => {
+  const emitChatMessage = useCallback((content: string, type: 'message' | 'emoji' = 'message', replyTo?: { id: number; username: string; content: string }) => {
     if (socketRef.current?.connected) {
-      socketRef.current.emit('chat-message', { content, type });
+      socketRef.current.emit('chat-message', { content, type, replyTo });
+    }
+  }, []);
+
+  const emitDeleteMessage = useCallback((messageId: number) => {
+    if (socketRef.current?.connected) {
+      socketRef.current.emit('delete-message', { messageId });
     }
   }, []);
 
@@ -470,5 +483,6 @@ export function useSocket(slug: string | null) {
     subtitleSync,
     emitSubtitleSync,
     emitStreamType,
+    emitDeleteMessage,
   };
 }

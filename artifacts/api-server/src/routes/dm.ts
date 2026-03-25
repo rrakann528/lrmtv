@@ -33,6 +33,9 @@ router.get("/dm/:friendId", requireAuth, async (req: AuthRequest, res): Promise<
     senderId: directMessagesTable.senderId,
     receiverId: directMessagesTable.receiverId,
     content: directMessagesTable.content,
+    replyToId: directMessagesTable.replyToId,
+    replyToContent: directMessagesTable.replyToContent,
+    replyToSenderName: directMessagesTable.replyToSenderName,
     createdAt: directMessagesTable.createdAt,
   })
   .from(directMessagesTable)
@@ -47,7 +50,12 @@ router.get("/dm/:friendId", requireAuth, async (req: AuthRequest, res): Promise<
 });
 
 // ── Send DM ───────────────────────────────────────────────────────────────────
-const SendBody = z.object({ content: z.string().min(1).max(1000) });
+const SendBody = z.object({
+  content: z.string().min(1).max(1000),
+  replyToId: z.number().optional(),
+  replyToContent: z.string().max(200).optional(),
+  replyToSenderName: z.string().max(100).optional(),
+});
 
 router.post("/dm/:friendId", requireAuth, async (req: AuthRequest, res): Promise<void> => {
   const friendId = parseInt(req.params.friendId, 10);
@@ -64,6 +72,9 @@ router.post("/dm/:friendId", requireAuth, async (req: AuthRequest, res): Promise
     senderId: uid,
     receiverId: friendId,
     content: parsed.data.content,
+    replyToId: parsed.data.replyToId ?? null,
+    replyToContent: parsed.data.replyToContent ?? null,
+    replyToSenderName: parsed.data.replyToSenderName ?? null,
   }).returning();
 
   // ── Socket.IO real-time delivery ─────────────────────────────────────────────
@@ -143,6 +154,27 @@ router.post("/dm/:friendId/read", requireAuth, async (req: AuthRequest, res): Pr
       target: [dmReadReceiptsTable.userId, dmReadReceiptsTable.friendId],
       set: { lastReadAt: new Date() },
     });
+
+  res.json({ ok: true });
+});
+
+router.delete("/dm/:messageId", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  const messageId = parseInt(req.params.messageId, 10);
+  if (isNaN(messageId)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const uid = req.userId!;
+  const [msg] = await db.select().from(directMessagesTable).where(eq(directMessagesTable.id, messageId)).limit(1);
+  if (!msg) { res.status(404).json({ error: "Not found" }); return; }
+  if (msg.senderId !== uid) { res.status(403).json({ error: "Not allowed" }); return; }
+
+  await db.delete(directMessagesTable).where(eq(directMessagesTable.id, messageId));
+
+  const { getIO } = await import("../lib/socket");
+  const io = getIO();
+  if (io) {
+    io.to(`user:${msg.senderId}`).emit("dm:deleted", { messageId });
+    io.to(`user:${msg.receiverId}`).emit("dm:deleted", { messageId });
+  }
 
   res.json({ ok: true });
 });
