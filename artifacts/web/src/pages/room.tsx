@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   MessageSquare, ListVideo, Users, UserPlus,
   Mic, MicOff, Copy, Share2, Shield,
-  LogOut, LogIn, Settings2, Play,
+  LogOut, LogIn, Settings2, Play, SlidersHorizontal,
 } from 'lucide-react';
 
 import { useI18n } from '@/lib/i18n';
@@ -24,6 +24,7 @@ import PlaylistPanel from './room/playlist-panel';
 import UsersPanel from './room/users-panel';
 import FriendsPanel from './room/friends-panel';
 import { RoomSettingsSheet } from './room/room-settings-sheet';
+import { UserRoomSettings } from './room/user-room-settings';
 import { UserProfileSheet } from '@/components/user-profile-sheet';
 import { SmartPlayer, type SmartPlayerHandle } from '@/components/player/smart-player';
 
@@ -93,6 +94,7 @@ export default function RoomPage() {
 
   // Room settings panel (admin only) — controlled from header button
   const [showRoomSettings, setShowRoomSettings] = useState(false);
+  const [showUserSettings, setShowUserSettings] = useState(false);
 
   const [mediaConfirm, setMediaConfirm] = useState(false);
 
@@ -362,6 +364,20 @@ export default function RoomPage() {
               <Settings2 className="w-4 h-4" />
             </button>
           )}
+
+          {/* User Room Settings */}
+          <button
+            onClick={() => setShowUserSettings(s => !s)}
+            title={t('userRoomSettings')}
+            className={cn(
+              'h-8 w-8 flex items-center justify-center rounded-lg border border-white/10 transition-colors',
+              showUserSettings
+                ? 'bg-primary/20 border-primary/40 text-primary'
+                : 'bg-white/5 text-white/70 hover:text-white hover:bg-white/10',
+            )}
+          >
+            <SlidersHorizontal className="w-4 h-4" />
+          </button>
 
           {/* Mic */}
           <button
@@ -633,6 +649,16 @@ export default function RoomPage() {
           />
         )}
       </AnimatePresence>
+
+      {/* ── User Room Settings ──────────────────────────────────────── */}
+      {createPortal(
+        <AnimatePresence>
+          {showUserSettings && (
+            <UserRoomSettings onClose={() => setShowUserSettings(false)} />
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
 
       {/* ── Room Settings Sheet ──────────────────────────────────────── */}
       {createPortal(
