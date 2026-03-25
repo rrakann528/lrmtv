@@ -20,6 +20,7 @@ import FullscreenChat from './fullscreen-chat';
 import SubtitleSearch from './subtitle-search';
 import { generateColorFromString, cn } from '@/lib/utils';
 import type { ToastMessage } from './player-controls';
+import { fetchSponsorSegments, findActiveSegment, isYouTubeUrl, type SponsorSegment } from '@/lib/sponsorblock';
 
 interface SubtitleCue { start: number; end: number; text: string }
 
@@ -105,6 +106,7 @@ interface SmartPlayerProps {
   isLiveHint?: boolean;
   /** Fired when HLS manifest is parsed and live/VOD status is known */
   onIsLive?: (isLive: boolean) => void;
+  sponsorSkipEnabled?: boolean;
 }
 
 export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
@@ -128,6 +130,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       externalSubtitle,
       isLiveHint = false,
       onIsLive,
+      sponsorSkipEnabled = true,
     },
     ref,
   ) => {
@@ -159,6 +162,10 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
     const [currentSubtitleText, setCurrentSubtitleText] = useState('');
     const [customSubtitleLabel, setCustomSubtitleLabel] = useState('');
 
+    const [sponsorSegments, setSponsorSegments] = useState<SponsorSegment[]>([]);
+    const lastSkippedRef = useRef<string | null>(null);
+    const [sponsorSkipNotice, setSponsorSkipNotice] = useState(false);
+
     const { t } = useI18n();
 
     const normalizedUrl = normalizeUrl(url);
@@ -171,6 +178,11 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       setAutoplayBlocked(false);
       setProxyUrl(null);
       setNativeVideo(false);
+      lastSkippedRef.current = null;
+      setSponsorSegments([]);
+      if (isYouTubeUrl(normalizedUrl)) {
+        fetchSponsorSegments(normalizedUrl, setSponsorSegments);
+      }
     }, [normalizedUrl]);
 
     // Fullscreen tracking
@@ -481,6 +493,20 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
           </div>
         )}
 
+        <AnimatePresence>
+          {sponsorSkipNotice && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="absolute top-4 left-1/2 -translate-x-1/2 z-30 bg-green-600/90 backdrop-blur px-4 py-2 rounded-full text-white text-sm font-medium shadow-lg flex items-center gap-2"
+            >
+              <SkipForward className="w-4 h-4" />
+              {t('sponsorSkipped')}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* S3: last-resort native <video> — no crossOrigin, direct browser fetch */}
         {nativeVideo && (
           <video
@@ -511,7 +537,18 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
           playsinline
           onPlay={() => { setAutoplayBlocked(false); setError(null); onPlay?.(); }}
           onPause={onPause}
-          onProgress={({ playedSeconds }) => setRpCurrentTime(playedSeconds)}
+          onProgress={({ playedSeconds }) => {
+            setRpCurrentTime(playedSeconds);
+            if (sponsorSkipEnabled && sponsorSegments.length > 0 && isYouTubeUrl(normalizedUrl)) {
+              const seg = findActiveSegment(sponsorSegments, playedSeconds);
+              if (seg && lastSkippedRef.current !== seg.UUID) {
+                lastSkippedRef.current = seg.UUID;
+                reactPlayerRef.current?.seekTo(seg.segment[1], 'seconds');
+                setSponsorSkipNotice(true);
+                setTimeout(() => setSponsorSkipNotice(false), 3000);
+              }
+            }
+          }}
           onDuration={(d) => setRpDuration(d)}
           onSeek={onSeek}
           onReady={() => {

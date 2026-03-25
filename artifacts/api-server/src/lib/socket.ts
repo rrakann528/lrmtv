@@ -62,6 +62,7 @@ interface RoomState {
   chatDisabled: boolean;
   micDisabled: boolean;
   cameraDisabled: boolean;
+  sponsorSkipEnabled: boolean;
   /** True when the current video is a live stream (no time-based sync for guests) */
   isLive: boolean;
   /** Current subtitle state broadcast to late joiners */
@@ -331,6 +332,7 @@ function createRoomState(slug: string, roomId: number, roomName: string): RoomSt
     chatDisabled: false,
     micDisabled: false,
     cameraDisabled: false,
+    sponsorSkipEnabled: true,
     isLive: false,
     subtitle: null,
     allowGuestEntry: true,
@@ -504,6 +506,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
         chatDisabled: roomState.chatDisabled,
         micDisabled: roomState.micDisabled,
         cameraDisabled: roomState.cameraDisabled,
+        sponsorSkipEnabled: roomState.sponsorSkipEnabled,
         isLive: roomState.isLive,
         subtitle: roomState.subtitle,
         serverTs: Date.now(),
@@ -784,6 +787,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
         chatDisabled: roomState.chatDisabled,
         micDisabled: roomState.micDisabled,
         cameraDisabled: roomState.cameraDisabled,
+        sponsorSkipEnabled: roomState.sponsorSkipEnabled,
       });
     };
 
@@ -829,6 +833,15 @@ export function initSocketServer(httpServer: HttpServer): Server {
         for (const u of roomState.users.values()) u.isCameraOff = true;
         io.to(currentRoomSlug).emit("users-updated", { users: Array.from(roomState.users.values()) });
       }
+      emitRoomSettings(currentRoomSlug, roomState);
+    });
+
+    socket.on("toggle-sponsor-skip", () => {
+      if (!currentRoomSlug) return;
+      const roomState = getRoomState(currentRoomSlug);
+      if (!roomState) return;
+      if (!roomState.users.get(socket.id)?.isAdmin) return;
+      roomState.sponsorSkipEnabled = !roomState.sponsorSkipEnabled;
       emitRoomSettings(currentRoomSlug, roomState);
     });
 

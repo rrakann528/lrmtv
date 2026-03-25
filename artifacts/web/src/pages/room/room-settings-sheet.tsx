@@ -3,10 +3,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Shield, Lock, Unlock, Check, Pencil, X,
   Globe, EyeOff, MessageSquareOff, MessageSquare, Mic, MicOff, Video, VideoOff,
-  Trash2, AlertTriangle, UserX, UserCheck,
+  Trash2, AlertTriangle, UserX, UserCheck, SkipForward,
 } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { useI18n } from '@/lib/i18n';
+import { cn } from '@/lib/utils';
 
 interface RoomSettingsSheetProps {
   isAdmin: boolean;
@@ -16,12 +17,14 @@ interface RoomSettingsSheetProps {
   chatDisabled: boolean;
   micDisabled: boolean;
   cameraDisabled: boolean;
+  sponsorSkipEnabled: boolean;
   toggleAllowGuests: () => void;
   toggleGuestEntry: () => void;
   togglePrivacy: () => void;
   toggleChat: () => void;
   toggleMic: () => void;
   toggleCamera: () => void;
+  toggleSponsorSkip: () => void;
   currentRoomName?: string;
   renameRoom?: (name: string) => void;
   deleteRoom?: () => void;
@@ -36,12 +39,14 @@ export function RoomSettingsSheet({
   chatDisabled,
   micDisabled,
   cameraDisabled,
+  sponsorSkipEnabled,
   toggleAllowGuests,
   toggleGuestEntry,
   togglePrivacy,
   toggleChat,
   toggleMic,
   toggleCamera,
+  toggleSponsorSkip,
   currentRoomName = '',
   renameRoom,
   deleteRoom,
@@ -247,6 +252,22 @@ export function RoomSettingsSheet({
                 </div>
               </div>
               <Switch checked={!cameraDisabled} onCheckedChange={toggleCamera} />
+            </div>
+
+            {/* Sponsor Skip */}
+            <div className="flex items-center justify-between gap-3 px-4 py-3">
+              <div className="flex items-center gap-3">
+                <SkipForward className={cn('w-4 h-4 shrink-0', sponsorSkipEnabled ? 'text-green-400' : 'text-white/40')} />
+                <div>
+                  <p className="text-sm font-medium text-white">
+                    {t('sponsorSkip')}
+                  </p>
+                  <p className="text-xs text-white/50">
+                    {sponsorSkipEnabled ? t('sponsorSkipOn') : t('sponsorSkipOff')}
+                  </p>
+                </div>
+              </div>
+              <Switch checked={sponsorSkipEnabled} onCheckedChange={toggleSponsorSkip} />
             </div>
           </div>
 

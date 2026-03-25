@@ -73,10 +73,10 @@ export default function RoomPage() {
 
   const {
     socket, users, you, syncState, isLocked, allowGuestControl, allowGuestEntry, background, roomName,
-    chatMessages, isPrivate, chatDisabled, micDisabled, cameraDisabled,
+    chatMessages, isPrivate, chatDisabled, micDisabled, cameraDisabled, sponsorSkipEnabled,
     emitSync, emitSeek, emitChatMessage, emitDeleteMessage,
     toggleLock, toggleAllowGuests, toggleGuestEntry, toggleDJ, renameRoom, toggleMedia, emitPlaylistUpdate, requestSync,
-    kickUser, transferAdmin, togglePrivacy, toggleChat, toggleMic, toggleCamera,
+    kickUser, transferAdmin, togglePrivacy, toggleChat, toggleMic, toggleCamera, toggleSponsorSkip,
     subtitleSync, emitSubtitleSync, emitStreamType,
   } = useSocket(slug);
 
@@ -507,6 +507,7 @@ export default function RoomPage() {
                   lang={lang as 'en' | 'ar'}
                   onSubtitleApplied={emitSubtitleSync}
                   externalSubtitle={subtitleSync}
+                  sponsorSkipEnabled={sponsorSkipEnabled}
                 />
                 </div>
 
@@ -732,12 +733,14 @@ export default function RoomPage() {
               chatDisabled={chatDisabled}
               micDisabled={micDisabled}
               cameraDisabled={cameraDisabled}
+              sponsorSkipEnabled={sponsorSkipEnabled}
               toggleAllowGuests={toggleAllowGuests}
               toggleGuestEntry={toggleGuestEntry}
               togglePrivacy={togglePrivacy}
               toggleChat={toggleChat}
               toggleMic={toggleMic}
               toggleCamera={toggleCamera}
+              toggleSponsorSkip={toggleSponsorSkip}
               currentRoomName={roomName || room.name}
               renameRoom={renameRoom}
               deleteRoom={isAdmin ? handleDeleteRoom : undefined}

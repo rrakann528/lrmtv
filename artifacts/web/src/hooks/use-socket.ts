@@ -56,6 +56,7 @@ export function useSocket(slug: string | null) {
   const [chatDisabled, setChatDisabled] = useState(false);
   const [micDisabled, setMicDisabled] = useState(false);
   const [cameraDisabled, setCameraDisabled] = useState(false);
+  const [sponsorSkipEnabled, setSponsorSkipEnabled] = useState(true);
   const [subtitleSync, setSubtitleSync] = useState<{
     type: 'url' | 'content' | 'clear';
     url?: string;
@@ -155,14 +156,16 @@ export function useSocket(slug: string | null) {
       if (state.chatDisabled !== undefined) setChatDisabled(state.chatDisabled);
       if (state.micDisabled !== undefined) setMicDisabled(state.micDisabled);
       if (state.cameraDisabled !== undefined) setCameraDisabled(state.cameraDisabled);
+      if (state.sponsorSkipEnabled !== undefined) setSponsorSkipEnabled(state.sponsorSkipEnabled);
       if ((state as any).subtitle) setSubtitleSync((state as any).subtitle);
     });
 
-    socket.on('room-settings-updated', (data: { isPrivate: boolean; chatDisabled: boolean; micDisabled: boolean; cameraDisabled: boolean }) => {
+    socket.on('room-settings-updated', (data: { isPrivate: boolean; chatDisabled: boolean; micDisabled: boolean; cameraDisabled: boolean; sponsorSkipEnabled: boolean }) => {
       setIsPrivate(data.isPrivate);
       setChatDisabled(data.chatDisabled);
       setMicDisabled(data.micDisabled);
       setCameraDisabled(data.cameraDisabled);
+      setSponsorSkipEnabled(data.sponsorSkipEnabled);
     });
 
     socket.on('room-renamed', (data: { name: string }) => {
@@ -411,6 +414,10 @@ export function useSocket(slug: string | null) {
     if (socketRef.current?.connected) socketRef.current.emit('toggle-camera');
   }, []);
 
+  const toggleSponsorSkip = useCallback(() => {
+    if (socketRef.current?.connected) socketRef.current.emit('toggle-sponsor-skip');
+  }, []);
+
   const toggleGuestEntry = useCallback(() => {
     if (socketRef.current?.connected) socketRef.current.emit('toggle-guest-entry');
   }, []);
@@ -461,6 +468,7 @@ export function useSocket(slug: string | null) {
     chatDisabled,
     micDisabled,
     cameraDisabled,
+    sponsorSkipEnabled,
     emitSync,
     emitSeek,
     emitChatMessage,
@@ -480,6 +488,7 @@ export function useSocket(slug: string | null) {
     toggleChat,
     toggleMic,
     toggleCamera,
+    toggleSponsorSkip,
     subtitleSync,
     emitSubtitleSync,
     emitStreamType,
