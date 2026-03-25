@@ -579,6 +579,9 @@ export function initSocketServer(httpServer: HttpServer): Server {
           break;
         }
         case "seek":
+          // For live streams: ignore seek to 0 or very small values — this usually
+          // means the player failed to seek and fell back to the start.
+          if (roomState.isLive && data.currentTime < 1) return;
           roomState.currentTime = data.currentTime;
           roomState.lastSyncTimestamp = Date.now();
           // Restart heartbeat after seek so drift-correction fires from the new position

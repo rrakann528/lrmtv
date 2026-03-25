@@ -327,7 +327,13 @@ export default function RoomPage() {
     if (!canControl || suppressPauseRef.current) return;
     emitSync(playerRef.current?.getCurrentTime() || syncState.time, false, syncState.url);
   };
-  const handleSeek  = (s: number) => { if (isRemoteSeekRef.current || !canControl) return; emitSeek(s); };
+  const handleSeek  = (s: number) => {
+    if (isRemoteSeekRef.current || !canControl) return;
+    // For live streams: don't broadcast seek to 0 — it means the player
+    // failed to seek and fell back to the start, which would break everyone's sync.
+    if (syncState.isLive && s < 1) return;
+    emitSeek(s);
+  };
 
   const copyUrl = () => {
     navigator.clipboard.writeText(window.location.href);

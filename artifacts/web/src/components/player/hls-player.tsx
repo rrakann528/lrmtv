@@ -1055,12 +1055,23 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           onPlay={() => { setAutoplayBlocked(false); setError(null); onPlay?.(); }}
           onPause={onPause}
           onSeeked={() => {
-            // Skip broadcasting nudges used by the stall-recovery watchdog
             if (isInternalNudgeRef.current) return;
-            // Ignore seeks that happen before the player is ready (e.g. initial load to position 0)
-            // These would incorrectly broadcast seek(0) to all room members.
             if (!readyFiredRef.current) return;
-            if (videoRef.current) onSeek?.(videoRef.current.currentTime);
+            const video = videoRef.current;
+            if (!video) return;
+            const t = video.currentTime;
+            // For live streams: if the player jumped back to 0 or near-start after
+            // a failed seek, snap to the live edge instead of broadcasting time=0
+            // which would reset everyone's playback.
+            if (isLiveRef.current && t < 1) {
+              const hls = hlsRef.current;
+              const edge = hls?.liveSyncPosition;
+              if (edge && isFinite(edge) && edge > 5) {
+                video.currentTime = edge;
+                return;
+              }
+            }
+            onSeek?.(t);
           }}
         />
 
