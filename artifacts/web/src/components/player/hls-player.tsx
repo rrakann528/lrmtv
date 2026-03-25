@@ -758,6 +758,8 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           s2_native(() => {
             if (cancelled) return;
             if (Hls.isSupported()) {
+              destroyAll();
+              setStatusMsg('hls-direct');
               const onHlsFail = () => s3_cfManifestProxy();
               const hls = makeHls(onHlsFail);
               hlsRef.current = hls;
@@ -766,7 +768,7 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
             } else {
               s5_cfFullProxy();
             }
-          }, 12_000);
+          }, 8_000);
         } else if (Hls.isSupported()) {
           const onS1Fail = () => s3_cfManifestProxy();
           const hls = makeHls(onS1Fail);
