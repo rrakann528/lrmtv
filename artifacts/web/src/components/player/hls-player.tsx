@@ -143,6 +143,7 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
     const hlsRef   = useRef<Hls | null>(null);
     const dashRef  = useRef<{ destroy: () => void } | null>(null);
     const reconnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const forceProxyFnRef = useRef<(() => void) | null>(null);
     // Prevents stall-recovery nudges from emitting a seek event to the whole room
     const isInternalNudgeRef = useRef(false);
     // Debounces the buffering spinner (avoids 1-frame flicker on seek)
@@ -423,14 +424,15 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         nudgeOffset:   0.1,
       };
 
-      // ── S-Native: HTML5 <video> element (MP4, WebM) ────────────────────────
-      const loadViaNative = () => {
+      // ── S-Native: HTML5 <video> element (MP4, WebM, native HLS on Safari) ─
+      const loadViaNative = (nativeSrc?: string, _isCfRetry = false) => {
         if (cancelled) return;
         destroyAll();
         setStatusMsg('native');
         video.removeAttribute('crossorigin');
         video.setAttribute('referrerpolicy', 'no-referrer');
-        video.src = src;
+        const targetSrc = nativeSrc ?? src;
+        video.src = targetSrc;
         const onMeta = () => {
           if (!cancelled) {
             const live = !isFinite(video.duration) || video.duration === Infinity;
@@ -441,8 +443,13 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         };
         const onErr  = () => {
           if (cancelled) return;
+          // If direct load failed and we haven't tried CF proxy yet, try through it
+          if (!_isCfRetry) {
+            const cfUrl = buildCfUrl(targetSrc);
+            if (cfUrl) { loadViaNative(cfUrl, true); return; }
+          }
           const code = video.error?.code;
-          setError(code === 4 ? 'unsupported' : 'playback');
+          setError(code === 4 ? 'unsupported' : 'ip-locked');
           setStatusMsg(null);
         };
         video.addEventListener('loadedmetadata', onMeta, { once: true });
@@ -464,12 +471,26 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           player.initialize(video, src, false);
           const Events = (djs.MediaPlayer?.events ?? djs.default?.MediaPlayer?.events ?? {});
           player.on(Events.STREAM_INITIALIZED ?? 'streamInitialized', () => { if (!cancelled) { setStatusMsg(null); setError(null); onDurationChange(); signalReady(); } });
-          player.on(Events.ERROR ?? 'error', () => { if (!cancelled) { setError('playback'); setStatusMsg(null); } });
+          player.on(Events.ERROR ?? 'error', () => { if (!cancelled) { setError('ip-locked'); setStatusMsg(null); } });
         } catch {
           if (!cancelled) loadViaHls();
         }
       };
 
+      // CF Worker URL (optional — set VITE_CF_PROXY_URL to enable hard-link support)
+      const CF_PROXY = (import.meta.env.VITE_CF_PROXY_URL as string | undefined)?.replace(/\/$/, '');
+      const buildCfUrl = (url: string, mode?: string) => {
+        if (!CF_PROXY) return null;
+        return `${CF_PROXY}?ref=${encodeURIComponent(url)}&url=${encodeURIComponent(url)}${mode ? `&mode=${mode}` : ''}`;
+      };
+
+      // Show proxy-required button (only shown if CF Worker is configured)
+      const requireProxy = (fn: () => void) => {
+        if (!CF_PROXY) { setStatusMsg(null); setError('unsupported'); return; }
+        forceProxyFnRef.current = fn;
+        setStatusMsg(null);
+        setError('proxy-required');
+      };
 
       // ── Stall watchdog — detects frozen playback and recovers ───────────────
       let stallWatchdog: ReturnType<typeof setInterval> | null = null;
@@ -542,44 +563,51 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
       };
 
       // ── HLS instance factory with built-in error recovery ────────────────
-      const makeHls = (onIpLocked: () => void, onGenericFatal: () => void) => {
+      const makeHls = (onFatal: () => void) => {
         const hls = new Hls(HLS_CONFIG as Hls['config']);
         let mediaErrCount = 0;
         let netErrCount   = 0;
         hls.on(Hls.Events.ERROR, (_, d) => {
           if (cancelled) return;
           if (!d.fatal) {
+            // Non-fatal errors are handled by HLS.js internally — do NOT call recoverMediaError()
+            // on non-fatal errors as it triggers an unnecessary rebuffer cycle.
+            // For non-fatal network errors, just let HLS.js retry via its built-in retry logic.
             return;
           }
           if (d.type === Hls.ErrorTypes.MEDIA_ERROR && mediaErrCount < 4) {
             mediaErrCount++;
             if (mediaErrCount === 1) {
+              // First attempt: soft recovery (stops and restarts the codec)
               hls.recoverMediaError();
             } else if (mediaErrCount === 2) {
+              // Second attempt: swap audio codec, then recover
               setTimeout(() => { if (!cancelled) { hls.swapAudioCodec(); hls.recoverMediaError(); } }, 300);
             } else {
+              // Subsequent: full reload of segments
               setTimeout(() => { if (!cancelled) { hls.stopLoad(); hls.startLoad(); } }, 500);
             }
             return;
           }
           if (d.type === Hls.ErrorTypes.NETWORK_ERROR && netErrCount < 3) {
+            // CORS / blocked request: response code 0 → fail immediately, don't retry
             const isCorsBlock = !d.response?.code || d.response.code === 0;
             if (isCorsBlock) {
               hls.destroy();
               if (stallWatchdog) { clearInterval(stallWatchdog); stallWatchdog = null; }
               setStatusMsg(null);
-              onIpLocked();
+              onFatal();
               return;
             }
             netErrCount++;
-            const delay = netErrCount * 1500;
+            const delay = netErrCount * 1500; // 1.5s, 3s, 4.5s
             setTimeout(() => { if (!cancelled) hls.startLoad(); }, delay);
             return;
           }
           hls.destroy();
           if (stallWatchdog) { clearInterval(stallWatchdog); stallWatchdog = null; }
           setStatusMsg(null);
-          onGenericFatal();
+          onFatal();
         });
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           if (cancelled) return;
@@ -602,74 +630,183 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         return hls;
       };
 
-      // ── S-HLS chain: Direct HLS.js or Native — no proxy fallbacks ─────────────
+      // ── S-HLS chain: Direct → Native → CF-Manifest → CF-Full ────────────────
+      // Order rationale:
+      //   S1 HLS.js direct  — fastest, best quality switching
+      //   S2 native <video>  — no CORS restriction, works for IP-locked streams on any Safari
+      //   S3 CF manifest     — manifest via CF (CORS headers added), segments direct
+      //   S4 CF full proxy   — everything via CF (for fully CORS-blocked, non-IP-locked streams)
+      //   S5 API server proxy — manifest + segments via our own API (handles HTTP→HTTPS, always available)
       const loadViaHls = () => {
         if (cancelled) return;
 
-        // Native HLS — for Safari/iOS which support HLS natively
-        const loadNative = () => {
+        const s2_native = (onFail?: () => void, timeoutMs = 15_000) => {
           if (cancelled) return;
           destroyAll();
           setStatusMsg('native');
+          const setup = () => {
+            if (cancelled) return;
+            video.removeAttribute('crossorigin');
+            video.setAttribute('referrerpolicy', 'no-referrer');
+            video.removeAttribute('src');
+            video.load();
+            video.src = src;
+            video.load();
+            let nativeDone = false;
+            const onSuccess = () => {
+              if (nativeDone || cancelled) return;
+              nativeDone = true;
+              clearTimeout(fallbackTimer);
+              video.removeEventListener('loadedmetadata', onSuccess);
+              video.removeEventListener('canplay', onSuccess);
+              video.removeEventListener('playing', onSuccess);
+              video.removeEventListener('error', onErrWrapped);
+              const live = !isFinite(video.duration) || video.duration === Infinity;
+              isLiveRef.current = live; setIsLive(live);
+              onDurationChange(); setStatusMsg(null); setError(null); startStallWatchdog(); signalReady();
+            };
+            const onErrWrapped = () => {
+              if (nativeDone || cancelled) return;
+              nativeDone = true;
+              clearTimeout(fallbackTimer);
+              video.removeEventListener('loadedmetadata', onSuccess);
+              video.removeEventListener('canplay', onSuccess);
+              video.removeEventListener('playing', onSuccess);
+              video.removeEventListener('error', onErrWrapped);
+              if (onFail) { onFail(); }
+              else { setError('ip-locked'); setStatusMsg(null); }
+            };
+            const fallbackTimer = setTimeout(() => {
+              if (nativeDone) return;
+              nativeDone = true;
+              video.removeEventListener('loadedmetadata', onSuccess);
+              video.removeEventListener('canplay', onSuccess);
+              video.removeEventListener('playing', onSuccess);
+              video.removeEventListener('error', onErrWrapped);
+              if (!cancelled) {
+                if (onFail) { onFail(); }
+                else { setError('ip-locked'); setStatusMsg(null); }
+              }
+            }, timeoutMs);
+            video.addEventListener('loadedmetadata', onSuccess);
+            video.addEventListener('canplay', onSuccess);
+            video.addEventListener('playing', onSuccess);
+            video.addEventListener('error', onErrWrapped);
+          };
+          if (hlsRef.current) {
+            setTimeout(setup, 150);
+          } else {
+            setup();
+          }
+        };
+
+        // S7 — API proxy with native <video> (for iOS Safari where HLS.js is not supported)
+        // Loads the manifest through our server proxy which rewrites ALL segment URLs
+        // to go through /api/proxy/segment — fixing CORS / Referer issues on iOS.
+        const s7_nativeApiProxy = () => {
+          if (cancelled) return;
+          destroyAll();
+          const proxyUrl = `/api/proxy/manifest?url=${encodeURIComponent(src)}`;
+          setStatusMsg('hls-proxy');
           video.removeAttribute('crossorigin');
           video.setAttribute('referrerpolicy', 'no-referrer');
           video.removeAttribute('src');
           video.load();
-          video.src = src;
+          video.src = proxyUrl;
           video.load();
-          let nativeDone = false;
-          const onSuccess = () => {
-            if (nativeDone || cancelled) return;
-            nativeDone = true;
-            clearTimeout(fallbackTimer);
-            video.removeEventListener('loadedmetadata', onSuccess);
-            video.removeEventListener('canplay', onSuccess);
-            video.removeEventListener('playing', onSuccess);
-            video.removeEventListener('error', onErrWrapped);
+          let done = false;
+          const onMeta = () => {
+            if (done || cancelled) return; done = true; clearTimeout(nTimer);
             const live = !isFinite(video.duration) || video.duration === Infinity;
             isLiveRef.current = live; setIsLive(live);
             onDurationChange(); setStatusMsg(null); setError(null); startStallWatchdog(); signalReady();
           };
-          const onErrWrapped = () => {
-            if (nativeDone || cancelled) return;
-            nativeDone = true;
-            clearTimeout(fallbackTimer);
-            video.removeEventListener('loadedmetadata', onSuccess);
-            video.removeEventListener('canplay', onSuccess);
-            video.removeEventListener('playing', onSuccess);
-            video.removeEventListener('error', onErrWrapped);
-            setError('playback'); setStatusMsg(null);
+          const onErr = () => {
+            if (done || cancelled) return; done = true; clearTimeout(nTimer);
+            setError('ip-locked'); setStatusMsg(null);
           };
-          const fallbackTimer = setTimeout(() => {
-            if (nativeDone) return;
-            nativeDone = true;
-            video.removeEventListener('loadedmetadata', onSuccess);
-            video.removeEventListener('canplay', onSuccess);
-            video.removeEventListener('playing', onSuccess);
-            video.removeEventListener('error', onErrWrapped);
-            if (!cancelled) { setError('playback'); setStatusMsg(null); }
-          }, 15_000);
-          video.addEventListener('loadedmetadata', onSuccess);
-          video.addEventListener('canplay', onSuccess);
-          video.addEventListener('playing', onSuccess);
-          video.addEventListener('error', onErrWrapped);
+          const nTimer = setTimeout(() => {
+            if (done) return; done = true;
+            video.removeEventListener('loadedmetadata', onMeta);
+            video.removeEventListener('error', onErr);
+            if (!cancelled) { setError('ip-locked'); setStatusMsg(null); }
+          }, 20_000);
+          video.addEventListener('loadedmetadata', onMeta, { once: true });
+          video.addEventListener('error',          onErr,  { once: true });
+        };
+
+        // S6 — API server proxy (always available; fetches manifest server-side, rewrites segments)
+        // On iOS Safari (no HLS.js), delegates to S7 which uses native <video>.
+        const s6_apiProxy = () => {
+          if (cancelled) return;
+          if (!Hls.isSupported()) { s7_nativeApiProxy(); return; }
+          const proxyUrl = `/api/proxy/manifest?url=${encodeURIComponent(src)}`;
+          setStatusMsg('hls-proxy');
+          const hls = makeHls(() => { setError('ip-locked'); setStatusMsg(null); });
+          hlsRef.current = hls;
+          hls.loadSource(proxyUrl);
+          hls.attachMedia(video);
+        };
+
+        const s5_cfFullProxy = () => {
+          if (cancelled) return;
+          if (!CF_PROXY) { s6_apiProxy(); return; }
+          const cfUrl = `${CF_PROXY}?url=${encodeURIComponent(src)}&ref=${encodeURIComponent(src)}&mode=full`;
+          setStatusMsg('hls-proxy');
+          const hls = makeHls(() => { setError('ip-locked'); setStatusMsg(null); });
+          hlsRef.current = hls;
+          hls.loadSource(cfUrl);
+          hls.attachMedia(video);
+        };
+
+        // S4 — full proxy via CF Worker (all segments through CF, only when CF_PROXY is set)
+        const s4_cfFullProxy = () => {
+          if (cancelled) return;
+          const cfUrl = buildCfUrl(src);
+          if (!cfUrl) { s5_cfFullProxy(); return; }
+          setStatusMsg('hls-proxy');
+          const hls = makeHls(() => s5_cfFullProxy());
+          hlsRef.current = hls;
+          hls.loadSource(cfUrl);
+          hls.attachMedia(video);
+        };
+
+        // S3 — manifest-only proxy via CF (adds CORS headers, segments still direct)
+        const s3_cfManifestProxy = () => {
+          if (cancelled) return;
+          const cfUrl = buildCfUrl(src, 'manifest');
+          if (!cfUrl) { s4_cfFullProxy(); return; }
+          setStatusMsg('hls-manifest');
+          const hls = makeHls(() => s4_cfFullProxy());
+          hlsRef.current = hls;
+          hls.loadSource(cfUrl);
+          hls.attachMedia(video);
         };
 
         if (src.startsWith('http:') && window.location.protocol === 'https:') {
-          setError('playback'); setStatusMsg(null);
+          CF_PROXY ? s5_cfFullProxy() : s6_apiProxy();
           return;
         }
 
         setStatusMsg('hls-direct');
         const canNativeHls = video.canPlayType('application/vnd.apple.mpegurl') !== '';
 
-        if (canNativeHls && !Hls.isSupported()) {
-          loadNative();
+        if (canNativeHls) {
+          s2_native(() => {
+            if (cancelled) return;
+            if (Hls.isSupported()) {
+              const onHlsFail = () => CF_PROXY ? s3_cfManifestProxy() : s6_apiProxy();
+              const hls = makeHls(onHlsFail);
+              hlsRef.current = hls;
+              hls.loadSource(src);
+              hls.attachMedia(video);
+            } else {
+              s7_nativeApiProxy();
+            }
+          }, 12_000);
         } else if (Hls.isSupported()) {
-          const hls = makeHls(
-            () => { setError('ip-locked'); setStatusMsg(null); },
-            () => { setError('playback'); setStatusMsg(null); },
-          );
+          const onS1Fail = () => CF_PROXY ? s3_cfManifestProxy() : s6_apiProxy();
+          const hls = makeHls(onS1Fail);
           hlsRef.current = hls;
           hls.loadSource(src);
           hls.attachMedia(video);
@@ -776,7 +913,7 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
       const timer = setTimeout(() => {
         // Only show error if still loading (statusMsg truthy) and no error yet
         setStatusMsg(prev => {
-          if (prev) { setError(e => e ?? 'playback'); return null; }
+          if (prev) { setError(e => e ?? 'ip-locked'); return null; }
           return prev;
         });
       }, 30_000);
@@ -857,20 +994,39 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
             <div className="text-center space-y-3 px-6">
               <AlertTriangle className="w-12 h-12 text-amber-400 mx-auto" />
               <p className="text-white font-semibold">
-                {error === 'ip-locked' ? t('videoErrorIpLocked') : t('videoError')}
+                {error === 'ip-locked'       ? t('videoErrorIpLocked')
+                : error === 'proxy-required' ? t('videoErrorProxyRequired')
+                : t('videoError')}
               </p>
               <p className="text-white/50 text-sm max-w-md">
-                {error === 'ip-locked' ? t('videoErrorIpLockedDesc') : t('videoErrorDesc')}
+                {error === 'ip-locked'       ? t('videoErrorIpLockedDesc')
+                : error === 'proxy-required' ? t('videoErrorProxyRequiredDesc')
+                : t('videoErrorDesc')}
               </p>
-              <div className="flex flex-col items-center gap-2 mt-1">
+              {error === 'proxy-required' ? (
                 <button
-                  onClick={handleRetry}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 active:bg-white/25 text-white text-sm font-medium transition-colors border border-white/15"
+                  onClick={() => {
+                    const fn = forceProxyFnRef.current;
+                    forceProxyFnRef.current = null;
+                    setError(null);
+                    fn?.();
+                  }}
+                  className="mt-1 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-primary/20 hover:bg-primary/30 active:bg-primary/40 text-primary text-sm font-medium transition-colors border border-primary/30"
                 >
-                  <RotateCcw className="w-4 h-4" />
-                  {t('retry')}
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+                  {t('videoErrorProxyBtn')}
                 </button>
-              </div>
+              ) : (
+                <div className="flex flex-col items-center gap-2 mt-1">
+                  <button
+                    onClick={handleRetry}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 active:bg-white/25 text-white text-sm font-medium transition-colors border border-white/15"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    {t('retry')}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}
