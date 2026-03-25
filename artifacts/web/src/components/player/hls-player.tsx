@@ -589,20 +589,31 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
             }
             return;
           }
-          if (d.type === Hls.ErrorTypes.NETWORK_ERROR && netErrCount < 3) {
-            // CORS / blocked request: response code 0 → fail immediately, don't retry
-            const isCorsBlock = !d.response?.code || d.response.code === 0;
-            if (isCorsBlock) {
+          if (d.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            const httpCode = d.response?.code;
+            const isManifestErr = d.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR
+                               || d.details === Hls.ErrorDetails.MANIFEST_PARSING_ERROR;
+            if (isManifestErr && (httpCode === 404 || httpCode === 410)) {
               hls.destroy();
               if (stallWatchdog) { clearInterval(stallWatchdog); stallWatchdog = null; }
               setStatusMsg(null);
-              onFatal();
+              setError('link-dead');
               return;
             }
-            netErrCount++;
-            const delay = netErrCount * 1500; // 1.5s, 3s, 4.5s
-            setTimeout(() => { if (!cancelled) hls.startLoad(); }, delay);
-            return;
+            if (netErrCount < 3) {
+              const isCorsBlock = !httpCode || httpCode === 0;
+              if (isCorsBlock) {
+                hls.destroy();
+                if (stallWatchdog) { clearInterval(stallWatchdog); stallWatchdog = null; }
+                setStatusMsg(null);
+                onFatal();
+                return;
+              }
+              netErrCount++;
+              const delay = netErrCount * 1500;
+              setTimeout(() => { if (!cancelled) hls.startLoad(); }, delay);
+              return;
+            }
           }
           hls.destroy();
           if (stallWatchdog) { clearInterval(stallWatchdog); stallWatchdog = null; }
@@ -785,7 +796,22 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           setError('unsupported'); return;
         }
         if (lower.includes('.m3u8') || lower.includes('m3u8') || lower.includes('/hls/') || lower.includes('hls.m3u')) {
-          loadViaHls(); return;
+          let tid: ReturnType<typeof setTimeout> | null = null;
+          try {
+            const ctrl = new AbortController();
+            tid = setTimeout(() => ctrl.abort(), 3500);
+            const r = await fetch(`/api/proxy/check?url=${encodeURIComponent(src)}`, { signal: ctrl.signal });
+            if (r.ok) {
+              const data = await r.json();
+              if (data.httpStatus === 404 || data.httpStatus === 410) {
+                if (!cancelled) { setStatusMsg(null); setError('link-dead'); }
+                return;
+              }
+            }
+          } catch { /* timeout / error — proceed to player chain */ }
+          finally { if (tid) clearTimeout(tid); }
+          if (!cancelled) loadViaHls();
+          return;
         }
 
         // Ambiguous URL — ask server to detect type
@@ -859,7 +885,7 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
       }
     }, [playing]);
 
-    // Loading timeout — fires once per src/retryKey; if video never plays within 45 s → show error
+    // Loading timeout — fires once per src/retryKey; if video never plays within 20 s → show error
     useEffect(() => {
       if (!src) return;
       const timer = setTimeout(() => {
@@ -868,7 +894,7 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           if (prev) { setError(e => e ?? 'ip-locked'); return null; }
           return prev;
         });
-      }, 30_000);
+      }, 20_000);
       return () => clearTimeout(timer);
     }, [src, retryKey]);
 
@@ -946,12 +972,14 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
             <div className="text-center space-y-3 px-6">
               <AlertTriangle className="w-12 h-12 text-amber-400 mx-auto" />
               <p className="text-white font-semibold">
-                {error === 'ip-locked'       ? t('videoErrorIpLocked')
+                {error === 'link-dead'       ? t('videoErrorLinkDead')
+                : error === 'ip-locked'      ? t('videoErrorIpLocked')
                 : error === 'proxy-required' ? t('videoErrorProxyRequired')
                 : t('videoError')}
               </p>
               <p className="text-white/50 text-sm max-w-md">
-                {error === 'ip-locked'       ? t('videoErrorIpLockedDesc')
+                {error === 'link-dead'       ? t('videoErrorLinkDeadDesc')
+                : error === 'ip-locked'      ? t('videoErrorIpLockedDesc')
                 : error === 'proxy-required' ? t('videoErrorProxyRequiredDesc')
                 : t('videoErrorDesc')}
               </p>
