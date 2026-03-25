@@ -45,7 +45,7 @@ export default function AuthPage() {
   useEffect(() => {
     if (!loading && user && step !== 'otp') {
       if (!user.email || user.emailVerified !== false) {
-        setLocation('/home');
+        setLocation('/');
       } else {
         setPendingUser(user);
         setStep('otp');
@@ -91,7 +91,7 @@ export default function AuthPage() {
         apiFetch('/auth/send-otp', { method: 'POST' }).catch(() => {});
       } else {
         setUser(userData);
-        setLocation('/home');
+        setLocation('/');
       }
     } catch {
       setErrorKey('authConnectionError');
@@ -135,7 +135,7 @@ export default function AuthPage() {
       const data = await res.json();
       if (!res.ok) { setOtpError(data.error || t('authInvalidCode')); return; }
       setUser({ ...pendingUser, emailVerified: true });
-      setLocation('/home');
+      setLocation('/');
     } catch {
       setOtpError(t('authConnectionError'));
     } finally {

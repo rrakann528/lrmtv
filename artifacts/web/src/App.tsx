@@ -117,7 +117,7 @@ function Router() {
   return (
     <Suspense fallback={<PageLoader />}>
       <Switch>
-        <Route path="/"           component={LandingPage} />
+        <Route path="/"           component={() => <VerifiedRoute component={HomePage} />} />
         <Route path="/home"       component={() => <VerifiedRoute component={HomePage} />} />
         <Route path="/auth"       component={AuthPage} />
         <Route path="/room/:slug" component={() => <VerifiedRoute component={RoomPage} />} />

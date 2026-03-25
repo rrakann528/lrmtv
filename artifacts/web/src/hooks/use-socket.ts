@@ -116,7 +116,7 @@ export function useSocket(slug: string | null) {
     socket.on('room-frozen', () => {
       socket.disconnect();
       alert('هذه الغرفة مجمّدة مؤقتاً من قِبل الإدارة.');
-      window.location.href = '/home';
+      window.location.href = '/';
     });
 
     socket.on('room-state', (state: {

@@ -119,7 +119,9 @@ export default function HomePage() {
   });
 
   useEffect(() => {
-    if (!loading && !user && !isGuest) setLocation('/');
+    if (!loading && !user && !isGuest && window.location.pathname.endsWith('/home')) {
+      setLocation('/');
+    }
   }, [user, loading, isGuest]);
 
   if (loading) {
