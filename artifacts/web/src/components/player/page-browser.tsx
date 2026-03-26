@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Globe, X, Loader2, CheckCircle, Search, RefreshCw, Play, ChevronDown, ChevronUp } from 'lucide-react';
+import {
+  Globe, X, Loader2, CheckCircle, AlertCircle, RefreshCw, Play, Film, Wifi
+} from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 
 interface PageBrowserProps {
@@ -8,234 +10,300 @@ interface PageBrowserProps {
   onClose: () => void;
 }
 
-type Status = 'searching' | 'found' | 'multiple' | 'not-found';
+type Status = 'scanning' | 'found' | 'not-found' | 'error';
 
-function shortenUrl(url: string, max = 60): string {
-  try {
-    const u = new URL(url);
-    const short = u.hostname + u.pathname;
-    return short.length > max ? short.slice(0, max) + '…' : short;
-  } catch {
-    return url.length > max ? url.slice(0, max) + '…' : url;
-  }
+interface Step {
+  id: string;
+  label: string;
+  done: boolean;
+  active: boolean;
+}
+
+function getHostname(url: string): string {
+  try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; }
+}
+
+function getFaviconUrl(url: string): string {
+  try { const u = new URL(url); return `https://www.google.com/s2/favicons?domain=${u.hostname}&sz=32`; }
+  catch { return ''; }
 }
 
 function pickBest(urls: string[]): string {
-  // Prefer HLS (.m3u8) over others
   const hls = urls.find(v => /\.m3u8/i.test(v));
   if (hls) return hls;
-  // Then mp4
   const mp4 = urls.find(v => /\.mp4/i.test(v));
   if (mp4) return mp4;
   return urls[0];
 }
 
+function getVideoType(url: string): string {
+  if (/\.m3u8/i.test(url)) return 'HLS';
+  if (/\.mp4/i.test(url)) return 'MP4';
+  if (/\.webm/i.test(url)) return 'WebM';
+  if (/\.dash|\.mpd/i.test(url)) return 'DASH';
+  return 'Stream';
+}
+
 export default function PageBrowser({ url, onVideoDetected, onClose }: PageBrowserProps) {
   const { t } = useI18n();
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  const [status, setStatus] = useState<Status>('searching');
-  const [detectedUrls, setDetectedUrls] = useState<string[]>([]);
-  const [selectedUrl, setSelectedUrl] = useState<string | null>(null);
-  const [showUrlList, setShowUrlList] = useState(false);
+  const [status, setStatus] = useState<Status>('scanning');
+  const [foundUrl, setFoundUrl] = useState<string | null>(null);
+  const [allUrls, setAllUrls] = useState<string[]>([]);
+  const [elapsed, setElapsed] = useState(0);
+  const [steps, setSteps] = useState<Step[]>([
+    { id: 'open',    label: t('browserStepOpen')    || 'فتح المتصفح',          done: false, active: true  },
+    { id: 'nav',     label: t('browserStepNav')     || 'تحميل الصفحة',         done: false, active: false },
+    { id: 'scan',    label: t('browserStepScan')    || 'البحث عن الفيديو',     done: false, active: false },
+    { id: 'extract', label: t('browserStepExtract') || 'استخراج الرابط',       done: false, active: false },
+  ]);
+
   const detectedRef = useRef(false);
-  const allDetected = useRef<Set<string>>(new Set());
+  const hostname = getHostname(url);
+  const favicon = getFaviconUrl(url);
 
-  const addDetected = useCallback((videoUrl: string) => {
-    if (!videoUrl.startsWith('http')) return;
-    if (allDetected.current.has(videoUrl)) return;
-    allDetected.current.add(videoUrl);
+  // Progress steps animation
+  useEffect(() => {
+    if (status !== 'scanning') return;
+    const timings = [0, 2000, 5000, 10000];
+    const timers = timings.map((delay, i) =>
+      setTimeout(() => {
+        setSteps(prev => prev.map((s, idx) => ({
+          ...s,
+          done: idx < i,
+          active: idx === i,
+        })));
+      }, delay)
+    );
+    return () => timers.forEach(clearTimeout);
+  }, [status]);
 
-    setDetectedUrls(prev => {
-      const next = [...prev, videoUrl];
-      if (!detectedRef.current) {
-        detectedRef.current = true;
-        const best = pickBest(next);
-        setSelectedUrl(best);
-        setStatus(next.length > 1 ? 'multiple' : 'found');
-        // Auto-play best after short delay
-        setTimeout(() => onVideoDetected(best), 1200);
-      } else {
-        setStatus(next.length > 1 ? 'multiple' : 'found');
-      }
-      return next;
-    });
+  // Elapsed timer
+  useEffect(() => {
+    if (status !== 'scanning') return;
+    const t = setInterval(() => setElapsed(s => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [status]);
+
+  const handleFound = useCallback((videos: string[]) => {
+    if (detectedRef.current) return;
+    detectedRef.current = true;
+    const best = pickBest(videos);
+    setFoundUrl(best);
+    setAllUrls(videos);
+    setSteps(prev => prev.map(s => ({ ...s, done: true, active: false })));
+    setStatus('found');
+    // Auto-play after showing success for 1.5 seconds
+    setTimeout(() => {
+      onVideoDetected(best);
+    }, 1500);
   }, [onVideoDetected]);
 
-  // ── Virtual browser extraction (server-side Playwright) ──────────────────────
+  // Server-side Playwright extraction
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
-    const fetchTimeout = setTimeout(() => controller.abort(), 55000);
 
-    fetch(`/api/proxy/extract?url=${encodeURIComponent(url)}`, { signal: controller.signal })
-      .then(r => r.ok ? r.json() : null)
+    fetch(`/api/proxy/extract?url=${encodeURIComponent(url)}`, {
+      signal: controller.signal,
+    })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
       .then(data => {
-        clearTimeout(fetchTimeout);
         if (cancelled) return;
         if (data?.videos?.length > 0) {
-          (data.videos as string[]).forEach(v => addDetected(v));
-        } else if (!detectedRef.current) {
-          setStatus('not-found');
+          handleFound(data.videos as string[]);
+        } else {
+          if (!detectedRef.current) setStatus('not-found');
         }
       })
-      .catch(() => {
-        clearTimeout(fetchTimeout);
-        if (!cancelled && !detectedRef.current) setStatus('not-found');
+      .catch(err => {
+        if (cancelled) return;
+        if (!detectedRef.current) {
+          setStatus(err === 429 ? 'error' : 'not-found');
+        }
       });
 
     return () => { cancelled = true; controller.abort(); };
-  }, [url, addDetected]);
-
-  // ── Interactive iframe detection (postMessage from bridge script) ─────────────
-  const handleMessage = useCallback((e: MessageEvent) => {
-    if (e.data?.type === 'lrmtv-video-detected' && e.data.url) {
-      addDetected(String(e.data.url));
-    }
-  }, [addDetected]);
-
-  useEffect(() => {
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [handleMessage]);
-
-  const proxyUrl = `/api/proxy/page?url=${encodeURIComponent(url)}`;
-
-  const handleManualPlay = (videoUrl: string) => {
-    setSelectedUrl(videoUrl);
-    onVideoDetected(videoUrl);
-  };
+  }, [url, handleFound]);
 
   const handleRetry = () => {
-    setStatus('searching');
-    setDetectedUrls([]);
     detectedRef.current = false;
-    allDetected.current = new Set();
-    setSelectedUrl(null);
-    // Reload the iframe
-    if (iframeRef.current) {
-      iframeRef.current.src = proxyUrl;
-    }
+    setStatus('scanning');
+    setFoundUrl(null);
+    setAllUrls([]);
+    setElapsed(0);
+    setSteps(prev => prev.map((s, i) => ({ ...s, done: false, active: i === 0 })));
+    // Re-trigger effect by forcing re-mount isn't possible directly,
+    // so we use a key change approach — parent should handle this.
+    // For now, just re-fetch manually:
+    fetch(`/api/proxy/extract?url=${encodeURIComponent(url)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.videos?.length > 0) handleFound(data.videos);
+        else setStatus('not-found');
+      })
+      .catch(() => setStatus('not-found'));
   };
 
   return (
-    <div className="absolute inset-0 z-40 flex flex-col bg-black">
-      {/* ── Header bar ─────────────────────────────────────────────────────────── */}
-      <div className="shrink-0 flex flex-col bg-gray-900/98 border-b border-white/10">
-        {/* Top row */}
-        <div className="flex items-center justify-between px-3 py-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <Globe className="w-4 h-4 text-primary shrink-0" />
-            <span className="text-xs text-white/60 truncate max-w-[180px] md:max-w-[420px]">{url}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            {/* Status indicator */}
-            {status === 'searching' && (
-              <div className="flex items-center gap-1.5">
-                <Search className="w-3.5 h-3.5 text-purple-400 animate-pulse" />
-                <Loader2 className="w-3.5 h-3.5 text-purple-400 animate-spin" />
-                <span className="text-[11px] text-purple-400 hidden sm:block">
-                  {t('pageBrowserVirtualBrowser') || 'جارٍ البحث عن الفيديو...'}
-                </span>
-              </div>
-            )}
-            {(status === 'found' || status === 'multiple') && selectedUrl && (
-              <div className="flex items-center gap-1.5">
-                <CheckCircle className="w-3.5 h-3.5 text-green-400" />
-                <span className="text-[11px] text-green-400">
-                  {status === 'multiple'
-                    ? `${detectedUrls.length} ${t('pageBrowserMultiple') || 'روابط'}`
-                    : (t('pageBrowserFound') || 'تم الكشف')
-                  }
-                </span>
-              </div>
-            )}
-            {status === 'not-found' && (
-              <div className="flex items-center gap-1.5">
-                <span className="text-[11px] text-orange-400">{t('pageBrowserNotFound') || 'لم يُكتشف — تفاعل مع الصفحة'}</span>
-                <button
-                  onClick={handleRetry}
-                  className="p-1 rounded hover:bg-white/10 transition-colors"
-                  title="إعادة المحاولة"
-                >
-                  <RefreshCw className="w-3.5 h-3.5 text-white/50" />
-                </button>
-              </div>
-            )}
-            {/* Multiple URLs toggle */}
-            {status === 'multiple' && (
-              <button
-                onClick={() => setShowUrlList(v => !v)}
-                className="flex items-center gap-1 px-2 py-0.5 rounded bg-white/10 hover:bg-white/15 text-xs text-white/70 transition-colors"
-              >
-                {showUrlList ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                {t('pageBrowserChoose') || 'اختر'}
-              </button>
-            )}
-            <button onClick={onClose} className="p-1 rounded hover:bg-white/10 transition-colors">
-              <X className="w-4 h-4 text-white/60" />
-            </button>
+    <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-black/95 backdrop-blur-sm">
+
+      {/* Close button */}
+      <button
+        onClick={onClose}
+        className="absolute top-3 right-3 p-2 rounded-lg hover:bg-white/10 transition-colors text-white/50 hover:text-white"
+      >
+        <X className="w-5 h-5" />
+      </button>
+
+      {/* ── Main card ─────────────────────────────────────────────────────────── */}
+      <div className="w-full max-w-sm mx-4 space-y-5">
+
+        {/* Site info */}
+        <div className="flex items-center gap-3 justify-center">
+          {favicon && (
+            <img
+              src={favicon}
+              alt=""
+              className="w-8 h-8 rounded-md"
+              onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+            />
+          )}
+          <div>
+            <p className="text-white font-semibold text-sm">{hostname}</p>
+            <p className="text-white/40 text-xs truncate max-w-[220px]">{url}</p>
           </div>
         </div>
 
-        {/* URL list panel (expandable) */}
-        {showUrlList && detectedUrls.length > 0 && (
-          <div className="px-3 pb-2 space-y-1 max-h-40 overflow-y-auto border-t border-white/10 pt-2">
-            {detectedUrls.map((v, i) => (
+        {/* ── Scanning state ─────────────────────────────────────────────────── */}
+        {status === 'scanning' && (
+          <div className="space-y-4">
+            {/* Animated browser icon */}
+            <div className="flex justify-center">
+              <div className="relative">
+                <div className="w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center">
+                  <Globe className="w-7 h-7 text-primary" />
+                </div>
+                <div className="absolute -top-1 -right-1 w-5 h-5 bg-purple-500 rounded-full flex items-center justify-center">
+                  <Loader2 className="w-3 h-3 text-white animate-spin" />
+                </div>
+              </div>
+            </div>
+
+            {/* Steps */}
+            <div className="space-y-2">
+              {steps.map(step => (
+                <div key={step.id} className="flex items-center gap-3">
+                  <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 transition-all duration-500 ${
+                    step.done
+                      ? 'bg-green-500'
+                      : step.active
+                        ? 'bg-primary animate-pulse'
+                        : 'bg-white/10'
+                  }`}>
+                    {step.done
+                      ? <CheckCircle className="w-3 h-3 text-white" />
+                      : step.active
+                        ? <Loader2 className="w-3 h-3 text-white animate-spin" />
+                        : <div className="w-1.5 h-1.5 rounded-full bg-white/30" />
+                    }
+                  </div>
+                  <span className={`text-sm transition-colors duration-300 ${
+                    step.done ? 'text-green-400' : step.active ? 'text-white' : 'text-white/30'
+                  }`}>
+                    {step.label}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* Elapsed */}
+            <p className="text-center text-white/30 text-xs">
+              {elapsed}s — {t('browserMaxTime') || 'قد يستغرق حتى 30 ثانية'}
+            </p>
+          </div>
+        )}
+
+        {/* ── Found state ────────────────────────────────────────────────────── */}
+        {status === 'found' && foundUrl && (
+          <div className="space-y-4 text-center">
+            <div className="flex justify-center">
+              <div className="w-16 h-16 rounded-2xl bg-green-500/10 border border-green-500/30 flex items-center justify-center">
+                <CheckCircle className="w-8 h-8 text-green-400" />
+              </div>
+            </div>
+            <div>
+              <p className="text-white font-semibold text-base">
+                {t('browserFound') || 'تم كشف الفيديو!'}
+              </p>
+              <p className="text-white/40 text-xs mt-1">
+                {t('browserAutoPlay') || 'جارٍ التشغيل في الغرفة...'}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 bg-green-500/10 border border-green-500/20 rounded-lg px-3 py-2">
+              <Film className="w-4 h-4 text-green-400 shrink-0" />
+              <span className="text-green-300 text-xs truncate flex-1">{foundUrl.slice(0, 60)}…</span>
+              <span className="text-[10px] bg-green-500/20 text-green-300 px-1.5 py-0.5 rounded shrink-0">
+                {getVideoType(foundUrl)}
+              </span>
+            </div>
+            {allUrls.length > 1 && (
+              <p className="text-white/30 text-xs">
+                {allUrls.length} {t('browserLinksFound') || 'روابط وجدت — أفضل واحد يُشغَّل تلقائياً'}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* ── Not found state ────────────────────────────────────────────────── */}
+        {status === 'not-found' && (
+          <div className="space-y-4 text-center">
+            <div className="flex justify-center">
+              <div className="w-16 h-16 rounded-2xl bg-orange-500/10 border border-orange-500/20 flex items-center justify-center">
+                <Wifi className="w-7 h-7 text-orange-400" />
+              </div>
+            </div>
+            <div>
+              <p className="text-white font-semibold">
+                {t('browserNotFound') || 'لم يُكتشف رابط مباشر'}
+              </p>
+              <p className="text-white/40 text-sm mt-1">
+                {t('browserNotFoundHint') || 'الموقع محمي أو يحتاج تفاعل يدوي'}
+              </p>
+            </div>
+            <div className="flex gap-2 justify-center">
               <button
-                key={i}
-                onClick={() => handleManualPlay(v)}
-                className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs transition-colors ${
-                  selectedUrl === v
-                    ? 'bg-primary/20 text-primary border border-primary/30'
-                    : 'bg-white/5 hover:bg-white/10 text-white/70'
-                }`}
+                onClick={handleRetry}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-white text-sm transition-colors"
               >
-                <Play className="w-3 h-3 shrink-0" />
-                <span className="truncate">{shortenUrl(v)}</span>
-                {/\.m3u8/i.test(v) && (
-                  <span className="shrink-0 text-[10px] bg-blue-500/30 text-blue-300 px-1 rounded">HLS</span>
-                )}
-                {/\.mp4/i.test(v) && (
-                  <span className="shrink-0 text-[10px] bg-green-500/30 text-green-300 px-1 rounded">MP4</span>
-                )}
+                <RefreshCw className="w-4 h-4" />
+                {t('browserRetry') || 'إعادة المحاولة'}
               </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* ── Page iframe ─────────────────────────────────────────────────────────── */}
-      <div className="flex-grow relative overflow-hidden">
-        <iframe
-          ref={iframeRef}
-          src={proxyUrl}
-          referrerPolicy="no-referrer"
-          className="w-full h-full border-0"
-          style={{ background: '#000' }}
-          allow="autoplay; fullscreen; encrypted-media"
-        />
-
-        {/* Found overlay — auto-dismisses */}
-        {(status === 'found' || status === 'multiple') && selectedUrl && (
-          <div className="absolute top-3 left-1/2 -translate-x-1/2 pointer-events-none animate-in fade-in slide-in-from-top-2 duration-300">
-            <div className="flex items-center gap-2 bg-black/80 backdrop-blur-sm border border-green-500/30 rounded-lg px-3 py-2">
-              <CheckCircle className="w-4 h-4 text-green-400 shrink-0" />
-              <span className="text-xs text-green-300 max-w-[200px] truncate">
-                {shortenUrl(selectedUrl, 40)}
-              </span>
+              <button
+                onClick={onClose}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 text-sm transition-colors"
+              >
+                {t('browserCancel') || 'إلغاء'}
+              </button>
             </div>
           </div>
         )}
 
-        {/* Searching overlay — subtle, doesn't block interaction */}
-        {status === 'searching' && (
-          <div className="absolute top-3 right-3 pointer-events-none">
-            <div className="flex items-center gap-2 bg-black/70 backdrop-blur-sm border border-purple-500/20 rounded-lg px-2.5 py-1.5">
-              <Loader2 className="w-3.5 h-3.5 text-purple-400 animate-spin" />
-              <span className="text-[11px] text-purple-300">
-                {t('pageBrowserVirtualBrowser') || 'يبحث...'}
-              </span>
+        {/* ── Error state ─────────────────────────────────────────────────────── */}
+        {status === 'error' && (
+          <div className="space-y-4 text-center">
+            <div className="flex justify-center">
+              <div className="w-16 h-16 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center">
+                <AlertCircle className="w-7 h-7 text-red-400" />
+              </div>
             </div>
+            <p className="text-white font-semibold">{t('browserError') || 'حدث خطأ'}</p>
+            <button
+              onClick={handleRetry}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-white text-sm transition-colors mx-auto"
+            >
+              <RefreshCw className="w-4 h-4" />
+              {t('browserRetry') || 'إعادة المحاولة'}
+            </button>
           </div>
         )}
       </div>
