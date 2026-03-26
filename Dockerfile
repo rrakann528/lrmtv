@@ -11,8 +11,9 @@ RUN pnpm install --no-frozen-lockfile
 RUN BASE_PATH=/ pnpm --filter @workspace/web build
 RUN pnpm --filter @workspace/api-server build
 RUN chmod +x /app/start.sh
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
-RUN chown -R appuser:appgroup /app
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup && \
+    mkdir -p /tmp/chromium-user-data && \
+    chown -R appuser:appgroup /app /tmp/chromium-user-data
 USER appuser
 EXPOSE 3000
 CMD ["/bin/sh", "/app/start.sh"]

@@ -1,6 +1,7 @@
 import { chromium as playwrightChromium, type Browser, type BrowserContext } from 'playwright-core';
 import { URL } from 'url';
 import * as net from 'net';
+import * as fs from 'fs';
 
 const VIDEO_RE = /\.(?:m3u8|mp4|webm|mkv)(?:\?|$)/i;
 const VIDEO_URL_IN_TEXT = /(?:https?:)?\/\/[^\s"'<>)\]]+\.(?:m3u8|mp4|webm)(?:\?[^\s"'<>)\]]*)*/gi;
@@ -10,9 +11,27 @@ let lastUsed = 0;
 let idleTimer: ReturnType<typeof setTimeout> | null = null;
 let activeExtractions = 0;
 const MAX_CONCURRENT = 3;
-
-const CHROMIUM_PATH = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium-browser';
 const IDLE_TIMEOUT = 60_000;
+
+const CHROMIUM_CANDIDATES = [
+  process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+  '/usr/bin/chromium-browser',
+  '/usr/bin/chromium',
+  '/usr/bin/google-chrome',
+  '/usr/bin/google-chrome-stable',
+  '/snap/bin/chromium',
+].filter(Boolean) as string[];
+
+function findChromium(): string {
+  for (const p of CHROMIUM_CANDIDATES) {
+    try {
+      fs.accessSync(p, fs.constants.X_OK);
+      console.log(`[browser-extract] Found Chromium at: ${p}`);
+      return p;
+    } catch {}
+  }
+  throw new Error(`Chromium not found. Tried: ${CHROMIUM_CANDIDATES.join(', ')}`);
+}
 
 const PRIVATE_RANGES = [
   /^127\./, /^10\./, /^172\.(1[6-9]|2\d|3[01])\./, /^192\.168\./,
@@ -43,14 +62,18 @@ async function getBrowser(): Promise<Browser> {
     return browser;
   }
 
+  const executablePath = findChromium();
+  console.log(`[browser-extract] Launching Chromium: ${executablePath}`);
+
   browser = await playwrightChromium.launch({
-    executablePath: CHROMIUM_PATH,
+    executablePath,
     headless: true,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-gpu',
+      '--disable-software-rasterizer',
       '--disable-extensions',
       '--disable-background-networking',
       '--disable-default-apps',
@@ -58,11 +81,14 @@ async function getBrowser(): Promise<Browser> {
       '--disable-translate',
       '--no-first-run',
       '--no-zygote',
-      '--single-process',
       '--mute-audio',
       '--disable-blink-features=AutomationControlled',
       '--disable-infobars',
       '--window-size=1280,720',
+      '--user-data-dir=/tmp/chromium-user-data',
+      '--disable-crash-reporter',
+      '--disable-logging',
+      '--log-level=3',
     ],
   });
 
