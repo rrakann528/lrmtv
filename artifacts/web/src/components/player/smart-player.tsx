@@ -20,7 +20,7 @@ import FullscreenChat from './fullscreen-chat';
 import SubtitleSearch from './subtitle-search';
 import { generateColorFromString, cn } from '@/lib/utils';
 import type { ToastMessage } from './player-controls';
-import { fetchSponsorSegments, findActiveSegment, isYouTubeUrl, type SponsorSegment } from '@/lib/sponsorblock';
+import { fetchSponsorSegments, findActiveSegment, isYouTubeUrl, type SponsorSegment, AD_CATEGORIES, INTRO_CATEGORIES } from '@/lib/sponsorblock';
 import { getSettings } from '@/lib/settings';
 
 interface SubtitleCue { start: number; end: number; text: string }
@@ -540,13 +540,20 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
           onPause={onPause}
           onProgress={({ playedSeconds }) => {
             setRpCurrentTime(playedSeconds);
-            if (sponsorSkipEnabled && sponsorSegments.length > 0 && isYouTubeUrl(normalizedUrl)) {
-              const seg = findActiveSegment(sponsorSegments, playedSeconds);
-              if (seg && lastSkippedRef.current !== seg.UUID) {
-                lastSkippedRef.current = seg.UUID;
-                reactPlayerRef.current?.seekTo(seg.segment[1], 'seconds');
-                setSponsorSkipNotice(true);
-                setTimeout(() => setSponsorSkipNotice(false), 3000);
+            if (sponsorSegments.length > 0 && isYouTubeUrl(normalizedUrl)) {
+              const s = getSettings();
+              const allowedCategories = [
+                ...(sponsorSkipEnabled ? AD_CATEGORIES : []),
+                ...(s.sponsorBlock ? INTRO_CATEGORIES : []),
+              ] as string[];
+              if (allowedCategories.length > 0) {
+                const seg = findActiveSegment(sponsorSegments, playedSeconds, allowedCategories);
+                if (seg && lastSkippedRef.current !== seg.UUID) {
+                  lastSkippedRef.current = seg.UUID;
+                  reactPlayerRef.current?.seekTo(seg.segment[1], 'seconds');
+                  setSponsorSkipNotice(true);
+                  setTimeout(() => setSponsorSkipNotice(false), 3000);
+                }
               }
             }
           }}
