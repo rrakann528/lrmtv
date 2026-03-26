@@ -118,12 +118,26 @@ S1 HLS.js direct
 
 ميزة تسمح بلصق رابط صفحة فيلم (مثل faselhdx) واستخراج رابط الفيديو المباشر تلقائياً:
 
-- **Backend proxy**: `/api/proxy/page?url=...` — يجلب HTML ويشيل X-Frame-Options/CSP ويحقن bridge script
-- **Bridge script**: يراقب `<video>` elements + hooks على `fetch`/`XHR`/`src setter` للكشف عن `.m3u8`/`.mp4`
-- **Frontend**: `PageBrowser` component يعرض iframe مؤقت، ولما يكتشف فيديو يرسل `postMessage` للأب
-- **التدفق**: رابط صفحة → page browser → كشف فيديو → إضافة للبلايلست → تشغيل عادي مع تزامن
-- **الأمان**: SSRF protection (حظر IPs خاصة)، postMessage source validation، sandbox بدون allow-same-origin
-- **الملفات**: `page-proxy.ts`, `page-browser.tsx`, `room.tsx`
+### Virtual Browser (المرحلة الأولى — Playwright)
+- **Headless Chromium** يُشغّل على السيرفر ويفتح الصفحة كمتصفح حقيقي
+- يعترض كل الطلبات الشبكية (requests/responses) ويبحث عن `.m3u8`/`.mp4`
+- يفحص ردود JSON/text عن روابط فيديو مضمّنة
+- يحاول الضغط على أزرار التشغيل لتفعيل المحتوى الديناميكي
+- يفحص `<video>` elements + iframes المتداخلة
+- **المتصفح يبقى خامل 60 ثانية** ثم ينطفي تلقائياً (توفير موارد)
+- **حد 3 استخراجات متزامنة** + rate limit: 5 طلبات/دقيقة/IP
+- **حماية SSRF**: يحظر كل الطلبات لعناوين خاصة/محلية عبر `context.route()`
+- **Dockerfile**: Chromium مثبت على Alpine + التطبيق يشتغل كـ non-root user
+
+### Fallback: Static HTML Extraction (المرحلة الثانية)
+- إذا فشل المتصفح، يجلب HTML ثابت ويبحث عن روابط فيديو بـ regex
+- يتبع iframes 3 مستويات
+
+### Fallback: Interactive iframe (المرحلة الثالثة)
+- إذا فشل كل شي، يعرض الصفحة في iframe مع bridge script
+- Bridge script يراقب `<video>` elements + hooks على `fetch`/`XHR`/`src setter`
+
+- **الملفات**: `browser-extract.ts`, `page-proxy.ts`, `page-browser.tsx`, `room.tsx`
 
 - **HTTP على HTTPS**: يتخطى مباشرة إلى S5 (mixed content)
 - **iOS Safari بدون MSE بعد فشل S2**: يذهب لـ S5

@@ -39,7 +39,8 @@ export default function PageBrowser({ url, onVideoDetected, onClose }: PageBrows
         if (cancelled || detectedRef.current) return;
 
         if (data.videos && data.videos.length > 0) {
-          handleDetected(data.videos[0]);
+          const best = data.videos.find((v: string) => /\.m3u8/i.test(v)) || data.videos[0];
+          handleDetected(best);
           return;
         }
       } catch {}

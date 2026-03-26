@@ -57,6 +57,14 @@ export const generalLimiter = rateLimit({
     req.path.startsWith("/proxy/"), // HLS segments/manifests are high-frequency — skip rate limit
 });
 
+export const extractLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "طلبات استخراج كثيرة جداً، انتظر دقيقة" },
+});
+
 // ── Strict Auth Rate Limit (login / register) ─────────────────────────────────
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

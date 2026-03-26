@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { URL } from 'url';
+import { extractVideoUrls as browserExtract } from '../lib/browser-extract.js';
+import { extractLimiter } from '../middlewares/security.js';
 
 const router = Router();
 
@@ -103,7 +105,7 @@ function extractEmbedUrls(html: string, baseUrl: string): string[] {
 
 router.options('/proxy/extract', (_req, res) => { res.set(CORS_HEADERS).sendStatus(204); });
 
-router.get('/proxy/extract', async (req, res) => {
+router.get('/proxy/extract', extractLimiter, async (req, res) => {
   res.set(CORS_HEADERS);
   const rawUrl = req.query.url as string | undefined;
   if (!rawUrl) { res.status(400).json({ error: 'Missing url param' }); return; }
@@ -121,49 +123,45 @@ router.get('/proxy/extract', async (req, res) => {
   }
 
   try {
+    let method = 'none';
     const allVideos: string[] = [];
-    const visited = new Set<string>();
 
-    const page1 = await fetchPage(targetUrl);
-    if (!page1) {
-      res.json({ videos: [], embeds: [] }); return;
+    try {
+      const browserVideos = await browserExtract(targetUrl, 30000);
+      if (browserVideos.length > 0) {
+        allVideos.push(...browserVideos);
+        method = 'browser';
+      }
+    } catch (browserErr) {
+      console.error('[extract] browser extraction failed:', browserErr);
     }
 
-    visited.add(targetUrl);
-    const directVideos = extractVideoUrls(page1.html);
-    const embedVideos = extractEmbedUrls(page1.html, page1.finalUrl);
-    allVideos.push(...directVideos, ...embedVideos);
+    if (allVideos.length === 0) {
+      const visited = new Set<string>();
+      const page1 = await fetchPage(targetUrl);
+      if (page1) {
+        visited.add(targetUrl);
+        allVideos.push(...extractVideoUrls(page1.html));
+        allVideos.push(...extractEmbedUrls(page1.html, page1.finalUrl));
 
-    const iframeSrcs = extractIframeSrcs(page1.html, page1.finalUrl);
-
-    const fetchPromises = iframeSrcs
-      .filter(src => !visited.has(src) && !isPrivateUrl(src))
-      .slice(0, 5)
-      .map(async (src) => {
-        visited.add(src);
-        const page2 = await fetchPage(src);
-        if (!page2) return;
-        allVideos.push(...extractVideoUrls(page2.html));
-        allVideos.push(...extractEmbedUrls(page2.html, page2.finalUrl));
-
-        const innerIframes = extractIframeSrcs(page2.html, page2.finalUrl);
-        const innerPromises = innerIframes
-          .filter(s => !visited.has(s) && !isPrivateUrl(s))
-          .slice(0, 3)
-          .map(async (innerSrc) => {
-            visited.add(innerSrc);
-            const page3 = await fetchPage(innerSrc);
-            if (!page3) return;
-            allVideos.push(...extractVideoUrls(page3.html));
-            allVideos.push(...extractEmbedUrls(page3.html, page3.finalUrl));
+        const iframeSrcs = extractIframeSrcs(page1.html, page1.finalUrl);
+        const fetchPromises = iframeSrcs
+          .filter(src => !visited.has(src) && !isPrivateUrl(src))
+          .slice(0, 5)
+          .map(async (src) => {
+            visited.add(src);
+            const page2 = await fetchPage(src);
+            if (!page2) return;
+            allVideos.push(...extractVideoUrls(page2.html));
+            allVideos.push(...extractEmbedUrls(page2.html, page2.finalUrl));
           });
-        await Promise.allSettled(innerPromises);
-      });
-
-    await Promise.allSettled(fetchPromises);
+        await Promise.allSettled(fetchPromises);
+        if (allVideos.length > 0) method = 'static';
+      }
+    }
 
     const uniqueVideos = [...new Set(allVideos)];
-    res.json({ videos: uniqueVideos, embeds: iframeSrcs });
+    res.json({ videos: uniqueVideos, method });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
