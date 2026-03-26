@@ -177,12 +177,23 @@ export async function startBrowserSession(
           }
           if (!isPlaying) return;
 
-          // Pick the most recently seen URL — it's the one the video just fetched
+          // Priority: manifest (.m3u8) > direct video (.mp4/.webm) > segment (.ts)
+          // We never want to emit a .ts segment — pick the best manifest URL first
+          const rank = (u: string) => {
+            if (/\.m3u8/i.test(u) || STREAM_HINT_RE.test(u)) return 3;
+            if (/\.(mp4|webm|mkv|avi)/i.test(u)) return 2;
+            return 1; // .ts segment — lowest priority
+          };
           let bestUrl = '';
           let bestTs = 0;
+          let bestRank = 0;
           for (const [u, ts] of videoTimestamps) {
-            if (ts > bestTs) { bestTs = ts; bestUrl = u; }
+            const r = rank(u);
+            if (r > bestRank || (r === bestRank && ts > bestTs)) {
+              bestRank = r; bestTs = ts; bestUrl = u;
+            }
           }
+          console.log(`[browser-session:${slug}] Candidates: ${videoTimestamps.size}, best (rank ${bestRank}): ${bestUrl.substring(0, 120)}`);
 
           // If no URL was collected via routing, try extracting from the playing video element
           if (!bestUrl) {
