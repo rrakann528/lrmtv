@@ -164,12 +164,18 @@ export async function startBrowserSession(
         const s = sessions.get(slug);
         if (!s || videoEmitted) { clearInterval(playPollTimer!); playPollTimer = null; return; }
         try {
-          // Check if any video element on the page is actually playing
-          const isPlaying = await page.evaluate(() => {
-            const vids = Array.from(document.querySelectorAll('video'));
-            return vids.some(v => !v.paused && !v.ended && v.currentTime > 0.5 && v.readyState >= 2);
-          });
-          if (!isPlaying || videoTimestamps.size === 0) return;
+          // Check ALL frames (including cross-origin iframes — common on Arabic streaming sites)
+          let isPlaying = false;
+          for (const frame of page.frames()) {
+            try {
+              const playing = await frame.evaluate(() => {
+                const vids = Array.from(document.querySelectorAll('video'));
+                return vids.some((v: any) => !v.paused && !v.ended && v.currentTime > 0.1 && v.readyState >= 2);
+              });
+              if (playing) { isPlaying = true; break; }
+            } catch { /* cross-origin frame might throw — ignore */ }
+          }
+          if (!isPlaying) return;
 
           // Pick the most recently seen URL — it's the one the video just fetched
           let bestUrl = '';
@@ -177,7 +183,25 @@ export async function startBrowserSession(
           for (const [u, ts] of videoTimestamps) {
             if (ts > bestTs) { bestTs = ts; bestUrl = u; }
           }
-          if (!bestUrl) return;
+
+          // If no URL was collected via routing, try extracting from the playing video element
+          if (!bestUrl) {
+            for (const frame of page.frames()) {
+              try {
+                const src = await frame.evaluate(() => {
+                  const vids = Array.from(document.querySelectorAll('video'));
+                  const playing = vids.find((v: any) => !v.paused && !v.ended && v.currentTime > 0.1);
+                  return (playing as any)?.currentSrc || (playing as any)?.src || '';
+                });
+                if (src && !src.startsWith('blob:')) { bestUrl = src; break; }
+              } catch {}
+            }
+          }
+
+          if (!bestUrl) {
+            console.log(`[browser-session:${slug}] Video is playing but no URL detected yet — collected: ${videoTimestamps.size}`);
+            return;
+          }
 
           videoEmitted = true;
           clearInterval(playPollTimer!);
@@ -258,6 +282,9 @@ export async function startBrowserSession(
       io.to(sessions.get(slug)?.djSocketId ?? djSocketId).emit('browser:state', {
         url: page.url(), title, loading: false,
       });
+      // Start polling for video playback on every page load — even if no URL
+      // was intercepted yet (video URL might only appear after user presses play)
+      startPlayPoll();
     });
 
     const idleTimer = setTimeout(() => stopBrowserSession(slug), IDLE_TIMEOUT_MS);
