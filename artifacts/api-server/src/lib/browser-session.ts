@@ -327,6 +327,36 @@ export async function stopBrowserSession(slug: string): Promise<void> {
   console.log(`[browser-session:${slug}] Session stopped`);
 }
 
+// ── Session-aware proxy ──────────────────────────────────────────────────────
+// Fetches a CDN URL through the Playwright browser context that already has
+// the correct cookies, authentication, and browser fingerprint for that CDN.
+// This bypasses all IP/cookie/fingerprint validation that a raw fetch() fails.
+export async function proxyViaSession(
+  slug: string,
+  url: string,
+): Promise<{ data: Buffer; status: number; contentType: string } | null> {
+  const session = sessions.get(slug);
+  if (!session) return null;
+  try {
+    const resp = await session.context.request.get(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+        'Accept': '*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+      timeout: 15000,
+      ignoreHTTPSErrors: true,
+    });
+    const data = await resp.body();
+    const contentType = resp.headers()['content-type'] || 'application/octet-stream';
+    console.log(`[proxy-via-session:${slug}] ${resp.status()} ${url.substring(0, 80)}`);
+    return { data, status: resp.status(), contentType };
+  } catch (e: any) {
+    console.error(`[proxy-via-session:${slug}] Error: ${e.message}`);
+    return null;
+  }
+}
+
 export async function sendBrowserInput(
   slug: string,
   event: {

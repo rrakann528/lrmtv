@@ -194,7 +194,9 @@ export default function RoomPage() {
     // URLs extracted by the server-side browser (Playwright) are IP-bound to the server.
     // Always route them through our server-side proxy so every viewer fetches bytes
     // from the same server IP that obtained the CDN token — prevents 403 "IP locked".
-    const proxiedUrl = `/api/proxy/stream?url=${encodeURIComponent(videoUrl)}&ref=${encodeURIComponent(videoUrl)}`;
+    // Include the room slug so the proxy can use the active Playwright session
+    // (same cookie jar + browser fingerprint) instead of a plain fetch()
+    const proxiedUrl = `/api/proxy/stream?url=${encodeURIComponent(videoUrl)}&ref=${encodeURIComponent(videoUrl)}&slug=${encodeURIComponent(slug)}`;
 
     // Determine sourceType from the *original* URL (not the proxy URL)
     const lowerOrig = videoUrl.toLowerCase();

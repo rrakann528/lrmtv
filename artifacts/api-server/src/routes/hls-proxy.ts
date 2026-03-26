@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getVideoHeaders } from '../lib/browser-session';
+import { getVideoHeaders, proxyViaSession } from '../lib/browser-session';
 
 const router = Router();
 
@@ -175,11 +175,13 @@ function resolveAbsolute(base: string, href: string): string {
   try { return new URL(href, base).href; } catch { return href; }
 }
 
-function proxyUrl(segUrl: string, referer: string, selfBase: string): string {
-  return `${selfBase}?url=${encodeURIComponent(segUrl)}&ref=${encodeURIComponent(referer)}`;
+function proxyUrl(segUrl: string, referer: string, selfBase: string, slug?: string): string {
+  let u = `${selfBase}?url=${encodeURIComponent(segUrl)}&ref=${encodeURIComponent(referer)}`;
+  if (slug) u += `&slug=${encodeURIComponent(slug)}`;
+  return u;
 }
 
-function rewriteM3u8(content: string, manifestUrl: string, referer: string, selfBase: string): string {
+function rewriteM3u8(content: string, manifestUrl: string, referer: string, selfBase: string, slug?: string): string {
   return content.split('\n').map(line => {
     const trimmed = line.trim();
     if (!trimmed) return line;
@@ -188,14 +190,14 @@ function rewriteM3u8(content: string, manifestUrl: string, referer: string, self
     if (trimmed.startsWith('#') && trimmed.includes('URI="')) {
       return line.replace(/URI="([^"]+)"/g, (_match, uri) => {
         const abs = resolveAbsolute(manifestUrl, uri);
-        return `URI="${proxyUrl(abs, referer, selfBase)}"`;
+        return `URI="${proxyUrl(abs, referer, selfBase, slug)}"`;
       });
     }
 
     // Non-comment, non-empty lines are segment or sub-playlist URLs
     if (!trimmed.startsWith('#')) {
       const abs = resolveAbsolute(manifestUrl, trimmed);
-      return proxyUrl(abs, referer, selfBase);
+      return proxyUrl(abs, referer, selfBase, slug);
     }
 
     return line;
@@ -224,15 +226,41 @@ router.get('/proxy/stream', async (req, res) => {
   } catch { res.status(400).send('Invalid url'); return; }
 
   const referer = req.query.ref ? decodeURIComponent(req.query.ref as string) : '';
+  const slug = req.query.slug as string | undefined;
 
   // Self-base so rewritten URLs point back to this endpoint.
   // Use root-relative path so HLS.js resolves segments via the frontend origin
   // (which proxies /api/ → API server) — works in both dev and production.
   const selfBase = '/api/proxy/stream';
 
+  // ── Session-aware fetch (preferred path) ────────────────────────────────
+  // When the request originated from a browser-session room, route the CDN
+  // fetch through the active Playwright context. This uses the EXACT same
+  // cookie jar + browser fingerprint that the CDN authenticated initially,
+  // bypassing all IP/cookie/token validation that a plain fetch() fails.
+  if (slug) {
+    try {
+      const result = await proxyViaSession(slug, targetUrl);
+      if (result && result.status < 500) {
+        if (result.status >= 400) {
+          res.status(result.status).send(`Upstream: ${result.status}`); return;
+        }
+        const ct = result.contentType.toLowerCase();
+        const isManifest = ct.includes('mpegurl') || ct.includes('x-mpegurl') || targetUrl.toLowerCase().includes('.m3u8');
+        if (isManifest) {
+          const text = result.data.toString('utf8');
+          const rewritten = rewriteM3u8(text, targetUrl, referer || targetUrl, selfBase, slug);
+          res.status(200).set('Content-Type', 'application/vnd.apple.mpegurl').set('Cache-Control', 'no-cache').send(rewritten);
+        } else {
+          res.status(result.status).set('Content-Type', result.contentType).send(result.data);
+        }
+        return;
+      }
+    } catch { /* fall through to regular fetch */ }
+  }
+
+  // ── Fallback: regular fetch with stored Playwright headers ───────────────
   try {
-    // Look up headers that Playwright captured when it first fetched this URL.
-    // These include Cookie, Referer, Origin — critical for IP/token-bound CDN streams.
     const stored = getVideoHeaders(targetUrl);
 
     const headers: Record<string, string> = {
@@ -265,14 +293,13 @@ router.get('/proxy/stream', async (req, res) => {
 
     if (isManifest) {
       const text = await upstream.text();
-      const rewritten = rewriteM3u8(text, targetUrl, referer || targetUrl, selfBase);
+      const rewritten = rewriteM3u8(text, targetUrl, referer || targetUrl, selfBase, slug);
       res
         .status(200)
         .set('Content-Type', 'application/vnd.apple.mpegurl')
         .set('Cache-Control', 'no-cache')
         .send(rewritten);
     } else {
-      // Segment / binary — stream directly
       const forwardCt = ct || 'video/mp2t';
       res.status(upstream.status).set('Content-Type', forwardCt);
 
@@ -282,7 +309,6 @@ router.get('/proxy/stream', async (req, res) => {
       const cr = upstream.headers.get('content-range');
       if (cr) res.set('Content-Range', cr);
 
-      // Stream body to client
       if (upstream.body) {
         const reader = upstream.body.getReader();
         const stream = new (await import('stream')).Readable({
