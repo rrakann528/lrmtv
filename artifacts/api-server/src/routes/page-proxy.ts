@@ -25,12 +25,150 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Headers': 'Range, Origin, Accept',
 };
 
-const BASE_HEADERS = {
+const BASE_HEADERS: Record<string, string> = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
   'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
   'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
   'Accept-Encoding': 'identity',
 };
+
+const VIDEO_RE = /(?:https?:)?\/\/[^\s"'<>\)]+\.(?:m3u8|mp4|webm|mkv)(?:\?[^\s"'<>\)]*)?/gi;
+const IFRAME_SRC_RE = /<iframe[^>]+src=["']([^"']+)["']/gi;
+
+async function fetchPage(url: string): Promise<{ html: string; finalUrl: string } | null> {
+  if (isPrivateUrl(url)) return null;
+  try {
+    const parsed = new URL(url);
+    const resp = await fetch(url, {
+      headers: { ...BASE_HEADERS, 'Referer': `${parsed.protocol}//${parsed.host}/` },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!resp.ok) return null;
+    const html = await resp.text();
+    return { html, finalUrl: resp.url || url };
+  } catch { return null; }
+}
+
+function extractVideoUrls(text: string): string[] {
+  const matches = text.match(VIDEO_RE) || [];
+  const urls = new Set<string>();
+  for (const m of matches) {
+    let u = m;
+    if (u.startsWith('//')) u = 'https:' + u;
+    try { new URL(u); urls.add(u); } catch {}
+  }
+  return [...urls];
+}
+
+function extractIframeSrcs(html: string, baseUrl: string): string[] {
+  const srcs: string[] = [];
+  let match;
+  const re = new RegExp(IFRAME_SRC_RE.source, 'gi');
+  while ((match = re.exec(html)) !== null) {
+    let src = match[1];
+    if (!src || src.startsWith('about:') || src.startsWith('javascript:')) continue;
+    try {
+      if (src.startsWith('//')) src = 'https:' + src;
+      else if (src.startsWith('/')) src = new URL(src, baseUrl).href;
+      else if (!src.startsWith('http')) src = new URL(src, baseUrl).href;
+      srcs.push(src);
+    } catch {}
+  }
+  return srcs;
+}
+
+function extractEmbedUrls(html: string, baseUrl: string): string[] {
+  const patterns = [
+    /(?:src|file|source|url|video_url|stream_url|embed_url)\s*[:=]\s*["']([^"']+\.(?:m3u8|mp4|webm)[^"']*?)["']/gi,
+    /data-src=["']([^"']+\.(?:m3u8|mp4|webm)[^"']*?)["']/gi,
+    /source\s*:\s*["']([^"']+\.(?:m3u8|mp4|webm)[^"']*?)["']/gi,
+    /file\s*:\s*["']([^"']+\.(?:m3u8|mp4|webm)[^"']*?)["']/gi,
+  ];
+  const urls = new Set<string>();
+  for (const re of patterns) {
+    let m;
+    while ((m = re.exec(html)) !== null) {
+      let u = m[1];
+      try {
+        if (u.startsWith('//')) u = 'https:' + u;
+        else if (!u.startsWith('http')) u = new URL(u, baseUrl).href;
+        new URL(u);
+        urls.add(u);
+      } catch {}
+    }
+  }
+  return [...urls];
+}
+
+router.options('/proxy/extract', (_req, res) => { res.set(CORS_HEADERS).sendStatus(204); });
+
+router.get('/proxy/extract', async (req, res) => {
+  res.set(CORS_HEADERS);
+  const rawUrl = req.query.url as string | undefined;
+  if (!rawUrl) { res.status(400).json({ error: 'Missing url param' }); return; }
+
+  let targetUrl: string;
+  try {
+    targetUrl = decodeURIComponent(rawUrl);
+    new URL(targetUrl);
+  } catch {
+    res.status(400).json({ error: 'Invalid url' }); return;
+  }
+
+  if (isPrivateUrl(targetUrl)) {
+    res.status(403).json({ error: 'Blocked' }); return;
+  }
+
+  try {
+    const allVideos: string[] = [];
+    const visited = new Set<string>();
+
+    const page1 = await fetchPage(targetUrl);
+    if (!page1) {
+      res.json({ videos: [], embeds: [] }); return;
+    }
+
+    visited.add(targetUrl);
+    const directVideos = extractVideoUrls(page1.html);
+    const embedVideos = extractEmbedUrls(page1.html, page1.finalUrl);
+    allVideos.push(...directVideos, ...embedVideos);
+
+    const iframeSrcs = extractIframeSrcs(page1.html, page1.finalUrl);
+
+    const fetchPromises = iframeSrcs
+      .filter(src => !visited.has(src) && !isPrivateUrl(src))
+      .slice(0, 5)
+      .map(async (src) => {
+        visited.add(src);
+        const page2 = await fetchPage(src);
+        if (!page2) return;
+        allVideos.push(...extractVideoUrls(page2.html));
+        allVideos.push(...extractEmbedUrls(page2.html, page2.finalUrl));
+
+        const innerIframes = extractIframeSrcs(page2.html, page2.finalUrl);
+        const innerPromises = innerIframes
+          .filter(s => !visited.has(s) && !isPrivateUrl(s))
+          .slice(0, 3)
+          .map(async (innerSrc) => {
+            visited.add(innerSrc);
+            const page3 = await fetchPage(innerSrc);
+            if (!page3) return;
+            allVideos.push(...extractVideoUrls(page3.html));
+            allVideos.push(...extractEmbedUrls(page3.html, page3.finalUrl));
+          });
+        await Promise.allSettled(innerPromises);
+      });
+
+    await Promise.allSettled(fetchPromises);
+
+    const uniqueVideos = [...new Set(allVideos)];
+    res.json({ videos: uniqueVideos, embeds: iframeSrcs });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 
 const ANTI_IFRAME_SCRIPT = `(function(){
   window.__lrmtvRealParent=window.parent;
@@ -38,6 +176,56 @@ const ANTI_IFRAME_SCRIPT = `(function(){
   try{Object.defineProperty(window,'parent',{get:function(){return window},configurable:true})}catch(e){}
   try{Object.defineProperty(window,'frameElement',{get:function(){return null},configurable:true})}catch(e){}
   try{Object.defineProperty(window,'self',{get:function(){return window},configurable:true})}catch(e){}
+  var PROXY='/api/proxy/page?url=';
+  var origCreate=document.createElement.bind(document);
+  document.createElement=function(tag){
+    var el=origCreate(tag);
+    if(tag.toLowerCase()==='iframe'){
+      var origSet=Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype,'src');
+      if(origSet&&origSet.set){
+        Object.defineProperty(el,'src',{
+          set:function(v){
+            if(v&&typeof v==='string'&&v.match(/^https?:\\/\\//i)&&v.indexOf('/api/proxy/')!==-1){
+              origSet.set.call(this,v);
+            }else if(v&&typeof v==='string'&&v.match(/^https?:\\/\\//i)){
+              origSet.set.call(this,PROXY+encodeURIComponent(v));
+            }else{
+              origSet.set.call(this,v);
+            }
+          },
+          get:origSet.get?function(){return origSet.get.call(this)}:undefined,
+          configurable:true
+        });
+      }
+    }
+    return el;
+  };
+  try{
+    var ifrDesc=Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype,'src');
+    if(ifrDesc&&ifrDesc.set){
+      var origIfrSet=ifrDesc.set;
+      Object.defineProperty(HTMLIFrameElement.prototype,'src',{
+        set:function(v){
+          if(v&&typeof v==='string'&&v.match(/^https?:\\/\\//i)&&v.indexOf('/api/proxy/')===-1){
+            origIfrSet.call(this,PROXY+encodeURIComponent(v));
+          }else{
+            origIfrSet.call(this,v);
+          }
+        },
+        get:ifrDesc.get,
+        configurable:true
+      });
+    }
+  }catch(e){}
+  try{
+    var setAttrOrig=Element.prototype.setAttribute;
+    Element.prototype.setAttribute=function(name,value){
+      if(this.tagName==='IFRAME'&&name.toLowerCase()==='src'&&value&&typeof value==='string'&&value.match(/^https?:\\/\\//i)&&value.indexOf('/api/proxy/')===-1){
+        return setAttrOrig.call(this,name,PROXY+encodeURIComponent(value));
+      }
+      return setAttrOrig.call(this,name,value);
+    };
+  }catch(e){}
 })();`;
 
 const BRIDGE_SCRIPT = `(function(){
@@ -57,6 +245,9 @@ const BRIDGE_SCRIPT = `(function(){
   function report(u,s){
     if(!u||u.length<10)return;
     u=abs(u);
+    if(u.indexOf('/api/proxy/')!==-1){
+      try{var pu=new URL(u);var raw=pu.searchParams.get('url');if(raw)u=raw;}catch(e){}
+    }
     if(sent.has(u))return;
     sent.add(u);
     try{P.postMessage({type:'lrmtv-video-detected',url:u,source:s},'*')}catch(e){}
@@ -115,6 +306,16 @@ const BRIDGE_SCRIPT = `(function(){
     if(url&&RE.test(String(url)))report(String(url),'xhr');
     return origOpen.apply(this,arguments);
   };
+  try{
+    var origAddSrc=window.MediaSource&&window.MediaSource.isTypeSupported;
+    var origURL=window.URL.createObjectURL;
+    if(origURL){
+      window.URL.createObjectURL=function(obj){
+        var result=origURL.call(this,obj);
+        return result;
+      };
+    }
+  }catch(e){}
   var els=document.querySelectorAll('video,source,embed');
   for(var i=0;i<els.length;i++)checkEl(els[i]);
   setInterval(function(){
@@ -175,6 +376,7 @@ router.get('/proxy/page', async (req, res) => {
 
     html = html.replace(/<script[^>]*src=["'][^"']*sbx\.js["'][^>]*><\/script>/gi, '');
     html = html.replace(/dtc_sbx\s*\(\s*\)/g, '');
+    html = html.replace(/function\s+dtc_sbx\s*\(\s*\)\s*\{[\s\S]*?\}\s*dtc_sbx\s*\(\s*\)\s*;?/g, '');
 
     html = html.replace(/<iframe([^>]*)\ssrc=["'](https?:\/\/[^"']+)["']/gi, (_match, attrs, iframeSrc) => {
       const proxied = `/api/proxy/page?url=${encodeURIComponent(iframeSrc)}`;

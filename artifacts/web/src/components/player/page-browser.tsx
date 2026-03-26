@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Globe, X, Loader2, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Globe, X, Loader2, CheckCircle, AlertTriangle, Search } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 
 interface PageBrowserProps {
@@ -11,22 +11,56 @@ interface PageBrowserProps {
 export default function PageBrowser({ url, onVideoDetected, onClose }: PageBrowserProps) {
   const { t } = useI18n();
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const [status, setStatus] = useState<'loading' | 'scanning' | 'found' | 'timeout'>('loading');
+  const [status, setStatus] = useState<'extracting' | 'loading' | 'scanning' | 'found' | 'timeout'>('extracting');
   const [detectedUrl, setDetectedUrl] = useState<string | null>(null);
   const detectedRef = useRef(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showIframe, setShowIframe] = useState(false);
+  const [extractFailed, setExtractFailed] = useState(false);
+
+  const handleDetected = useCallback((videoUrl: string) => {
+    if (detectedRef.current) return;
+    detectedRef.current = true;
+    setDetectedUrl(videoUrl);
+    setStatus('found');
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    setTimeout(() => onVideoDetected(videoUrl), 1500);
+  }, [onVideoDetected]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function tryExtract() {
+      try {
+        const resp = await fetch(`/api/proxy/extract?url=${encodeURIComponent(url)}`);
+        if (!resp.ok) throw new Error('extract failed');
+        const data = await resp.json();
+
+        if (cancelled || detectedRef.current) return;
+
+        if (data.videos && data.videos.length > 0) {
+          handleDetected(data.videos[0]);
+          return;
+        }
+      } catch {}
+
+      if (cancelled || detectedRef.current) return;
+      setExtractFailed(true);
+      setShowIframe(true);
+      setStatus('loading');
+    }
+
+    tryExtract();
+    return () => { cancelled = true; };
+  }, [url, handleDetected]);
 
   const handleMessage = useCallback((e: MessageEvent) => {
     if (e.data?.type === 'lrmtv-video-detected' && e.data.url && !detectedRef.current) {
       const videoUrl = String(e.data.url);
       if (!videoUrl.startsWith('http')) return;
-      detectedRef.current = true;
-      setDetectedUrl(videoUrl);
-      setStatus('found');
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      setTimeout(() => onVideoDetected(videoUrl), 1500);
+      handleDetected(videoUrl);
     }
-  }, [onVideoDetected]);
+  }, [handleDetected]);
 
   useEffect(() => {
     window.addEventListener('message', handleMessage);
@@ -36,7 +70,7 @@ export default function PageBrowser({ url, onVideoDetected, onClose }: PageBrows
   useEffect(() => {
     timeoutRef.current = setTimeout(() => {
       if (!detectedRef.current) setStatus('timeout');
-    }, 60000);
+    }, 120000);
     return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
   }, []);
 
@@ -55,6 +89,12 @@ export default function PageBrowser({ url, onVideoDetected, onClose }: PageBrows
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5">
+            {status === 'extracting' && (
+              <>
+                <Search className="w-3.5 h-3.5 text-purple-400 animate-pulse" />
+                <span className="text-[11px] text-purple-400">{t('pageBrowserExtracting') || 'Extracting...'}</span>
+              </>
+            )}
             {status === 'loading' && (
               <>
                 <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin" />
@@ -90,14 +130,25 @@ export default function PageBrowser({ url, onVideoDetected, onClose }: PageBrows
       </div>
 
       <div className="flex-grow relative">
-        <iframe
-          ref={iframeRef}
-          src={proxyUrl}
-          onLoad={handleIframeLoad}
-          referrerPolicy="no-referrer"
-          className="w-full h-full border-0"
-          style={{ background: '#000' }}
-        />
+        {status === 'extracting' && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="text-center space-y-3">
+              <Search className="w-12 h-12 text-purple-400 mx-auto animate-pulse" />
+              <p className="text-white/70 text-sm">{t('pageBrowserExtracting') || 'Searching for video...'}</p>
+            </div>
+          </div>
+        )}
+
+        {showIframe && (
+          <iframe
+            ref={iframeRef}
+            src={proxyUrl}
+            onLoad={handleIframeLoad}
+            referrerPolicy="no-referrer"
+            className="w-full h-full border-0"
+            style={{ background: '#000' }}
+          />
+        )}
 
         {status === 'found' && detectedUrl && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/70 backdrop-blur-sm pointer-events-none">
