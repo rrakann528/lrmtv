@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { getVideoHeaders } from '../lib/browser-session';
 
 const router = Router();
 
@@ -230,10 +231,17 @@ router.get('/proxy/stream', async (req, res) => {
   const selfBase = '/api/proxy/stream';
 
   try {
+    // Look up headers that Playwright captured when it first fetched this URL.
+    // These include Cookie, Referer, Origin — critical for IP/token-bound CDN streams.
+    const stored = getVideoHeaders(targetUrl);
+
     const headers: Record<string, string> = {
       ...BASE_HEADERS,
-      'Referer': referer || (() => { try { const u = new URL(targetUrl); return `${u.protocol}//${u.hostname}/`; } catch { return ''; } })(),
+      'Referer': stored?.referer || referer || (() => { try { const u = new URL(targetUrl); return `${u.protocol}//${u.hostname}/`; } catch { return ''; } })(),
     };
+
+    if (stored?.cookie) headers['Cookie'] = stored.cookie;
+    if (stored?.origin) headers['Origin'] = stored.origin;
 
     // Forward Range header so byte-range seeking works for MP4 files
     const rangeHeader = req.headers['range'];

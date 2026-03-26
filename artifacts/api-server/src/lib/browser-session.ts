@@ -28,6 +28,46 @@ interface Session {
 const sessions = new Map<string, Session>();
 let sharedBrowser: Browser | null = null;
 
+// ── Server-side header store ────────────────────────────────────────────────
+// When Playwright detects a video URL it stores the request headers
+// (especially Cookie + Referer) so the HLS proxy can reuse them and avoid
+// "IP / token mismatch" 403s from CDNs that validate these headers.
+interface StoredHeaders { cookie: string; referer: string; origin: string }
+const videoHeaderStore = new Map<string, StoredHeaders>();
+const MAX_STORE = 50;
+
+export function getVideoHeaders(url: string): StoredHeaders | undefined {
+  // 1. Exact match
+  if (videoHeaderStore.has(url)) return videoHeaderStore.get(url);
+  // 2. Path-level match (ignore query string)
+  const base = url.split('?')[0];
+  for (const [k, v] of videoHeaderStore) {
+    if (k.split('?')[0] === base) return v;
+  }
+  // 3. Hostname-level match — segment URLs share the same CDN hostname as the manifest
+  try {
+    const host = new URL(url).hostname;
+    for (const [k, v] of videoHeaderStore) {
+      try { if (new URL(k).hostname === host) return v; } catch {}
+    }
+  } catch {}
+  return undefined;
+}
+
+function storeVideoHeaders(url: string, headers: Record<string, string>, pageUrl: string) {
+  if (videoHeaderStore.size >= MAX_STORE) {
+    const firstKey = videoHeaderStore.keys().next().value;
+    if (firstKey) videoHeaderStore.delete(firstKey);
+  }
+  videoHeaderStore.set(url, {
+    cookie: headers['cookie'] || headers['Cookie'] || '',
+    referer: headers['referer'] || headers['Referer'] || pageUrl,
+    origin: headers['origin'] || headers['Origin'] || (() => {
+      try { const u = new URL(pageUrl); return `${u.protocol}//${u.host}`; } catch { return ''; }
+    })(),
+  });
+}
+
 const CHROMIUM_CANDIDATES = [
   process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
   '/usr/bin/chromium-browser',
@@ -111,6 +151,12 @@ export async function startBrowserSession(
       const reqUrl = route.request().url();
       if (isVideoUrl(reqUrl) && !videoFound.has(reqUrl)) {
         videoFound.add(reqUrl);
+        // Store request headers (especially Cookie + Referer) so the proxy
+        // can replay them and avoid IP/token-mismatch 403s from the CDN.
+        try {
+          const reqHeaders = route.request().headers();
+          storeVideoHeaders(reqUrl, reqHeaders, page.url());
+        } catch {}
         io.to(djSocketId).emit('browser:video-found', { url: reqUrl });
         console.log(`[browser-session:${slug}] ✓ Video detected: ${reqUrl}`);
       }
@@ -128,6 +174,11 @@ export async function startBrowserSession(
           const cl = parseInt(resp.headers()['content-length'] || '0', 10);
           if (cl === 0 || cl > 500) {
             videoFound.add(respUrl);
+            // Capture request headers from the response's originating request
+            try {
+              const reqHeaders = resp.request().headers();
+              storeVideoHeaders(respUrl, reqHeaders, page.url());
+            } catch {}
             io.to(djSocketId).emit('browser:video-found', { url: respUrl });
           }
         }
