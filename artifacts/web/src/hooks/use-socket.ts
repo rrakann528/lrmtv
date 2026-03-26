@@ -73,8 +73,14 @@ export function useSocket(slug: string | null) {
   }, [authUser, sessionUsername, setSessionUsername]);
 
   useEffect(() => {
-    if (!authUser?.id || !socketRef.current?.connected) return;
-    socketRef.current.emit('identify', { userId: authUser.id });
+    if (!authUser?.id) return;
+    const sock = socketRef.current;
+    if (!sock) return;
+    if (sock.connected) {
+      sock.emit('identify', { userId: authUser.id });
+    } else {
+      sock.once('connect', () => sock.emit('identify', { userId: authUser.id }));
+    }
   }, [authUser?.id]);
 
   useEffect(() => {
@@ -87,11 +93,11 @@ export function useSocket(slug: string | null) {
 
     socketRef.current = socket;
 
-    const displayName = authUser?.displayName || authUser?.username || username;
-
     socket.on('connect', () => {
+      const currentDisplayName = authUser?.displayName || authUser?.username || username;
+      const currentUserId = authUser?.id;
       setConnected(true);
-      socket.emit('join-room', { slug, username, displayName, userId: authUser?.id });
+      socket.emit('join-room', { slug, username, displayName: currentDisplayName, userId: currentUserId });
     });
 
     socket.on('disconnect', () => setConnected(false));
@@ -290,6 +296,16 @@ export function useSocket(slug: string | null) {
 
     socket.on('playlist-update', () => {
       window.dispatchEvent(new CustomEvent('playlist-updated'));
+    });
+
+    // chat-blocked: server rejected our chat message
+    socket.on('chat-blocked', (data: { reason: string }) => {
+      if (data.reason === 'not_identified') {
+        // Re-identify with the server so the next message goes through
+        const uid = authUser?.id;
+        if (uid) socket.emit('identify', { userId: uid });
+      }
+      console.warn('[chat] blocked:', data.reason);
     });
 
     // sync-rejected: server rejected our control action (not enough permission)

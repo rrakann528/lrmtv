@@ -103,7 +103,7 @@ export default function RoomPage() {
 
   const isDJ       = you?.isDJ || you?.isAdmin || false;
   const isAdmin    = you?.isAdmin || false;
-  const isGuest    = !you?.userId;
+  const isGuest    = !you?.userId && !authUser?.id;
   const canControl = isDJ || allowGuestControl;
   const watcherReady = watcherReadyState;
 

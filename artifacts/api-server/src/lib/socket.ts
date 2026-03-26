@@ -616,7 +616,10 @@ export function initSocketServer(httpServer: HttpServer): Server {
       if (!user) return;
 
       if (roomState.chatDisabled && !user.isAdmin) return;
-      if (!user.userId) return;
+      if (!user.userId) {
+        socket.emit("chat-blocked", { reason: "not_identified" });
+        return;
+      }
       if (user.isSiteMuted && !user.isAdmin) {
         socket.emit("chat-blocked", { reason: "muted" });
         return;
