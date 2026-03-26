@@ -190,13 +190,25 @@ export default function RoomPage() {
 
   const handlePageVideoDetected = useCallback(async (videoUrl: string) => {
     setPageBrowserUrl(null);
-    const sourceType = detectSourceType(videoUrl);
+
+    // URLs extracted by the server-side browser (Playwright) are bound to the server's IP.
+    // Wrap them in our server-side stream proxy so all clients fetch bytes through the
+    // same IP that obtained the token — preventing 403 "IP locked" errors.
+    const isHlsUrl =
+      videoUrl.toLowerCase().includes('.m3u8') ||
+      videoUrl.toLowerCase().includes('m3u8') ||
+      videoUrl.toLowerCase().includes('/hls/');
+    const proxiedUrl = isHlsUrl
+      ? `/api/proxy/stream?url=${encodeURIComponent(videoUrl)}&ref=${encodeURIComponent(videoUrl)}`
+      : videoUrl;
+
+    const sourceType = isHlsUrl ? 'm3u8' : detectSourceType(videoUrl);
     const displayTitle = `Video (${sourceType})`;
     try {
-      await addMutation.mutateAsync({ slug, data: { url: videoUrl, title: displayTitle, sourceType } });
+      await addMutation.mutateAsync({ slug, data: { url: proxiedUrl, title: displayTitle, sourceType } });
       queryClient.invalidateQueries({ queryKey: getGetRoomPlaylistQueryKey(slug) });
       emitPlaylistUpdate('add');
-      emitSync(0, true, videoUrl);
+      emitSync(0, true, proxiedUrl);
     } catch { /* ignore */ }
   }, [slug, addMutation, queryClient, emitPlaylistUpdate, emitSync]);
 

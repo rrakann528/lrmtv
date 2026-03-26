@@ -156,4 +156,142 @@ router.get('/proxy/check', async (req, res) => {
 
 router.options('/proxy/check', (_req, res) => { res.set(CORS_HEADERS).sendStatus(204); });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/proxy/stream?url=<encoded>&ref=<encoded_referer>
+//
+// Tunnels HLS streams through the server so IP-locked CDN tokens work.
+// Playwright extracts URLs from the server's IP → we serve them back through
+// this proxy → client always gets bytes from the same server IP that got the token.
+//
+// Handles:
+//  • Master playlists  (.m3u8 returning variant streams)
+//  • Media playlists   (.m3u8 returning segments)
+//  • TS / fMP4 segments (plain byte tunnelling)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function resolveAbsolute(base: string, href: string): string {
+  if (/^https?:\/\//i.test(href)) return href;
+  try { return new URL(href, base).href; } catch { return href; }
+}
+
+function proxyUrl(segUrl: string, referer: string, selfBase: string): string {
+  return `${selfBase}?url=${encodeURIComponent(segUrl)}&ref=${encodeURIComponent(referer)}`;
+}
+
+function rewriteM3u8(content: string, manifestUrl: string, referer: string, selfBase: string): string {
+  return content.split('\n').map(line => {
+    const trimmed = line.trim();
+    if (!trimmed) return line;
+
+    // EXT-X-KEY, EXT-X-MAP, EXT-X-MEDIA with URI="..." — rewrite the URI value
+    if (trimmed.startsWith('#') && trimmed.includes('URI="')) {
+      return line.replace(/URI="([^"]+)"/g, (_match, uri) => {
+        const abs = resolveAbsolute(manifestUrl, uri);
+        return `URI="${proxyUrl(abs, referer, selfBase)}"`;
+      });
+    }
+
+    // Non-comment, non-empty lines are segment or sub-playlist URLs
+    if (!trimmed.startsWith('#')) {
+      const abs = resolveAbsolute(manifestUrl, trimmed);
+      return proxyUrl(abs, referer, selfBase);
+    }
+
+    return line;
+  }).join('\n');
+}
+
+router.options('/proxy/stream', (_req, res) => { res.set(CORS_HEADERS).sendStatus(204); });
+
+router.get('/proxy/stream', async (req, res) => {
+  res.set(CORS_HEADERS);
+
+  const rawUrl = req.query.url as string | undefined;
+  if (!rawUrl) { res.status(400).send('Missing url'); return; }
+
+  let targetUrl: string;
+  try { targetUrl = decodeURIComponent(rawUrl); new URL(targetUrl); }
+  catch { res.status(400).send('Invalid url'); return; }
+
+  // SSRF protection: block private IPs
+  const PRIVATE = [/^127\./, /^10\./, /^172\.(1[6-9]|2\d|3[01])\./, /^192\.168\./, /^169\.254\./];
+  try {
+    const host = new URL(targetUrl).hostname;
+    if (host === 'localhost' || PRIVATE.some(r => r.test(host))) {
+      res.status(403).send('Blocked'); return;
+    }
+  } catch { res.status(400).send('Invalid url'); return; }
+
+  const referer = req.query.ref ? decodeURIComponent(req.query.ref as string) : '';
+
+  // Self-base so rewritten URLs point back to this endpoint.
+  // Use root-relative path so HLS.js resolves segments via the frontend origin
+  // (which proxies /api/ → API server) — works in both dev and production.
+  const selfBase = '/api/proxy/stream';
+
+  try {
+    const headers: Record<string, string> = {
+      ...BASE_HEADERS,
+      'Referer': referer || (() => { try { const u = new URL(targetUrl); return `${u.protocol}//${u.hostname}/`; } catch { return ''; } })(),
+    };
+
+    const upstream = await fetch(targetUrl, {
+      headers,
+      redirect: 'follow',
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (!upstream.ok && upstream.status !== 206) {
+      res.status(upstream.status).send(`Upstream: ${upstream.status}`);
+      return;
+    }
+
+    const ct = (upstream.headers.get('content-type') ?? '').toLowerCase();
+    const isManifest =
+      ct.includes('mpegurl') || ct.includes('x-mpegurl') ||
+      targetUrl.toLowerCase().includes('.m3u8');
+
+    if (isManifest) {
+      const text = await upstream.text();
+      const rewritten = rewriteM3u8(text, targetUrl, referer || targetUrl, selfBase);
+      res
+        .status(200)
+        .set('Content-Type', 'application/vnd.apple.mpegurl')
+        .set('Cache-Control', 'no-cache')
+        .send(rewritten);
+    } else {
+      // Segment / binary — stream directly
+      const forwardCt = ct || 'video/mp2t';
+      res.status(upstream.status).set('Content-Type', forwardCt);
+
+      const cl = upstream.headers.get('content-length');
+      if (cl) res.set('Content-Length', cl);
+
+      const cr = upstream.headers.get('content-range');
+      if (cr) res.set('Content-Range', cr);
+
+      // Stream body to client
+      if (upstream.body) {
+        const reader = upstream.body.getReader();
+        const stream = new (await import('stream')).Readable({
+          async read() {
+            try {
+              const { done, value } = await reader.read();
+              if (done) { this.push(null); }
+              else       { this.push(Buffer.from(value)); }
+            } catch { this.push(null); }
+          },
+        });
+        stream.pipe(res);
+        res.on('close', () => reader.cancel().catch(() => {}));
+      } else {
+        const buf = await upstream.arrayBuffer();
+        res.send(Buffer.from(buf));
+      }
+    }
+  } catch (err: any) {
+    if (!res.headersSent) res.status(502).send(`Proxy error: ${err.message}`);
+  }
+});
+
 export default router;
