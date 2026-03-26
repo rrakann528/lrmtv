@@ -263,7 +263,11 @@ export default function ChatPanel({
                         text={msg.replyToContent || ''}
                       />
                     )}
-                    <LinkifiedText text={msg.content} />
+                    {settings.messagePreviews ? (
+                      <LinkifiedText text={msg.content} />
+                    ) : (
+                      <span>{msg.content}</span>
+                    )}
                   </div>
 
                   {isLastInGroup && settings.showTimestamps && (

@@ -166,6 +166,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
     const [sponsorSegments, setSponsorSegments] = useState<SponsorSegment[]>([]);
     const lastSkippedRef = useRef<string | null>(null);
     const [sponsorSkipNotice, setSponsorSkipNotice] = useState(false);
+    const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const { t } = useI18n();
 
@@ -586,15 +587,28 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
           }}
         />
 
-        {/* Tap-catcher: when controls are hidden, tap anywhere to show them */}
         {!showOverlay && !error && (
           <div
             className="absolute inset-0 z-[9]"
             onMouseMove={resetOverlayTimer}
             onTouchStart={resetOverlayTimer}
             onClick={() => {
-              if (!playing && canControl) directPlay();
-              else resetOverlayTimer();
+              if (getSettings().doubleClickFullscreen) {
+                if (clickTimerRef.current) {
+                  clearTimeout(clickTimerRef.current);
+                  clickTimerRef.current = null;
+                  toggleReactPlayerFullscreen();
+                  return;
+                }
+                clickTimerRef.current = setTimeout(() => {
+                  clickTimerRef.current = null;
+                  if (!playing && canControl) directPlay();
+                  else resetOverlayTimer();
+                }, 250);
+              } else {
+                if (!playing && canControl) directPlay();
+                else resetOverlayTimer();
+              }
             }}
           />
         )}
@@ -610,8 +624,19 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
               transition={{ duration: 0.15 }}
               className="absolute inset-0 z-10 flex flex-col justify-end select-none"
               onClick={(e) => {
-                // tap center of video = toggle play; don't fire on controls bar
-                if (e.target === e.currentTarget) {
+                if (e.target !== e.currentTarget) return;
+                if (getSettings().doubleClickFullscreen) {
+                  if (clickTimerRef.current) {
+                    clearTimeout(clickTimerRef.current);
+                    clickTimerRef.current = null;
+                    toggleReactPlayerFullscreen();
+                    return;
+                  }
+                  clickTimerRef.current = setTimeout(() => {
+                    clickTimerRef.current = null;
+                    if (playing) directPause(); else directPlay();
+                  }, 250);
+                } else {
                   if (playing) directPause(); else directPlay();
                 }
               }}

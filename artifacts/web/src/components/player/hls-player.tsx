@@ -636,7 +636,27 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
             onIsLiveRef.current?.(live);
           }
           setStatusMsg(null); setError(null);
-          setSubtitleTracks(hls.subtitleTracks.map((tk, i) => ({ id: i, name: tk.name || tk.lang || `Track ${i + 1}`, lang: tk.lang })));
+          const tracks = hls.subtitleTracks.map((tk, i) => ({ id: i, name: tk.name || tk.lang || `Track ${i + 1}`, lang: tk.lang }));
+          setSubtitleTracks(tracks);
+          const s = getSettings();
+          if (s.subtitleAutoEnable && tracks.length > 0) {
+            hls.subtitleTrack = 0;
+            setActiveSubtitleId(0);
+          }
+          const q = s.videoQuality;
+          if (q !== 'auto') {
+            const target = parseInt(q);
+            const levels = hls.levels;
+            if (levels.length > 0) {
+              let bestIdx = -1;
+              let bestDiff = Infinity;
+              levels.forEach((lv, idx) => {
+                const diff = Math.abs((lv.height || 0) - target);
+                if (diff < bestDiff) { bestDiff = diff; bestIdx = idx; }
+              });
+              if (bestIdx >= 0) hls.currentLevel = bestIdx;
+            }
+          }
           startStallWatchdog();
           // signalReady() is intentionally NOT called here.
           // It fires from the 'canplay' event once the buffer at startPosition is truly

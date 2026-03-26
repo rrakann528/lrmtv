@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { generateColorFromString } from '@/lib/utils';
 import { enterFullscreen, exitFullscreen, isFullscreenActive, isSimulatedFullscreen, onFullscreenChange } from '@/lib/fullscreen';
 import { useI18n } from '@/lib/i18n';
+import { getSettings } from '@/lib/settings';
 
 export interface SubtitleTrack {
   id: number;
@@ -81,6 +82,7 @@ export default function PlayerControls({
   const [isDragging, setIsDragging] = useState(false);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rafRef = useRef<number>(0);
+  const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const tick = () => {
@@ -126,9 +128,30 @@ export default function PlayerControls({
     return () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current); };
   }, [resetTimer]);
 
+  const toggleFullscreen = useCallback(async () => {
+    const el = containerRef.current;
+    if (!el) return;
+    if (isFullscreenActive() || isSimulatedFullscreen(el)) await exitFullscreen(el);
+    else await enterFullscreen(el);
+  }, [containerRef]);
+
   const togglePlay = useCallback(() => {
-    if (isPlaying) onPause(); else onPlay();
-  }, [isPlaying, onPlay, onPause]);
+    if (!canControl) return;
+    if (getSettings().doubleClickFullscreen) {
+      if (clickTimerRef.current) {
+        clearTimeout(clickTimerRef.current);
+        clickTimerRef.current = null;
+        toggleFullscreen();
+        return;
+      }
+      clickTimerRef.current = setTimeout(() => {
+        clickTimerRef.current = null;
+        if (isPlaying) onPause(); else onPlay();
+      }, 250);
+    } else {
+      if (isPlaying) onPause(); else onPlay();
+    }
+  }, [isPlaying, onPlay, onPause, canControl, toggleFullscreen]);
 
   const seekRelative = useCallback((delta: number) => {
     const v = videoRef.current;
@@ -138,7 +161,6 @@ export default function PlayerControls({
     onSeek(t);
   }, [videoRef, onSeek]);
 
-  // Progress click: always measured from physical left → ratio left-to-right
   const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (isLive) return;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -147,13 +169,6 @@ export default function PlayerControls({
     if (videoRef.current) videoRef.current.currentTime = t;
     onSeek(t);
   }, [isLive, duration, videoRef, onSeek]);
-
-  const toggleFullscreen = useCallback(async () => {
-    const el = containerRef.current;
-    if (!el) return;
-    if (isFullscreenActive() || isSimulatedFullscreen(el)) await exitFullscreen(el);
-    else await enterFullscreen(el);
-  }, [containerRef]);
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
