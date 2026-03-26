@@ -103,6 +103,7 @@ function extractEmbedUrls(html: string, baseUrl: string): string[] {
   return [...urls];
 }
 
+// ── /proxy/extract — Virtual browser + static fallback ────────────────────────
 router.options('/proxy/extract', (_req, res) => { res.set(CORS_HEADERS).sendStatus(204); });
 
 router.get('/proxy/extract', extractLimiter, async (req, res) => {
@@ -143,7 +144,6 @@ router.get('/proxy/extract', extractLimiter, async (req, res) => {
         visited.add(targetUrl);
         allVideos.push(...extractVideoUrls(page1.html));
         allVideos.push(...extractEmbedUrls(page1.html, page1.finalUrl));
-
         const iframeSrcs = extractIframeSrcs(page1.html, page1.finalUrl);
         const fetchPromises = iframeSrcs
           .filter(src => !visited.has(src) && !isPrivateUrl(src))
@@ -162,6 +162,156 @@ router.get('/proxy/extract', extractLimiter, async (req, res) => {
 
     const uniqueVideos = [...new Set(allVideos)];
     res.json({ videos: uniqueVideos, method });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ── Bridge script injected into proxied pages ─────────────────────────────────
+const BRIDGE_SCRIPT = `(function(){
+  var RP=window.parent;
+  try{Object.defineProperty(window,'top',{get:function(){return window},configurable:true})}catch(e){}
+  try{Object.defineProperty(window,'parent',{get:function(){return window},configurable:true})}catch(e){}
+  try{Object.defineProperty(window,'frameElement',{get:function(){return null},configurable:true})}catch(e){}
+  try{Object.defineProperty(window,'self',{get:function(){return window},configurable:true})}catch(e){}
+  var RE=/\\.m3u8|\\.mp4|\\.webm|\\.mkv/i;
+  var sent=new Set();
+  function abs(u){try{return new URL(u,location.href).href}catch(e){return u}}
+  function report(u){
+    if(!u||u.length<10)return;
+    u=abs(u);
+    if(sent.has(u))return;
+    sent.add(u);
+    try{RP.postMessage({type:'lrmtv-video-detected',url:u},'*')}catch(e){}
+  }
+  window.__lrmtvReport=report;
+  window.addEventListener('message',function(ev){
+    if(ev.data&&ev.data.type==='lrmtv-video-detected'&&ev.data.url){
+      try{RP.postMessage(ev.data,'*')}catch(e){}
+    }
+  });
+  var origFetch=window.fetch;
+  if(origFetch){
+    window.fetch=function(){
+      var u=typeof arguments[0]==='string'?arguments[0]:(arguments[0]&&arguments[0].url)||'';
+      if(u&&RE.test(String(u)))report(String(u));
+      var p=origFetch.apply(this,arguments);
+      try{p.then(function(resp){
+        try{
+          var ct=resp.headers.get('content-type')||'';
+          if(ct.indexOf('json')!==-1||ct.indexOf('text')!==-1){
+            resp.clone().text().then(function(body){
+              var m=body.match(/(?:https?:)?\\/\\/[^\\s"'<>\\)]+\\.(?:m3u8|mp4|webm)(?:\\?[^\\s"'<>\\)]*)*/gi);
+              if(m)m.forEach(function(mu){if(mu.startsWith('//'))mu='https:'+mu;report(mu)});
+            }).catch(function(){});
+          }
+        }catch(e){}
+      }).catch(function(){})}catch(e){}
+      return p;
+    };
+  }
+  var origOpen=XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open=function(method,url){
+    if(url&&RE.test(String(url)))report(String(url));
+    return origOpen.apply(this,arguments);
+  };
+  try{
+    var desc=Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype,'src');
+    if(desc&&desc.set){
+      var origSet=desc.set,origGet=desc.get;
+      Object.defineProperty(HTMLMediaElement.prototype,'src',{
+        set:function(v){if(v&&RE.test(v))report(v);origSet.call(this,v)},
+        get:function(){return origGet.call(this)},configurable:true
+      });
+    }
+  }catch(e){}
+  var obs=new MutationObserver(function(muts){
+    muts.forEach(function(m){
+      m.addedNodes.forEach(function(n){
+        if(n.nodeType!==1)return;
+        if(n.tagName==='VIDEO'||n.tagName==='SOURCE'){
+          var s=n.src||n.getAttribute('src')||'';
+          if(RE.test(s))report(s);
+          if(n.currentSrc&&RE.test(n.currentSrc))report(n.currentSrc);
+        }
+        var vids=n.querySelectorAll&&n.querySelectorAll('video,source');
+        if(vids)vids.forEach(function(v){
+          var s=v.src||v.getAttribute('src')||'';
+          if(RE.test(s))report(s);
+          if(v.currentSrc&&RE.test(v.currentSrc))report(v.currentSrc);
+        });
+      });
+    });
+  });
+  obs.observe(document.documentElement||document,{childList:true,subtree:true,attributes:true,attributeFilter:['src']});
+  setInterval(function(){
+    document.querySelectorAll('video').forEach(function(v){
+      if(v.currentSrc&&RE.test(v.currentSrc))report(v.currentSrc);
+      if(v.src&&RE.test(v.src))report(v.src);
+    });
+  },1500);
+})();`;
+
+// ── /proxy/page — Interactive iframe proxy ─────────────────────────────────────
+router.options('/proxy/page', (_req, res) => { res.set(CORS_HEADERS).sendStatus(204); });
+
+router.get('/proxy/page', async (req, res) => {
+  res.set(CORS_HEADERS);
+  const rawUrl = req.query.url as string | undefined;
+  if (!rawUrl) { res.status(400).json({ error: 'Missing url param' }); return; }
+
+  let targetUrl: string;
+  try {
+    targetUrl = decodeURIComponent(rawUrl);
+    new URL(targetUrl);
+  } catch {
+    res.status(400).json({ error: 'Invalid url' }); return;
+  }
+
+  if (isPrivateUrl(targetUrl)) {
+    res.status(403).json({ error: 'Blocked' }); return;
+  }
+
+  try {
+    const parsed = new URL(targetUrl);
+    const baseHref = `${parsed.protocol}//${parsed.host}`;
+
+    const response = await fetch(targetUrl, {
+      headers: { ...BASE_HEADERS, 'Referer': `${baseHref}/` },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (!response.ok) {
+      res.status(response.status).json({ error: `Upstream returned ${response.status}` });
+      return;
+    }
+
+    let html = await response.text();
+
+    // strip anti-iframe detection
+    html = html.replace(/<script[^>]*src=["'][^"']*sbx\.js["'][^>]*><\/script>/gi, '');
+    html = html.replace(/dtc_sbx\s*\(\s*\)/g, '');
+
+    // proxy nested iframes through us
+    html = html.replace(/<iframe([^>]*)\ssrc=["'](https?:\/\/[^"']+)["']/gi, (_m, attrs, iframeSrc) => {
+      return `<iframe${attrs} src="/api/proxy/page?url=${encodeURIComponent(iframeSrc)}"`;
+    });
+
+    const bridgeTag = `<script>${BRIDGE_SCRIPT}</script>`;
+    const baseTag = `<base href="${baseHref}/">`;
+    const headMatch = html.match(/<head[^>]*>/i);
+    if (headMatch) {
+      html = html.replace(headMatch[0], headMatch[0] + bridgeTag + baseTag);
+    } else {
+      html = bridgeTag + baseTag + html;
+    }
+
+    res.removeHeader('X-Frame-Options');
+    res.removeHeader('Content-Security-Policy');
+    res.removeHeader('X-Content-Type-Options');
+    res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.send(html);
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
