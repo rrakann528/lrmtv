@@ -95,7 +95,7 @@ export default function PageBrowser({ url, onVideoDetected, onClose }: PageBrows
           ref={iframeRef}
           src={proxyUrl}
           onLoad={handleIframeLoad}
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation allow-top-navigation"
+          referrerPolicy="no-referrer"
           className="w-full h-full border-0"
           style={{ background: '#000' }}
         />
