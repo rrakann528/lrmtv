@@ -113,13 +113,6 @@ export function UserRoomSettings({ onClose }: Props) {
               onChange={v => update({ defaultVolume: v })}
             />
             <Toggle
-              icon={SkipForward}
-              label={t('ursSponsorBlock')}
-              desc={t('ursSponsorBlockDesc')}
-              value={settings.sponsorBlock}
-              onChange={v => update({ sponsorBlock: v })}
-            />
-            <Toggle
               icon={Maximize}
               label={t('ursTheaterMode')}
               desc={t('ursTheaterModeDesc')}

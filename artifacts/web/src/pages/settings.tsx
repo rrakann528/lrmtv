@@ -26,7 +26,7 @@ export default function SettingsPage() {
     { id: 'general',       icon: Globe,          label: t('settingsGeneral'),       count: 4 },
     { id: 'notifications', icon: Bell,           label: t('settingsNotifications'), count: 5 },
     { id: 'chat',          icon: MessageSquare,   label: t('settingsChat'),          count: 5 },
-    { id: 'player',        icon: Play,           label: t('settingsPlayer'),        count: 6 },
+    { id: 'player',        icon: Play,           label: t('settingsPlayer'),        count: 5 },
     { id: 'privacy',       icon: Shield,         label: t('settingsPrivacy'),       count: 4 },
     { id: 'account',       icon: Lock,           label: t('settingsAccount'),       count: 1 },
   ];
@@ -462,13 +462,6 @@ function PlayerSettings({ settings, update, t }: any) {
           step={5}
           unit="%"
           onChange={v => update({ defaultVolume: v })}
-        />
-        <SettingToggle
-          icon={Sparkles}
-          label={t('settingsSponsorBlock')}
-          description={t('settingsSponsorBlockDesc')}
-          value={settings.sponsorBlock}
-          onChange={v => update({ sponsorBlock: v })}
         />
       </SettingsCard>
       <SettingsCard>
