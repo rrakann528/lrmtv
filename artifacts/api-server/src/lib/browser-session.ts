@@ -145,41 +145,83 @@ export async function startBrowserSession(
 
     const page = await context.newPage();
     const videoFound = new Set<string>();
+    // Timestamps of when each URL was last seen in network traffic
+    const videoTimestamps = new Map<string, number>();
+    // Whether we have already emitted a URL for the current page navigation
+    let videoEmitted = false;
+    let playPollTimer: ReturnType<typeof setInterval> | null = null;
 
-    // Network interception for video detection
+    function resetVideoTracking() {
+      videoFound.clear();
+      videoTimestamps.clear();
+      videoEmitted = false;
+      if (playPollTimer) { clearInterval(playPollTimer); playPollTimer = null; }
+    }
+
+    function startPlayPoll() {
+      if (playPollTimer) return; // already polling
+      playPollTimer = setInterval(async () => {
+        const s = sessions.get(slug);
+        if (!s || videoEmitted) { clearInterval(playPollTimer!); playPollTimer = null; return; }
+        try {
+          // Check if any video element on the page is actually playing
+          const isPlaying = await page.evaluate(() => {
+            const vids = Array.from(document.querySelectorAll('video'));
+            return vids.some(v => !v.paused && !v.ended && v.currentTime > 0.5 && v.readyState >= 2);
+          });
+          if (!isPlaying || videoTimestamps.size === 0) return;
+
+          // Pick the most recently seen URL — it's the one the video just fetched
+          let bestUrl = '';
+          let bestTs = 0;
+          for (const [u, ts] of videoTimestamps) {
+            if (ts > bestTs) { bestTs = ts; bestUrl = u; }
+          }
+          if (!bestUrl) return;
+
+          videoEmitted = true;
+          clearInterval(playPollTimer!);
+          playPollTimer = null;
+          const targetDj = sessions.get(slug)?.djSocketId ?? djSocketId;
+          io.to(targetDj).emit('browser:video-found', { url: bestUrl });
+          console.log(`[browser-session:${slug}] ✓ Video playing — emitting: ${bestUrl}`);
+        } catch { /* page closed / navigating */ }
+      }, 800);
+    }
+
+    // ── Collect URLs silently; emit only when video is confirmed playing ──────
     await context.route('**/*', (route) => {
       const reqUrl = route.request().url();
-      if (isVideoUrl(reqUrl) && !videoFound.has(reqUrl)) {
-        videoFound.add(reqUrl);
-        // Store request headers (especially Cookie + Referer) so the proxy
-        // can replay them and avoid IP/token-mismatch 403s from the CDN.
+      if (isVideoUrl(reqUrl)) {
+        // Store request headers for CDN cookie/referer forwarding in the proxy
         try {
           const reqHeaders = route.request().headers();
           storeVideoHeaders(reqUrl, reqHeaders, page.url());
         } catch {}
-        io.to(djSocketId).emit('browser:video-found', { url: reqUrl });
-        console.log(`[browser-session:${slug}] ✓ Video detected: ${reqUrl}`);
+        videoFound.add(reqUrl);
+        videoTimestamps.set(reqUrl, Date.now());
+        startPlayPoll();
       }
       const rt = route.request().resourceType();
       if (['font'].includes(rt)) { route.abort(); return; }
       route.continue();
     });
 
-    // Response content-type detection
+    // Also capture URLs via response content-type (for servers that don't use .m3u8 extension)
     page.on('response', async (resp: any) => {
       try {
         const respUrl = resp.url();
         const ct = (resp.headers()['content-type'] || '').toLowerCase();
-        if (STREAM_CT.some(t => ct.startsWith(t)) && !videoFound.has(respUrl)) {
+        if (STREAM_CT.some(t => ct.startsWith(t))) {
           const cl = parseInt(resp.headers()['content-length'] || '0', 10);
           if (cl === 0 || cl > 500) {
-            videoFound.add(respUrl);
-            // Capture request headers from the response's originating request
             try {
               const reqHeaders = resp.request().headers();
               storeVideoHeaders(respUrl, reqHeaders, page.url());
             } catch {}
-            io.to(djSocketId).emit('browser:video-found', { url: respUrl });
+            videoFound.add(respUrl);
+            videoTimestamps.set(respUrl, Date.now());
+            startPlayPoll();
           }
         }
       } catch {}
@@ -202,9 +244,10 @@ export async function startBrowserSession(
       await cdp.send('Page.screencastFrameAck', { sessionId }).catch(() => {});
     });
 
-    // Page navigation state
+    // Page navigation state — reset video tracking on each new page
     page.on('framenavigated', (frame: any) => {
       if (frame === page.mainFrame()) {
+        resetVideoTracking();
         io.to(sessions.get(slug)?.djSocketId ?? djSocketId).emit('browser:state', {
           url: page.url(), title: '', loading: true,
         });
