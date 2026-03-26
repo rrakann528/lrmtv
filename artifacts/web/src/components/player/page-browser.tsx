@@ -12,11 +12,11 @@ export default function PageBrowser({ url, onVideoDetected, onClose }: PageBrows
   const { t } = useI18n();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [status, setStatus] = useState<'extracting' | 'loading' | 'scanning' | 'found' | 'timeout'>('extracting');
+  const [extractPhase, setExtractPhase] = useState<'browser' | 'static' | 'iframe'>('browser');
   const [detectedUrl, setDetectedUrl] = useState<string | null>(null);
   const detectedRef = useRef(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showIframe, setShowIframe] = useState(false);
-  const [extractFailed, setExtractFailed] = useState(false);
 
   const handleDetected = useCallback((videoUrl: string) => {
     if (detectedRef.current) return;
@@ -31,8 +31,16 @@ export default function PageBrowser({ url, onVideoDetected, onClose }: PageBrows
     let cancelled = false;
 
     async function tryExtract() {
+      setExtractPhase('browser');
       try {
-        const resp = await fetch(`/api/proxy/extract?url=${encodeURIComponent(url)}`);
+        const controller = new AbortController();
+        const fetchTimeout = setTimeout(() => controller.abort(), 45000);
+
+        const resp = await fetch(`/api/proxy/extract?url=${encodeURIComponent(url)}`, {
+          signal: controller.signal,
+        });
+        clearTimeout(fetchTimeout);
+
         if (!resp.ok) throw new Error('extract failed');
         const data = await resp.json();
 
@@ -46,7 +54,7 @@ export default function PageBrowser({ url, onVideoDetected, onClose }: PageBrows
       } catch {}
 
       if (cancelled || detectedRef.current) return;
-      setExtractFailed(true);
+      setExtractPhase('iframe');
       setShowIframe(true);
       setStatus('loading');
     }
@@ -81,6 +89,10 @@ export default function PageBrowser({ url, onVideoDetected, onClose }: PageBrows
 
   const proxyUrl = `/api/proxy/page?url=${encodeURIComponent(url)}`;
 
+  const extractingLabel = extractPhase === 'browser'
+    ? (t('pageBrowserVirtualBrowser') || 'Virtual browser scanning...')
+    : (t('pageBrowserExtracting') || 'Extracting...');
+
   return (
     <div className="absolute inset-0 z-40 flex flex-col bg-black">
       <div className="shrink-0 flex items-center justify-between px-3 py-2 bg-gray-900/95 border-b border-white/10">
@@ -93,7 +105,7 @@ export default function PageBrowser({ url, onVideoDetected, onClose }: PageBrows
             {status === 'extracting' && (
               <>
                 <Search className="w-3.5 h-3.5 text-purple-400 animate-pulse" />
-                <span className="text-[11px] text-purple-400">{t('pageBrowserExtracting') || 'Extracting...'}</span>
+                <span className="text-[11px] text-purple-400">{extractingLabel}</span>
               </>
             )}
             {status === 'loading' && (
@@ -133,9 +145,22 @@ export default function PageBrowser({ url, onVideoDetected, onClose }: PageBrows
       <div className="flex-grow relative">
         {status === 'extracting' && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-center space-y-3">
-              <Search className="w-12 h-12 text-purple-400 mx-auto animate-pulse" />
-              <p className="text-white/70 text-sm">{t('pageBrowserExtracting') || 'Searching for video...'}</p>
+            <div className="text-center space-y-4">
+              <div className="relative mx-auto w-16 h-16">
+                <Search className="w-16 h-16 text-purple-400 animate-pulse" />
+                <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-purple-500 rounded-full flex items-center justify-center">
+                  <Loader2 className="w-4 h-4 text-white animate-spin" />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <p className="text-white/80 text-sm font-medium">{extractingLabel}</p>
+                <p className="text-white/40 text-xs">
+                  {extractPhase === 'browser'
+                    ? (t('pageBrowserVirtualBrowserDesc') || 'Opening page in headless browser...')
+                    : (t('pageBrowserExtracting') || 'Searching for video...')
+                  }
+                </p>
+              </div>
             </div>
           </div>
         )}
