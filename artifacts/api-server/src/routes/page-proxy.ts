@@ -268,86 +268,219 @@ router.get('/proxy/extract', extractLimiter, async (req, res) => {
 });
 
 // ── Bridge script injected into proxied pages ─────────────────────────────────
+// This runs inside EVERY proxied page (including nested iframes).
+// It hooks all network activity and video element sources, then relays
+// detected video URLs up the iframe chain via postMessage.
 const BRIDGE_SCRIPT = `(function(){
+  // Keep a reference to the real parent before any overrides
   var RP=window.parent;
+  var _top=window.top;
+
+  // ── Anti-iframe-detection — make the page think it's top-level ──────────────
   try{Object.defineProperty(window,'top',{get:function(){return window},configurable:true})}catch(e){}
   try{Object.defineProperty(window,'parent',{get:function(){return window},configurable:true})}catch(e){}
   try{Object.defineProperty(window,'frameElement',{get:function(){return null},configurable:true})}catch(e){}
   try{Object.defineProperty(window,'self',{get:function(){return window},configurable:true})}catch(e){}
-  var RE=/\\.m3u8|\\.mp4|\\.webm|\\.mkv/i;
+
+  // ── Pattern matchers ─────────────────────────────────────────────────────────
+  // Extension-based
+  var RE_EXT=/\\.m3u8|\\.mp4|\\.webm|\\.mkv|\\.ts/i;
+  // HLS/DASH hints without extension
+  var RE_HLS=/\\/hls\\/|\\/dash\\/|master\\.m3u8|playlist\\.m3u8|index\\.m3u8|chunklist|\\/manifest\\.mpd|type=m3u8|format=hls/i;
+  // Full URL pattern in text
+  var RE_URL=/(?:https?:)?\\/\\/[^\\s"'<>\\)\\]]+\\.(?:m3u8|mp4|webm|ts|mkv)(?:\\?[^\\s"'<>\\)\\]]*)*/gi;
+
+  function isVideoUrl(u){
+    if(!u||typeof u!=='string'||u.length<8)return false;
+    return RE_EXT.test(u)||RE_HLS.test(u);
+  }
+
   var sent=new Set();
-  function abs(u){try{return new URL(u,location.href).href}catch(e){return u}}
+  function abs(u){
+    try{
+      if(u.startsWith('blob:'))return u;
+      return new URL(u,location.href).href;
+    }catch(e){return u}
+  }
   function report(u){
-    if(!u||u.length<10)return;
+    if(!u||typeof u!=='string'||u.length<10)return;
+    if(u.startsWith('data:'))return;
     u=abs(u);
     if(sent.has(u))return;
     sent.add(u);
     try{RP.postMessage({type:'lrmtv-video-detected',url:u},'*')}catch(e){}
+    try{_top.postMessage({type:'lrmtv-video-detected',url:u},'*')}catch(e){}
   }
+
+  // Scan arbitrary text for video URLs
+  function scanText(text){
+    if(!text||typeof text!=='string')return;
+    var m=text.match(RE_URL);
+    if(m)m.forEach(function(mu){if(mu.startsWith('//'))mu='https:'+mu;report(mu)});
+  }
+
   window.__lrmtvReport=report;
+
+  // Relay postMessages from nested iframes up the chain
   window.addEventListener('message',function(ev){
     if(ev.data&&ev.data.type==='lrmtv-video-detected'&&ev.data.url){
-      try{RP.postMessage(ev.data,'*')}catch(e){}
+      report(ev.data.url);
     }
   });
+
+  // ── Hook fetch() ─────────────────────────────────────────────────────────────
   var origFetch=window.fetch;
   if(origFetch){
     window.fetch=function(){
       var u=typeof arguments[0]==='string'?arguments[0]:(arguments[0]&&arguments[0].url)||'';
-      if(u&&RE.test(String(u)))report(String(u));
+      u=String(u);
+      if(isVideoUrl(u))report(u);
       var p=origFetch.apply(this,arguments);
-      try{p.then(function(resp){
+      p.then(function(resp){
         try{
+          var respUrl=resp.url||u;
+          if(isVideoUrl(respUrl))report(respUrl);
           var ct=resp.headers.get('content-type')||'';
-          if(ct.indexOf('json')!==-1||ct.indexOf('text')!==-1){
-            resp.clone().text().then(function(body){
-              var m=body.match(/(?:https?:)?\\/\\/[^\\s"'<>\\)]+\\.(?:m3u8|mp4|webm)(?:\\?[^\\s"'<>\\)]*)*/gi);
-              if(m)m.forEach(function(mu){if(mu.startsWith('//'))mu='https:'+mu;report(mu)});
-            }).catch(function(){});
+          if(ct.indexOf('mpegurl')!==-1||ct.indexOf('dash+xml')!==-1){report(respUrl)}
+          if(ct.indexOf('json')!==-1||ct.indexOf('text')!==-1||ct.indexOf('javascript')!==-1){
+            resp.clone().text().then(function(body){scanText(body)}).catch(function(){});
           }
         }catch(e){}
-      }).catch(function(){})}catch(e){}
+      }).catch(function(){});
       return p;
     };
   }
+
+  // ── Hook XMLHttpRequest ──────────────────────────────────────────────────────
   var origOpen=XMLHttpRequest.prototype.open;
+  var origSend=XMLHttpRequest.prototype.send;
   XMLHttpRequest.prototype.open=function(method,url){
-    if(url&&RE.test(String(url)))report(String(url));
+    this.__lrmtvUrl=String(url||'');
+    if(isVideoUrl(this.__lrmtvUrl))report(this.__lrmtvUrl);
     return origOpen.apply(this,arguments);
   };
+  XMLHttpRequest.prototype.send=function(){
+    var xhr=this;
+    var origOnload=xhr.onload;
+    xhr.addEventListener('load',function(){
+      try{
+        var respUrl=xhr.responseURL||xhr.__lrmtvUrl||'';
+        if(isVideoUrl(respUrl))report(respUrl);
+        var ct=xhr.getResponseHeader('content-type')||'';
+        if(ct.indexOf('mpegurl')!==-1||ct.indexOf('dash+xml')!==-1){report(respUrl)}
+        var body=xhr.responseText||'';
+        if(body.length<500000)scanText(body);
+      }catch(e){}
+    });
+    return origSend.apply(this,arguments);
+  };
+
+  // ── Hook HTMLMediaElement.src ────────────────────────────────────────────────
   try{
     var desc=Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype,'src');
     if(desc&&desc.set){
       var origSet=desc.set,origGet=desc.get;
       Object.defineProperty(HTMLMediaElement.prototype,'src',{
-        set:function(v){if(v&&RE.test(v))report(v);origSet.call(this,v)},
-        get:function(){return origGet.call(this)},configurable:true
+        set:function(v){
+          if(v&&typeof v==='string'&&!v.startsWith('blob:')&&(isVideoUrl(v)))report(v);
+          origSet.call(this,v);
+        },
+        get:function(){return origGet.call(this)},
+        configurable:true
       });
     }
   }catch(e){}
+
+  // ── Hook currentSrc (read-only property on media elements) ──────────────────
+  var _origPlay=HTMLMediaElement.prototype.play;
+  if(_origPlay){
+    HTMLMediaElement.prototype.play=function(){
+      try{if(this.currentSrc&&isVideoUrl(this.currentSrc))report(this.currentSrc);}catch(e){}
+      var r=_origPlay.apply(this,arguments);
+      if(r&&r.then){r.then(function(){try{if(this.currentSrc&&isVideoUrl(this.currentSrc))report(this.currentSrc);}catch(e){}}.bind(this)).catch(function(){});}
+      return r;
+    };
+  }
+
+  // ── Hook window.open (some players open video in new tab) ───────────────────
+  var origOpen2=window.open;
+  window.open=function(url){
+    if(url&&isVideoUrl(String(url)))report(String(url));
+    return origOpen2.apply(this,arguments);
+  };
+
+  // ── MutationObserver — watch for dynamically added video/source elements ─────
   var obs=new MutationObserver(function(muts){
     muts.forEach(function(m){
       m.addedNodes.forEach(function(n){
         if(n.nodeType!==1)return;
-        if(n.tagName==='VIDEO'||n.tagName==='SOURCE'){
-          var s=n.src||n.getAttribute('src')||'';
-          if(RE.test(s))report(s);
-          if(n.currentSrc&&RE.test(n.currentSrc))report(n.currentSrc);
+        var el=n;
+        if(el.tagName==='VIDEO'||el.tagName==='AUDIO'){
+          if(el.src&&isVideoUrl(el.src))report(el.src);
+          if(el.currentSrc&&isVideoUrl(el.currentSrc))report(el.currentSrc);
+          el.addEventListener('loadstart',function(){
+            if(this.currentSrc&&isVideoUrl(this.currentSrc))report(this.currentSrc);
+          });
+          el.addEventListener('canplay',function(){
+            if(this.currentSrc&&isVideoUrl(this.currentSrc))report(this.currentSrc);
+          });
         }
-        var vids=n.querySelectorAll&&n.querySelectorAll('video,source');
+        if(el.tagName==='SOURCE'){
+          var s=el.src||el.getAttribute('src')||'';
+          if(isVideoUrl(s))report(s);
+        }
+        // Recurse into added subtrees
+        var vids=el.querySelectorAll&&el.querySelectorAll('video,audio,source');
         if(vids)vids.forEach(function(v){
           var s=v.src||v.getAttribute('src')||'';
-          if(RE.test(s))report(s);
-          if(v.currentSrc&&RE.test(v.currentSrc))report(v.currentSrc);
+          if(s&&isVideoUrl(s))report(s);
+          if(v.currentSrc&&isVideoUrl(v.currentSrc))report(v.currentSrc);
         });
       });
+      // Also watch attribute changes
+      if(m.type==='attributes'&&m.attributeName==='src'){
+        var el2=m.target;
+        var s2=el2.getAttribute&&el2.getAttribute('src')||'';
+        if(s2&&isVideoUrl(s2))report(s2);
+      }
     });
   });
-  obs.observe(document.documentElement||document,{childList:true,subtree:true,attributes:true,attributeFilter:['src']});
+  obs.observe(document.documentElement||document.body||document,{childList:true,subtree:true,attributes:true,attributeFilter:['src','data-src','data-url']});
+
+  // ── Scan existing video elements on load ─────────────────────────────────────
+  function scanExisting(){
+    document.querySelectorAll('video,audio').forEach(function(v){
+      if(v.currentSrc&&isVideoUrl(v.currentSrc))report(v.currentSrc);
+      if(v.src&&isVideoUrl(v.src))report(v.src);
+      v.querySelectorAll('source').forEach(function(s){
+        if(s.src&&isVideoUrl(s.src))report(s.src);
+      });
+    });
+    // Scan script tags for embedded URLs
+    document.querySelectorAll('script:not([src])').forEach(function(s){
+      scanText(s.textContent||'');
+    });
+    // Scan data attributes
+    document.querySelectorAll('[data-src],[data-url],[data-video],[data-file],[data-stream],[data-hls]').forEach(function(el){
+      ['data-src','data-url','data-video','data-file','data-stream','data-hls'].forEach(function(a){
+        var v=el.getAttribute(a);
+        if(v&&isVideoUrl(v))report(v);
+      });
+    });
+  }
+
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',scanExisting);
+  } else {
+    scanExisting();
+  }
+  window.addEventListener('load',scanExisting);
+
+  // ── Polling fallback every 1.5 seconds ───────────────────────────────────────
   setInterval(function(){
-    document.querySelectorAll('video').forEach(function(v){
-      if(v.currentSrc&&RE.test(v.currentSrc))report(v.currentSrc);
-      if(v.src&&RE.test(v.src))report(v.src);
+    document.querySelectorAll('video,audio').forEach(function(v){
+      if(v.currentSrc&&isVideoUrl(v.currentSrc))report(v.currentSrc);
+      if(v.src&&isVideoUrl(v.src))report(v.src);
     });
   },1500);
 })();`;

@@ -116,7 +116,7 @@ S1 HLS.js direct
 
 ## Page Browser (استخراج فيديو من صفحات)
 
-ميزة تسمح بلصق رابط صفحة فيلم (مثل faselhdx) واستخراج رابط الفيديو المباشر تلقائياً.
+ميزة تسمح بلصق رابط صفحة فيلم (مثل إيجي بست، فاصل هد، إلخ) واستخراج رابط الفيديو المباشر تلقائياً ثم تشغيله في الغرفة مع التزامن.
 
 ### كيف يعمل — وضع مزدوج بالتوازي
 
@@ -125,11 +125,13 @@ S1 HLS.js direct
 **المسار الأول — المتصفح الافتراضي (خلفية السيرفر):**
 - **Headless Chromium** (Playwright) يفتح الصفحة كمتصفح حقيقي على السيرفر
 - Anti-detection: يخفي `navigator.webdriver`، يضيف plugins وهمية، يحاكي Chrome حقيقي
-- يعترض كل الطلبات الشبكية ويفحص ردود JSON/text عن روابط `.m3u8`/`.mp4`
+- **Network Interception**: يعترض كل الطلبات الشبكية على مستوى الشبكة (context.route) — يكشف الفيديو حتى بدون امتداد `.m3u8`
+- يفحص Content-Type headers لكشف streams (`application/vnd.apple.mpegurl`, `video/*`, إلخ)
+- يكشف HLS/DASH حتى بدون امتداد: `/hls/`, `/dash/`, `master.m3u8`, `type=m3u8`, إلخ
 - يغلق نوافذ الكوكيز والإعلانات تلقائياً
-- يضغط أزرار التشغيل (15+ selector مختلف)
+- يضغط أزرار التشغيل (20+ selector بما فيها مواقع عربية)
 - يفحص `<video>` elements + iframes المتداخلة بشكل دوري
-- إذا فشل Playwright → يجرب استخراج HTML ثابت (يتبع iframes حتى 2 مستويات)
+- إذا فشل Playwright → يجرب استخراج HTML ثابت (يتبع iframes حتى 3 مستويات)
 - **المتصفح يبقى خامل 60 ثانية** ثم ينطفي (توفير موارد)
 - **حد 3 استخراجات متزامنة** + rate limit: 5 طلبات/دقيقة/IP
 - **حماية SSRF**: يحظر كل الطلبات لعناوين خاصة عبر `context.route()`
@@ -137,12 +139,21 @@ S1 HLS.js direct
 **المسار الثاني — Iframe تفاعلي (أمام المستخدم):**
 - الصفحة تظهر فوراً في iframe — المستخدم يشوف الصفحة ويقدر يتفاعل معها
 - Bridge script مُحقَن في الصفحة يراقب تلقائياً:
-  - `fetch()` و `XHR.open()` hooks عن روابط فيديو
-  - `HTMLMediaElement.src` setter
-  - MutationObserver على `<video>`/`<source>` elements
+  - `fetch()` hooks — يفحص URL + response body + Content-Type
+  - `XMLHttpRequest.open()` + `send()` + response scanning
+  - `HTMLMediaElement.src` setter + `play()` hook
+  - `window.open()` hook (بعض المشغلات تفتح الفيديو في تبويب جديد)
+  - MutationObserver على `<video>`/`<source>`/`data-src`/`data-hls` elements
   - Polling كل 1.5 ثانية على `video.currentSrc`
+  - يكشف HLS hints بدون امتداد (`/hls/`, `master.m3u8`, `type=m3u8`, إلخ)
 - Bridge يرسل `postMessage` للـ parent عند كشف أي رابط فيديو
 - Nested iframes يتم تمريرها عبر `/api/proxy/page` تلقائياً
+
+**UI الجديد (page-browser.tsx):**
+- يجمع كل الروابط المكتشفة (HLS + MP4 + إلخ) في قائمة قابلة للاختيار
+- يشغّل أفضل رابط تلقائياً (HLS يُفضَّل على MP4)
+- زر "إعادة المحاولة" عند عدم الكشف
+- يدعم التشغيل اليدوي من قائمة الروابط
 
 ### Dockerfile
 - Base: `node:20-alpine`
