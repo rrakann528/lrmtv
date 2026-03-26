@@ -168,6 +168,9 @@ router.get('/proxy/page', async (req, res) => {
 
     let html = await response.text();
 
+    html = html.replace(/<script[^>]*src=["'][^"']*sbx\.js["'][^>]*><\/script>/gi, '');
+    html = html.replace(/dtc_sbx\s*\(\s*\)/g, '');
+
     const antiIframeTag = `<script>${ANTI_IFRAME_SCRIPT}</script>`;
     const baseTag = `<base href="${baseHref}/">`;
     const headMatch = html.match(/<head[^>]*>/i);
