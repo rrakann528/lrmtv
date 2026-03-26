@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   MessageSquare, ListVideo, Users, UserPlus,
   Mic, MicOff, Copy, Share2, Shield,
-  LogOut, LogIn, Settings2, Play, SlidersHorizontal,
+  LogOut, LogIn, Settings2, Play,
 } from 'lucide-react';
 
 import { useI18n } from '@/lib/i18n';
@@ -18,14 +18,12 @@ import { useQueryClient } from '@tanstack/react-query';
 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { useSettings } from '@/lib/settings';
 
 import ChatPanel from './room/chat-panel';
 import PlaylistPanel from './room/playlist-panel';
 import UsersPanel from './room/users-panel';
 import FriendsPanel from './room/friends-panel';
 import { RoomSettingsSheet } from './room/room-settings-sheet';
-import { UserRoomSettings } from './room/user-room-settings';
 import { UserProfileSheet } from '@/components/user-profile-sheet';
 import { SmartPlayer, type SmartPlayerHandle } from '@/components/player/smart-player';
 
@@ -81,8 +79,6 @@ export default function RoomPage() {
     subtitleSync, emitSubtitleSync, emitStreamType,
   } = useSocket(slug);
 
-  const [appSettings] = useSettings();
-
   const [activeTab, setActiveTab] = useState<'chat' | 'playlist' | 'users' | 'friends'>('chat');
   const [roomProfile, setRoomProfile] = useState<{ username: string; userId?: number } | null>(null);
   const [micOn, setMicOn]       = useState(false);
@@ -97,7 +93,6 @@ export default function RoomPage() {
 
   // Room settings panel (admin only) — controlled from header button
   const [showRoomSettings, setShowRoomSettings] = useState(false);
-  const [showUserSettings, setShowUserSettings] = useState(false);
 
   const [mediaConfirm, setMediaConfirm] = useState(false);
 
@@ -171,16 +166,6 @@ export default function RoomPage() {
       if (!syncState.url) emitSync(0, false, url);
     } catch { /* ignore */ }
   }, [slug, addMutation, queryClient, emitPlaylistUpdate, syncState.url, emitSync]);
-
-  useEffect(() => {
-    if (!appSettings.confirmBeforeLeave) return;
-    const handler = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-      e.returnValue = '';
-    };
-    window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
-  }, [appSettings.confirmBeforeLeave]);
 
   useEffect(() => {
     setBgImage(
@@ -378,20 +363,6 @@ export default function RoomPage() {
             </button>
           )}
 
-          {/* User Room Settings */}
-          <button
-            onClick={() => setShowUserSettings(s => !s)}
-            title={t('userRoomSettings')}
-            className={cn(
-              'h-8 w-8 flex items-center justify-center rounded-lg border border-white/10 transition-colors',
-              showUserSettings
-                ? 'bg-primary/20 border-primary/40 text-primary'
-                : 'bg-white/5 text-white/70 hover:text-white hover:bg-white/10',
-            )}
-          >
-            <SlidersHorizontal className="w-4 h-4" />
-          </button>
-
           {/* Mic */}
           <button
             onClick={handleToggleMic}
@@ -535,10 +506,10 @@ export default function RoomPage() {
         {/* ── Chat / Playlist / Users panel ───────────────────────── */}
         <div className={cn(
           'flex flex-col min-h-0 bg-black/40',
+          // Mobile: fills remaining space below player
           'flex-grow',
-          appSettings.theaterMode
-            ? 'md:flex-grow-0 md:w-64 md:shrink-0 md:border-s border-white/10'
-            : 'md:flex-grow-0 md:w-72 lg:w-96 md:shrink-0 md:border-s border-white/10',
+          // md+: fixed-width sidebar with left border
+          'md:flex-grow-0 md:w-72 lg:w-96 md:shrink-0 md:border-s border-white/10',
         )}>
 
           {/* ── YouTube search + direct URL — only for users with control ── */}
@@ -662,16 +633,6 @@ export default function RoomPage() {
           />
         )}
       </AnimatePresence>
-
-      {/* ── User Room Settings ──────────────────────────────────────── */}
-      {createPortal(
-        <AnimatePresence>
-          {showUserSettings && (
-            <UserRoomSettings onClose={() => setShowUserSettings(false)} />
-          )}
-        </AnimatePresence>,
-        document.body
-      )}
 
       {/* ── Room Settings Sheet ──────────────────────────────────────── */}
       {createPortal(

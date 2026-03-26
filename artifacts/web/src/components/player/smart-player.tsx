@@ -20,8 +20,7 @@ import FullscreenChat from './fullscreen-chat';
 import SubtitleSearch from './subtitle-search';
 import { generateColorFromString, cn } from '@/lib/utils';
 import type { ToastMessage } from './player-controls';
-import { fetchSponsorSegments, findActiveSegment, isYouTubeUrl, type SponsorSegment, AD_CATEGORIES } from '@/lib/sponsorblock';
-import { getSettings } from '@/lib/settings';
+import { fetchSponsorSegments, findActiveSegment, isYouTubeUrl, type SponsorSegment } from '@/lib/sponsorblock';
 
 interface SubtitleCue { start: number; end: number; text: string }
 
@@ -154,7 +153,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
     // ReactPlayer playback tracking
     const [rpCurrentTime, setRpCurrentTime] = useState(0);
     const [rpDuration, setRpDuration] = useState(0);
-    const [rpVolume, setRpVolume] = useState(() => getSettings().defaultVolume / 100);
+    const [rpVolume, setRpVolume] = useState(1);
     const [rpMuted, setRpMuted] = useState(false);
 
     // ── Subtitle state (ReactPlayer branch only) ─────────────────────────────
@@ -166,7 +165,6 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
     const [sponsorSegments, setSponsorSegments] = useState<SponsorSegment[]>([]);
     const lastSkippedRef = useRef<string | null>(null);
     const [sponsorSkipNotice, setSponsorSkipNotice] = useState(false);
-    const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const { t } = useI18n();
 
@@ -541,8 +539,8 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
           onPause={onPause}
           onProgress={({ playedSeconds }) => {
             setRpCurrentTime(playedSeconds);
-            if (sponsorSegments.length > 0 && isYouTubeUrl(normalizedUrl) && sponsorSkipEnabled) {
-              const seg = findActiveSegment(sponsorSegments, playedSeconds, AD_CATEGORIES as unknown as string[]);
+            if (sponsorSkipEnabled && sponsorSegments.length > 0 && isYouTubeUrl(normalizedUrl)) {
+              const seg = findActiveSegment(sponsorSegments, playedSeconds);
               if (seg && lastSkippedRef.current !== seg.UUID) {
                 lastSkippedRef.current = seg.UUID;
                 reactPlayerRef.current?.seekTo(seg.segment[1], 'seconds');
@@ -580,28 +578,15 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
           }}
         />
 
+        {/* Tap-catcher: when controls are hidden, tap anywhere to show them */}
         {!showOverlay && !error && (
           <div
             className="absolute inset-0 z-[9]"
             onMouseMove={resetOverlayTimer}
             onTouchStart={resetOverlayTimer}
             onClick={() => {
-              if (getSettings().doubleClickFullscreen) {
-                if (clickTimerRef.current) {
-                  clearTimeout(clickTimerRef.current);
-                  clickTimerRef.current = null;
-                  toggleReactPlayerFullscreen();
-                  return;
-                }
-                clickTimerRef.current = setTimeout(() => {
-                  clickTimerRef.current = null;
-                  if (!playing && canControl) directPlay();
-                  else resetOverlayTimer();
-                }, 250);
-              } else {
-                if (!playing && canControl) directPlay();
-                else resetOverlayTimer();
-              }
+              if (!playing && canControl) directPlay();
+              else resetOverlayTimer();
             }}
           />
         )}
@@ -617,19 +602,8 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
               transition={{ duration: 0.15 }}
               className="absolute inset-0 z-10 flex flex-col justify-end select-none"
               onClick={(e) => {
-                if (e.target !== e.currentTarget) return;
-                if (getSettings().doubleClickFullscreen) {
-                  if (clickTimerRef.current) {
-                    clearTimeout(clickTimerRef.current);
-                    clickTimerRef.current = null;
-                    toggleReactPlayerFullscreen();
-                    return;
-                  }
-                  clickTimerRef.current = setTimeout(() => {
-                    clickTimerRef.current = null;
-                    if (playing) directPause(); else directPlay();
-                  }, 250);
-                } else {
+                // tap center of video = toggle play; don't fire on controls bar
+                if (e.target === e.currentTarget) {
                   if (playing) directPause(); else directPlay();
                 }
               }}

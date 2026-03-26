@@ -51,7 +51,6 @@ const token = conns[0].settings.access_token;
 - **Real-time**: Socket.io (sync, chat, WebRTC)
 - **State**: Zustand
 - **i18n**: Custom React context — 6 لغات (ar, en, fr, tr, es, id) — مفتاح LS: `lrmtv_lang`
-- **Settings**: `src/lib/settings.ts` — localStorage-based (`lrmtv_settings`) with 25 user settings across 6 categories. Dedicated `/settings` page + in-room `UserRoomSettings` panel. **All settings are wired to components**: chatSounds (ChatPanel plays notification sound on new messages), showTimestamps (ChatPanel hides/shows timestamps), chatFontSize (ChatPanel applies small/normal/large), compactMode (ChatPanel compact layout), enterSends (ChatPanel Enter key behavior), showJoinLeave (ChatPanel hides system messages), defaultVolume (SmartPlayer+HlsPlayer initial volume), theaterMode (RoomPage narrower sidebar), confirmBeforeLeave (RoomPage beforeunload prompt), reduceMotion (App.tsx adds .reduce-motion CSS class disabling all animations), interfaceLanguage (i18n provider).
 
 ---
 

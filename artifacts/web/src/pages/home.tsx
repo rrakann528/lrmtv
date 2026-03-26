@@ -12,7 +12,6 @@ import { NotifBanner } from '@/components/notif-banner';
 import { useQuery } from '@tanstack/react-query';
 import { useUserSocket } from '@/hooks/use-user-socket';
 import { useI18n } from '@/lib/i18n';
-import { getSettings } from '@/lib/settings';
 
 type Tab = 'rooms' | 'friends' | 'groups' | 'profile';
 
@@ -77,13 +76,11 @@ export default function HomePage() {
   const [acceptedToast, setAcceptedToast] = useState<string | null>(null);
 
   const handleFriendAccepted = useCallback((data: { byId: number; byName: string }) => {
-    if (!getSettings().friendRequestNotifs) return;
     setAcceptedToast(data.byName);
     setTimeout(() => setAcceptedToast(null), 4000);
   }, []);
 
   const handleFriendRequest = useCallback(() => {
-    if (!getSettings().friendRequestNotifs) return;
     setActiveTab('friends');
   }, []);
 

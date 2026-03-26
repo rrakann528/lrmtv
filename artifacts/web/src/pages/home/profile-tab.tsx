@@ -1,9 +1,10 @@
 import { useState, useRef, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
-import { Edit3, LogOut, Save, X, Shield, Camera, Trash2, Settings } from 'lucide-react';
+import { Edit3, LogOut, Save, X, Bell, BellOff, Shield, Camera, Trash2 } from 'lucide-react';
 import { Avatar } from '@/components/avatar';
-import { useAuth } from '@/hooks/use-auth';
-import { useI18n } from '@/lib/i18n';
+import { useAuth, apiFetch } from '@/hooks/use-auth';
+import { usePush } from '@/hooks/use-push';
+import { useI18n, LANGUAGES } from '@/lib/i18n';
 import { useLocation } from 'wouter';
 
 const AVATAR_COLORS = [
@@ -12,12 +13,14 @@ const AVATAR_COLORS = [
   '#84CC16', '#E879F9',
 ];
 
-type Section = null | 'name' | 'username' | 'bio' | 'avatar';
+type Section = null | 'name' | 'username' | 'bio' | 'avatar' | 'password';
 
 export function ProfileTab() {
   const { user, logout, updateProfile, setUser } = useAuth();
-  const { t } = useI18n();
+  const { lang, setLang, t } = useI18n();
   const [, setLocation] = useLocation();
+  const { permission, loading: pushLoading, subscribe, refresh: refreshPush, test: testPush, isSupported } = usePush(user?.id);
+  const [testMsg, setTestMsg] = useState<'idle' | 'sent' | 'fail'>('idle');
   const [section, setSection] = useState<Section>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -226,25 +229,116 @@ export function ProfileTab() {
           <SaveBtn saving={saving} onClick={() => save({ avatarColor, avatarUrl: '' })} label={t('save')} />
         </ProfileSection>
 
-        <motion.button
-          whileTap={{ scale: 0.97 }}
-          onClick={() => setLocation('/settings')}
-          className="w-full flex items-center justify-center gap-2 py-3.5 bg-primary/10 border border-primary/20 text-primary rounded-2xl font-semibold text-sm"
+        <div className="bg-card border border-border rounded-2xl overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3.5">
+            <div>
+              <p className="text-xs text-muted-foreground">{t('notificationsLabel')}</p>
+              <p className="text-sm font-medium text-foreground mt-0.5">
+                {!isSupported
+                  ? t('notifNotSupported')
+                  : permission === 'granted'
+                    ? t('notifEnabled')
+                    : permission === 'denied'
+                      ? t('notifBlocked')
+                      : t('notifDisabled')}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {isSupported && permission !== 'granted' && permission !== 'denied' && (
+                <button
+                  onClick={subscribe}
+                  disabled={pushLoading}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-xl text-xs font-bold disabled:opacity-50"
+                >
+                  {pushLoading
+                    ? <div className="w-3 h-3 border-2 border-primary-foreground/50 border-t-transparent rounded-full animate-spin" />
+                    : <Bell className="w-3.5 h-3.5" />}
+                  {t('notifEnable')}
+                </button>
+              )}
+              {permission === 'granted' && (
+                <button
+                  onClick={refreshPush}
+                  disabled={pushLoading}
+                  className="flex items-center gap-1 px-2.5 py-1.5 bg-muted rounded-xl text-xs text-muted-foreground font-medium disabled:opacity-50"
+                >
+                  {pushLoading
+                    ? <div className="w-3 h-3 border-2 border-muted-foreground/40 border-t-transparent rounded-full animate-spin" />
+                    : <Bell className="w-3.5 h-3.5" />}
+                  {t('notifRefresh')}
+                </button>
+              )}
+              {permission === 'granted' && (
+                <button
+                  onClick={async () => {
+                    setTestMsg('idle');
+                    const ok = await testPush();
+                    setTestMsg(ok ? 'sent' : 'fail');
+                    setTimeout(() => setTestMsg('idle'), 4000);
+                  }}
+                  disabled={pushLoading}
+                  className="flex items-center gap-1 px-2.5 py-1.5 bg-green-500/20 rounded-xl text-xs text-green-500 font-medium disabled:opacity-50"
+                >
+                  <Bell className="w-3.5 h-3.5" />
+                  {t('notifTest')}
+                </button>
+              )}
+              {permission === 'denied' && (
+                <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
+                  <BellOff className="w-4 h-4 text-muted-foreground" />
+                </div>
+              )}
+            </div>
+          </div>
+          {testMsg !== 'idle' && (
+            <div className={`px-4 py-2 text-xs text-center border-t border-border ${testMsg === 'sent' ? 'text-green-500' : 'text-destructive'}`}>
+              {testMsg === 'sent' ? t('notifSent') : t('notifFailed')}
+            </div>
+          )}
+        </div>
+
+        <ProfileSection
+          label={t('passwordLabel') || 'Password'}
+          value="••••••••"
+          onEdit={() => setSection('password')}
+          isOpen={section === 'password'}
+          onClose={() => setSection(null)}
         >
-          <Settings className="w-4 h-4" />
-          {t('settings')}
-        </motion.button>
+          <PasswordChange saving={saving} save={save} t={t} />
+        </ProfileSection>
 
         {user?.isSiteAdmin && (
           <motion.button
             whileTap={{ scale: 0.97 }}
             onClick={() => setLocation('/admin')}
-            className="w-full flex items-center justify-center gap-2 py-3.5 bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 rounded-2xl font-semibold text-sm mt-2"
+            className="w-full flex items-center justify-center gap-2 py-3.5 bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 rounded-2xl font-semibold text-sm mt-4"
           >
             <Shield className="w-4 h-4" />
             {t('adminPanel')}
           </motion.button>
         )}
+
+        <div className="mt-4 bg-card border border-border rounded-2xl overflow-hidden">
+          <p className="text-xs text-muted-foreground px-4 pt-3 pb-2">
+            {t('interfaceLanguage')}
+          </p>
+          <div className="grid grid-cols-3 gap-1.5 px-3 pb-3">
+            {LANGUAGES.map(l => (
+              <button
+                key={l.code}
+                onClick={() => setLang(l.code)}
+                className={`flex flex-col items-center gap-1 py-2.5 rounded-xl text-xs font-medium transition-all active:scale-95 ${
+                  lang === l.code
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'bg-muted/50 text-muted-foreground hover:bg-muted'
+                }`}
+              >
+                <span className="text-xl leading-none">{l.flag}</span>
+                <span>{l.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
 
         <motion.button
           whileTap={{ scale: 0.97 }}
@@ -265,6 +359,30 @@ export function ProfileTab() {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function PasswordChange({ saving, save, t }: { saving: boolean; save: (u: any) => Promise<void>; t: (k: any) => string }) {
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  return (
+    <div className="space-y-3">
+      <input
+        type="password"
+        value={currentPassword}
+        onChange={e => setCurrentPassword(e.target.value)}
+        placeholder={t('currentPassword') || 'Current password'}
+        className="w-full bg-muted/50 border border-border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+      />
+      <input
+        type="password"
+        value={newPassword}
+        onChange={e => setNewPassword(e.target.value)}
+        placeholder={t('newPassword') || 'New password'}
+        className="w-full bg-muted/50 border border-border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+      />
+      <SaveBtn saving={saving} onClick={() => save({ currentPassword, newPassword })} label={t('save')} />
     </div>
   );
 }

@@ -8,7 +8,6 @@ import React, {
 } from 'react';
 import Hls from 'hls.js';
 import { Play, AlertTriangle, RotateCcw, Loader2, VolumeX } from 'lucide-react';
-import { getSettings } from '@/lib/settings';
 import { useI18n } from '@/lib/i18n';
 import { onFullscreenChange } from '@/lib/fullscreen';
 import PlayerControls, { type SubtitleTrack, type ToastMessage } from './player-controls';
@@ -160,7 +159,6 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
     useEffect(() => { initialTimeRef.current = initialTime; }, [initialTime]);
     // Fire onReady only once per src load (reset in the load effect)
     const readyFiredRef = useRef(false);
-    const volumeInitRef = useRef(false);
     // Synchronous live flag (React state is async — closures need a ref)
     const isLiveRef = useRef(false);
     // Buffering overlay: true while waiting for first playable frame after seek
@@ -352,12 +350,10 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
       const signalReady = () => {
         if (cancelled || readyFiredRef.current) return;
         readyFiredRef.current = true;
-        if (!volumeInitRef.current && video) {
-          volumeInitRef.current = true;
-          video.volume = getSettings().defaultVolume / 100;
-        }
         const targetTime = initialTimeRef.current;
         const currentPos = video?.currentTime ?? 0;
+        // For live streams skip seek entirely — just play from the live edge.
+        // For VOD: only seek if startPosition didn't already place us close enough.
         if (!isLiveRef.current && targetTime > 2 && video && Math.abs(currentPos - targetTime) > 4) {
           video.currentTime = targetTime;
         }
@@ -636,27 +632,7 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
             onIsLiveRef.current?.(live);
           }
           setStatusMsg(null); setError(null);
-          const tracks = hls.subtitleTracks.map((tk, i) => ({ id: i, name: tk.name || tk.lang || `Track ${i + 1}`, lang: tk.lang }));
-          setSubtitleTracks(tracks);
-          const s = getSettings();
-          if (s.subtitleAutoEnable && tracks.length > 0) {
-            hls.subtitleTrack = 0;
-            setActiveSubtitleId(0);
-          }
-          const q = s.videoQuality;
-          if (q !== 'auto') {
-            const target = parseInt(q);
-            const levels = hls.levels;
-            if (levels.length > 0) {
-              let bestIdx = -1;
-              let bestDiff = Infinity;
-              levels.forEach((lv, idx) => {
-                const diff = Math.abs((lv.height || 0) - target);
-                if (diff < bestDiff) { bestDiff = diff; bestIdx = idx; }
-              });
-              if (bestIdx >= 0) hls.currentLevel = bestIdx;
-            }
-          }
+          setSubtitleTracks(hls.subtitleTracks.map((tk, i) => ({ id: i, name: tk.name || tk.lang || `Track ${i + 1}`, lang: tk.lang })));
           startStallWatchdog();
           // signalReady() is intentionally NOT called here.
           // It fires from the 'canplay' event once the buffer at startPosition is truly

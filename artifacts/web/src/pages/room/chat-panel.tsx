@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Send, Smile, MessageSquareOff } from 'lucide-react';
 import { useGetRoomMessages } from '@workspace/api-client-react';
@@ -13,9 +13,6 @@ import { MessageContextMenu } from '@/components/chat/message-context-menu';
 import { ReplyPreview } from '@/components/chat/reply-preview';
 import { QuotedMessage } from '@/components/chat/quoted-message';
 import { LinkifiedText } from '@/components/chat/linkified-text';
-import { useSettings } from '@/lib/settings';
-
-const chatSoundUrl = 'data:audio/wav;base64,UklGRl4AAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YToAAAA/P0A+Pzw9Oj04OjY3NDUyMzAxLi8sLSorKCkmJyQlIiMgIR4fHB0aGxgZFhcUFRITEBEODw==';
 
 const EmojiPicker = lazy(() => import('emoji-picker-react'));
 
@@ -50,7 +47,6 @@ export default function ChatPanel({
   chatDisabled, isAdmin, isGuest, users = [],
 }: ChatPanelProps) {
   const { t } = useI18n();
-  const [settings] = useSettings();
   const inputBlocked = (chatDisabled && !isAdmin) || isGuest;
   const { data: history } = useGetRoomMessages(slug);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -60,19 +56,6 @@ export default function ChatPanel({
   const inputRef = useRef<HTMLInputElement>(null);
   const [profileTarget, setProfileTarget] = useState<{ username: string; userId?: number } | null>(null);
   const [replyTarget, setReplyTarget] = useState<{ id: number; username: string; content: string } | null>(null);
-  const chatAudioRef = useRef<HTMLAudioElement | null>(null);
-
-  const fontSizeClass = settings.chatFontSize === 'small' ? 'text-xs' : settings.chatFontSize === 'large' ? 'text-base' : 'text-sm';
-
-  const playNotifSound = useCallback(() => {
-    if (!settings.chatSounds) return;
-    try {
-      if (!chatAudioRef.current) chatAudioRef.current = new Audio(chatSoundUrl);
-      chatAudioRef.current.currentTime = 0;
-      chatAudioRef.current.volume = 0.3;
-      chatAudioRef.current.play().catch(() => {});
-    } catch {}
-  }, [settings.chatSounds]);
 
   useEffect(() => {
     if (history) {
@@ -90,8 +73,6 @@ export default function ChatPanel({
       const existingIds = new Set(messages.map(m => m.id));
       const newMsgs = liveMessages.filter(m => !existingIds.has(m.id));
       if (newMsgs.length > 0) {
-        const hasOtherMsg = newMsgs.some(m => m.username !== username && m.type !== 'system');
-        if (hasOtherMsg) playNotifSound();
         setMessages(p => {
           const next = [...p, ...newMsgs];
           return next.length > MAX_MESSAGES ? next.slice(-MAX_MESSAGES) : next;
@@ -113,12 +94,6 @@ export default function ChatPanel({
     emitChatMessage(input.trim(), 'message', replyTarget || undefined);
     setInput('');
     setReplyTarget(null);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey && settings.enterSends) {
-      handleSubmit(e);
-    }
   };
 
   const handleEmojiClick = (emojiObj: { emoji: string }) => {
@@ -181,7 +156,6 @@ export default function ChatPanel({
                 </div>
               );
             }
-            if (!settings.showJoinLeave) return null;
             return (
               <div key={msg.id || i} className="flex justify-center my-2">
                 <span className="bg-white/10 px-3 py-1 rounded-full text-xs text-white/50">
@@ -203,10 +177,10 @@ export default function ChatPanel({
                 className={cn(
                   'flex items-end gap-2',
                   isMe ? 'flex-row-reverse' : 'flex-row',
-                  isFirstInGroup ? (settings.compactMode ? 'mt-1' : 'mt-2') : 'mt-0.5',
+                  isFirstInGroup ? 'mt-2' : 'mt-0.5',
                 )}
               >
-                {!isMe && !settings.compactMode && (
+                {!isMe && (
                   <div className="w-8 shrink-0 flex items-end">
                     {isLastInGroup ? (
                       <button
@@ -226,10 +200,7 @@ export default function ChatPanel({
                   {!isMe && isFirstInGroup && (
                     <button
                       onClick={() => openProfile(msg.username)}
-                      className={cn(
-                        'font-bold px-1 active:opacity-70 transition-opacity',
-                        settings.compactMode ? 'text-[10px] mb-0.5' : 'text-[11px] mb-1',
-                      )}
+                      className="text-[11px] font-bold mb-1 px-1 active:opacity-70 transition-opacity"
                       style={{ color: generateColorFromString(msg.username) }}
                     >
                       {roomUser?.displayName || msg.username}
@@ -238,9 +209,7 @@ export default function ChatPanel({
 
                   <div
                     className={cn(
-                      settings.compactMode ? 'px-2.5 py-1.5' : 'px-3 py-2',
-                      fontSizeClass,
-                      'break-words',
+                      'px-3 py-2 text-sm break-words',
                       isMe
                         ? 'bg-primary text-primary-foreground'
                         : 'bg-white/10 text-white border border-white/8',
@@ -263,14 +232,10 @@ export default function ChatPanel({
                         text={msg.replyToContent || ''}
                       />
                     )}
-                    {settings.messagePreviews ? (
-                      <LinkifiedText text={msg.content} />
-                    ) : (
-                      <span>{msg.content}</span>
-                    )}
+                    <LinkifiedText text={msg.content} />
                   </div>
 
-                  {isLastInGroup && settings.showTimestamps && (
+                  {isLastInGroup && (
                     <span className="text-[10px] text-white/30 mt-1 px-1">
                       {format(new Date(msg.createdAt), 'HH:mm')}
                     </span>
@@ -333,7 +298,6 @@ export default function ChatPanel({
             ref={inputRef}
             value={input}
             onChange={e => !inputBlocked && setInput(e.target.value)}
-            onKeyDown={!inputBlocked ? handleKeyDown : undefined}
             disabled={inputBlocked}
             className="ps-10 rounded-full bg-white/5 border-white/10 disabled:opacity-40 disabled:cursor-not-allowed"
             placeholder={

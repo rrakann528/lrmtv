@@ -7,7 +7,6 @@ import { I18nProvider } from "@/lib/i18n";
 import PwaInstallBanner from "@/components/pwa-install-banner";
 import InviteBanner from "@/components/invite-banner";
 import { useAuth } from "@/hooks/use-auth";
-import { useSettings } from "@/lib/settings";
 
 const LandingPage = lazy(() => import("@/pages/landing"));
 const HomePage    = lazy(() => import("@/pages/home"));
@@ -16,7 +15,6 @@ const AuthPage    = lazy(() => import("@/pages/auth"));
 const TermsPage   = lazy(() => import("@/pages/terms"));
 const PrivacyPage = lazy(() => import("@/pages/privacy"));
 const AdminPage   = lazy(() => import("@/pages/admin"));
-const SettingsPage = lazy(() => import("@/pages/settings"));
 const NotFound    = lazy(() => import("@/pages/not-found"));
 
 const queryClient = new QueryClient({
@@ -126,26 +124,10 @@ function Router() {
         <Route path="/terms"      component={TermsPage} />
         <Route path="/privacy"    component={PrivacyPage} />
         <Route path="/admin"      component={() => <VerifiedRoute component={AdminPage} />} />
-        <Route path="/settings"   component={() => <VerifiedRoute component={SettingsPage} />} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>
   );
-}
-
-function ReduceMotionManager() {
-  const [settings] = useSettings();
-  useEffect(() => {
-    if (settings.reduceMotion) {
-      document.documentElement.classList.add('reduce-motion');
-    } else {
-      document.documentElement.classList.remove('reduce-motion');
-    }
-    return () => {
-      document.documentElement.classList.remove('reduce-motion');
-    };
-  }, [settings.reduceMotion]);
-  return null;
 }
 
 function App() {
@@ -153,7 +135,6 @@ function App() {
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <I18nProvider>
-          <ReduceMotionManager />
           <SiteAnnouncementBanner />
           <PwaInstallBanner />
           <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>

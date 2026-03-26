@@ -11,9 +11,6 @@ export interface SponsorSegment {
   UUID: string;
 }
 
-export const AD_CATEGORIES = ['sponsor', 'selfpromo'] as const;
-export const INTRO_CATEGORIES = ['intro', 'outro', 'interaction', 'preview', 'music_offtopic'] as const;
-
 function extractYouTubeId(url: string): string | null {
   try {
     const u = new URL(url);
@@ -51,7 +48,7 @@ export async function fetchSponsorSegments(
   const requestId = ++currentRequestId;
 
   try {
-    const categories = [...AD_CATEGORIES, ...INTRO_CATEGORIES];
+    const categories = ['sponsor', 'selfpromo', 'interaction', 'intro', 'outro', 'preview'];
     const params = categories.map(c => `category=${c}`).join('&');
     const res = await fetch(`${SB_API}/skipSegments?videoID=${videoId}&${params}`, {
       signal: AbortSignal.timeout(5000),
@@ -73,13 +70,8 @@ export async function fetchSponsorSegments(
   }
 }
 
-export function findActiveSegment(
-  segments: SponsorSegment[],
-  currentTime: number,
-  allowedCategories?: readonly string[],
-): SponsorSegment | null {
+export function findActiveSegment(segments: SponsorSegment[], currentTime: number): SponsorSegment | null {
   for (const seg of segments) {
-    if (allowedCategories && !allowedCategories.includes(seg.category)) continue;
     const [start, end] = seg.segment;
     if (currentTime >= start && currentTime < end - 0.5) {
       return seg;
