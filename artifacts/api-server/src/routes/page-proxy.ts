@@ -170,57 +170,78 @@ router.get('/proxy/extract', async (req, res) => {
 });
 
 
-const ANTI_IFRAME_SCRIPT = `(function(){
-  window.__lrmtvRealParent=window.parent;
+const EARLY_HOOK_SCRIPT = `(function(){
+  var RP=window.parent;
+  window.__lrmtvRealParent=RP;
   try{Object.defineProperty(window,'top',{get:function(){return window},configurable:true})}catch(e){}
   try{Object.defineProperty(window,'parent',{get:function(){return window},configurable:true})}catch(e){}
   try{Object.defineProperty(window,'frameElement',{get:function(){return null},configurable:true})}catch(e){}
   try{Object.defineProperty(window,'self',{get:function(){return window},configurable:true})}catch(e){}
-  var PROXY='/api/proxy/page?url=';
-  var origCreate=document.createElement.bind(document);
-  document.createElement=function(tag){
-    var el=origCreate(tag);
-    if(tag.toLowerCase()==='iframe'){
-      var origSet=Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype,'src');
-      if(origSet&&origSet.set){
-        Object.defineProperty(el,'src',{
-          set:function(v){
-            if(v&&typeof v==='string'&&v.match(/^https?:\\/\\//i)&&v.indexOf('/api/proxy/')!==-1){
-              origSet.set.call(this,v);
-            }else if(v&&typeof v==='string'&&v.match(/^https?:\\/\\//i)){
-              origSet.set.call(this,PROXY+encodeURIComponent(v));
-            }else{
-              origSet.set.call(this,v);
-            }
-          },
-          get:origSet.get?function(){return origSet.get.call(this)}:undefined,
-          configurable:true
-        });
-      }
+
+  var RE=/\\.m3u8|\\.mp4|\\.webm|\\.mkv/i;
+  var sent=new Set();
+  function abs(u){try{return new URL(u,location.href).href}catch(e){return u}}
+  function report(u,s){
+    if(!u||u.length<10)return;
+    u=abs(u);
+    if(u.indexOf('/api/proxy/')!==-1){try{var pu=new URL(u);var raw=pu.searchParams.get('url');if(raw)u=raw;}catch(e){}}
+    if(sent.has(u))return;
+    sent.add(u);
+    try{RP.postMessage({type:'lrmtv-video-detected',url:u,source:s},'*')}catch(e){}
+  }
+  window.__lrmtvReport=report;
+
+  window.addEventListener('message',function(ev){
+    if(ev.data&&ev.data.type==='lrmtv-video-detected'&&ev.data.url&&RP!==window){
+      try{RP.postMessage(ev.data,'*')}catch(e){}
     }
-    return el;
+  });
+
+  var origFetch=window.fetch;
+  if(origFetch){
+    window.fetch=function(){
+      var u=typeof arguments[0]==='string'?arguments[0]:(arguments[0]&&arguments[0].url)||'';
+      if(u&&RE.test(String(u)))report(String(u),'fetch');
+      return origFetch.apply(this,arguments);
+    };
+  }
+  var origOpen=XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open=function(method,url){
+    if(url&&RE.test(String(url)))report(String(url),'xhr');
+    return origOpen.apply(this,arguments);
   };
+  try{
+    var desc=Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype,'src');
+    if(desc&&desc.set){
+      var origSrcSet=desc.set,origSrcGet=desc.get;
+      Object.defineProperty(HTMLMediaElement.prototype,'src',{
+        set:function(v){if(v&&RE.test(v))report(v,'src-set');origSrcSet.call(this,v)},
+        get:function(){return origSrcGet.call(this)},configurable:true
+      });
+    }
+  }catch(e){}
+
+  var PROXY='/api/proxy/page?url=';
   try{
     var ifrDesc=Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype,'src');
     if(ifrDesc&&ifrDesc.set){
       var origIfrSet=ifrDesc.set;
       Object.defineProperty(HTMLIFrameElement.prototype,'src',{
         set:function(v){
-          if(v&&typeof v==='string'&&v.match(/^https?:\\/\\//i)&&v.indexOf('/api/proxy/')===-1){
+          if(v&&typeof v==='string'&&/^https?:\\/\\//i.test(v)&&v.indexOf('/api/proxy/')===-1){
             origIfrSet.call(this,PROXY+encodeURIComponent(v));
           }else{
             origIfrSet.call(this,v);
           }
         },
-        get:ifrDesc.get,
-        configurable:true
+        get:ifrDesc.get,configurable:true
       });
     }
   }catch(e){}
   try{
     var setAttrOrig=Element.prototype.setAttribute;
     Element.prototype.setAttribute=function(name,value){
-      if(this.tagName==='IFRAME'&&name.toLowerCase()==='src'&&value&&typeof value==='string'&&value.match(/^https?:\\/\\//i)&&value.indexOf('/api/proxy/')===-1){
+      if(this.tagName==='IFRAME'&&name.toLowerCase()==='src'&&value&&typeof value==='string'&&/^https?:\\/\\//i.test(value)&&value.indexOf('/api/proxy/')===-1){
         return setAttrOrig.call(this,name,PROXY+encodeURIComponent(value));
       }
       return setAttrOrig.call(this,name,value);
@@ -228,30 +249,12 @@ const ANTI_IFRAME_SCRIPT = `(function(){
   }catch(e){}
 })();`;
 
-const BRIDGE_SCRIPT = `(function(){
-  if(window.__lrmtvBridge)return;
-  window.__lrmtvBridge=true;
-  var P=window.__lrmtvRealParent||window.parent;
+const LATE_SCRIPT = `(function(){
+  if(window.__lrmtvLate)return;
+  window.__lrmtvLate=true;
+  var RP=window.__lrmtvRealParent||window.parent;
   var RE=/\\.m3u8|\\.mp4|\\.webm|\\.mkv/i;
-  var sent=new Set();
-  window.addEventListener('message',function(ev){
-    if(ev.data&&ev.data.type==='lrmtv-video-detected'&&ev.data.url&&P!==window){
-      try{P.postMessage(ev.data,'*')}catch(e){}
-    }
-  });
-  function abs(u){
-    try{return new URL(u,location.href).href}catch(e){return u}
-  }
-  function report(u,s){
-    if(!u||u.length<10)return;
-    u=abs(u);
-    if(u.indexOf('/api/proxy/')!==-1){
-      try{var pu=new URL(u);var raw=pu.searchParams.get('url');if(raw)u=raw;}catch(e){}
-    }
-    if(sent.has(u))return;
-    sent.add(u);
-    try{P.postMessage({type:'lrmtv-video-detected',url:u,source:s},'*')}catch(e){}
-  }
+  var report=window.__lrmtvReport||function(){};
   function checkEl(el){
     if(!el||!el.tagName)return;
     var tag=el.tagName;
@@ -276,7 +279,7 @@ const BRIDGE_SCRIPT = `(function(){
         if(n.nodeType!==1)continue;
         checkEl(n);
         if(n.querySelectorAll){
-          var els=n.querySelectorAll('video,source,embed');
+          var els=n.querySelectorAll('video,source,embed,iframe');
           for(var k=0;k<els.length;k++)checkEl(els[k]);
         }
       }
@@ -284,38 +287,6 @@ const BRIDGE_SCRIPT = `(function(){
     }
   });
   obs.observe(document,{childList:true,subtree:true,attributes:true,attributeFilter:['src']});
-  try{
-    var desc=Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype,'src');
-    if(desc&&desc.set){
-      Object.defineProperty(HTMLMediaElement.prototype,'src',{
-        set:function(v){if(v&&RE.test(v))report(v,'src-set');desc.set.call(this,v)},
-        get:function(){return desc.get.call(this)},configurable:true
-      });
-    }
-  }catch(e){}
-  var origFetch=window.fetch;
-  if(origFetch){
-    window.fetch=function(){
-      var u=typeof arguments[0]==='string'?arguments[0]:(arguments[0]&&arguments[0].url)||'';
-      if(u&&RE.test(u))report(u,'fetch');
-      return origFetch.apply(this,arguments);
-    };
-  }
-  var origOpen=XMLHttpRequest.prototype.open;
-  XMLHttpRequest.prototype.open=function(method,url){
-    if(url&&RE.test(String(url)))report(String(url),'xhr');
-    return origOpen.apply(this,arguments);
-  };
-  try{
-    var origAddSrc=window.MediaSource&&window.MediaSource.isTypeSupported;
-    var origURL=window.URL.createObjectURL;
-    if(origURL){
-      window.URL.createObjectURL=function(obj){
-        var result=origURL.call(this,obj);
-        return result;
-      };
-    }
-  }catch(e){}
   var els=document.querySelectorAll('video,source,embed');
   for(var i=0;i<els.length;i++)checkEl(els[i]);
   setInterval(function(){
@@ -383,20 +354,20 @@ router.get('/proxy/page', async (req, res) => {
       return `<iframe${attrs} src="${proxied}"`;
     });
 
-    const antiIframeTag = `<script>${ANTI_IFRAME_SCRIPT}</script>`;
+    const earlyTag = `<script>${EARLY_HOOK_SCRIPT}</script>`;
     const baseTag = `<base href="${baseHref}/">`;
     const headMatch = html.match(/<head[^>]*>/i);
     if (headMatch) {
-      html = html.replace(headMatch[0], headMatch[0] + antiIframeTag + baseTag);
+      html = html.replace(headMatch[0], headMatch[0] + earlyTag + baseTag);
     } else {
-      html = antiIframeTag + baseTag + html;
+      html = earlyTag + baseTag + html;
     }
 
-    const bridgeTag = `<script>${BRIDGE_SCRIPT}</script>`;
+    const lateTag = `<script>${LATE_SCRIPT}</script>`;
     if (/<\/body>/i.test(html)) {
-      html = html.replace(/<\/body>/i, bridgeTag + '</body>');
+      html = html.replace(/<\/body>/i, lateTag + '</body>');
     } else {
-      html += bridgeTag;
+      html += lateTag;
     }
 
     res.removeHeader('X-Frame-Options');
