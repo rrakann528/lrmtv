@@ -26,7 +26,7 @@ import FriendsPanel from './room/friends-panel';
 import { RoomSettingsSheet } from './room/room-settings-sheet';
 import { UserProfileSheet } from '@/components/user-profile-sheet';
 import { SmartPlayer, type SmartPlayerHandle } from '@/components/player/smart-player';
-
+import PageBrowser from '@/components/player/page-browser';
 
 import YoutubeSearch from '@/components/youtube-search';
 
@@ -37,6 +37,21 @@ function detectSourceType(url: string): 'youtube' | 'vimeo' | 'twitch' | 'mp4' |
   if (url.endsWith('.mp4')) return 'mp4';
   if (url.endsWith('.m3u8')) return 'm3u8';
   return 'other';
+}
+
+function isDirectVideoUrl(url: string): boolean {
+  const lower = url.toLowerCase();
+  if (/(?:youtube\.com|youtu\.be|youtube-nocookie\.com)/.test(lower)) return true;
+  if (/vimeo\.com/.test(lower)) return true;
+  if (/twitch\.tv/.test(lower)) return true;
+  if (/dailymotion\.com|dai\.ly/.test(lower)) return true;
+  const path = lower.split('?')[0];
+  if (path.endsWith('.m3u8') || path.endsWith('.mp4') || path.endsWith('.webm') ||
+      path.endsWith('.mkv') || path.endsWith('.mpd') || path.endsWith('.avi') ||
+      path.endsWith('.ts') || path.endsWith('.flv')) return true;
+  if (lower.includes('m3u8') || lower.includes('.mpd') || lower.includes('/hls/') ||
+      lower.includes('/dash/')) return true;
+  return false;
 }
 
 
@@ -95,6 +110,7 @@ export default function RoomPage() {
   const [showRoomSettings, setShowRoomSettings] = useState(false);
 
   const [mediaConfirm, setMediaConfirm] = useState(false);
+  const [pageBrowserUrl, setPageBrowserUrl] = useState<string | null>(null);
 
   const playerRef = useRef<SmartPlayerHandle>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -157,6 +173,11 @@ export default function RoomPage() {
 
   const handleAddVideo = useCallback(async (url: string, title: string) => {
     if (!url.trim()) return;
+    const trimmed = url.trim();
+    if (trimmed.startsWith('http') && !isDirectVideoUrl(trimmed)) {
+      setPageBrowserUrl(trimmed);
+      return;
+    }
     const sourceType = detectSourceType(url);
     const displayTitle = title && title !== url ? title : `Video (${sourceType})`;
     try {
@@ -166,6 +187,18 @@ export default function RoomPage() {
       if (!syncState.url) emitSync(0, false, url);
     } catch { /* ignore */ }
   }, [slug, addMutation, queryClient, emitPlaylistUpdate, syncState.url, emitSync]);
+
+  const handlePageVideoDetected = useCallback(async (videoUrl: string) => {
+    setPageBrowserUrl(null);
+    const sourceType = detectSourceType(videoUrl);
+    const displayTitle = `Video (${sourceType})`;
+    try {
+      await addMutation.mutateAsync({ slug, data: { url: videoUrl, title: displayTitle, sourceType } });
+      queryClient.invalidateQueries({ queryKey: getGetRoomPlaylistQueryKey(slug) });
+      emitPlaylistUpdate('add');
+      emitSync(0, true, videoUrl);
+    } catch { /* ignore */ }
+  }, [slug, addMutation, queryClient, emitPlaylistUpdate, emitSync]);
 
   useEffect(() => {
     setBgImage(
@@ -423,7 +456,14 @@ export default function RoomPage() {
               mobile  → fixed 16:9 aspect ratio
               md+     → flex-grow (fills all available height) */}
           <div className="w-full aspect-[2/1] md:aspect-auto md:flex-grow relative bg-black shrink-0">
-            {syncState.url ? (
+            {pageBrowserUrl && (
+              <PageBrowser
+                url={pageBrowserUrl}
+                onVideoDetected={handlePageVideoDetected}
+                onClose={() => setPageBrowserUrl(null)}
+              />
+            )}
+            {!pageBrowserUrl && syncState.url ? (
               <>
                 <div style={{ position: 'absolute', inset: 0 }}>
                 <SmartPlayer

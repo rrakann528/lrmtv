@@ -47,7 +47,7 @@ const token = conns[0].settings.access_token;
 - **Validation**: Zod (v4) + drizzle-zod
 - **API codegen**: Orval (from OpenAPI spec)
 - **Build**: esbuild (CJS bundle)
-- **Video**: SmartPlayer — HLS.js, dash.js, react-player (YouTube/Twitch/Vimeo), HTML5, SponsorBlock auto-skip
+- **Video**: SmartPlayer — HLS.js, dash.js, react-player (YouTube/Twitch/Vimeo), HTML5, SponsorBlock auto-skip, Page Browser (video URL extraction from webpages)
 - **Real-time**: Socket.io (sync, chat, WebRTC)
 - **State**: Zustand
 - **i18n**: Custom React context — 6 لغات (ar, en, fr, tr, es, id) — مفتاح LS: `lrmtv_lang`
@@ -102,7 +102,7 @@ artifacts-monorepo/
 
 ---
 
-## HLS Fallback Chain (5 مراحل — CF Worker)
+## HLS Fallback Chain (6 مراحل — CF Worker)
 
 ```
 S1 HLS.js direct
@@ -110,8 +110,20 @@ S1 HLS.js direct
     → S3 CF manifest proxy (CF Worker → manifest فقط)
       → S4 CF full proxy (كل شيء عبر CF Worker)
         → S5 CF full + segment rewrite
-          → Error (فشل تحميل البث)
+          → S6 Native video final (20s timeout — last resort for IP-locked streams)
+            → Error (فشل تحميل البث)
 ```
+
+## Page Browser (استخراج فيديو من صفحات)
+
+ميزة تسمح بلصق رابط صفحة فيلم (مثل faselhdx) واستخراج رابط الفيديو المباشر تلقائياً:
+
+- **Backend proxy**: `/api/proxy/page?url=...` — يجلب HTML ويشيل X-Frame-Options/CSP ويحقن bridge script
+- **Bridge script**: يراقب `<video>` elements + hooks على `fetch`/`XHR`/`src setter` للكشف عن `.m3u8`/`.mp4`
+- **Frontend**: `PageBrowser` component يعرض iframe مؤقت، ولما يكتشف فيديو يرسل `postMessage` للأب
+- **التدفق**: رابط صفحة → page browser → كشف فيديو → إضافة للبلايلست → تشغيل عادي مع تزامن
+- **الأمان**: SSRF protection (حظر IPs خاصة)، postMessage source validation، sandbox بدون allow-same-origin
+- **الملفات**: `page-proxy.ts`, `page-browser.tsx`, `room.tsx`
 
 - **HTTP على HTTPS**: يتخطى مباشرة إلى S5 (mixed content)
 - **iOS Safari بدون MSE بعد فشل S2**: يذهب لـ S5
