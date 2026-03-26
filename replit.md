@@ -116,28 +116,44 @@ S1 HLS.js direct
 
 ## Page Browser (استخراج فيديو من صفحات)
 
-ميزة تسمح بلصق رابط صفحة فيلم (مثل faselhdx) واستخراج رابط الفيديو المباشر تلقائياً:
+ميزة تسمح بلصق رابط صفحة فيلم (مثل faselhdx) واستخراج رابط الفيديو المباشر تلقائياً.
 
-### Virtual Browser (المرحلة الأولى — Playwright)
-- **Headless Chromium** يُشغّل على السيرفر ويفتح الصفحة كمتصفح حقيقي
-- يعترض كل الطلبات الشبكية (requests/responses) ويبحث عن `.m3u8`/`.mp4`
-- يفحص ردود JSON/text عن روابط فيديو مضمّنة
-- يحاول الضغط على أزرار التشغيل لتفعيل المحتوى الديناميكي
-- يفحص `<video>` elements + iframes المتداخلة
-- **المتصفح يبقى خامل 60 ثانية** ثم ينطفي تلقائياً (توفير موارد)
+### كيف يعمل — وضع مزدوج بالتوازي
+
+عند لصق رابط صفحة، **طريقتان تعملان في نفس الوقت**، أيهما تكشف الفيديو أول تفوز:
+
+**المسار الأول — المتصفح الافتراضي (خلفية السيرفر):**
+- **Headless Chromium** (Playwright) يفتح الصفحة كمتصفح حقيقي على السيرفر
+- Anti-detection: يخفي `navigator.webdriver`، يضيف plugins وهمية، يحاكي Chrome حقيقي
+- يعترض كل الطلبات الشبكية ويفحص ردود JSON/text عن روابط `.m3u8`/`.mp4`
+- يغلق نوافذ الكوكيز والإعلانات تلقائياً
+- يضغط أزرار التشغيل (15+ selector مختلف)
+- يفحص `<video>` elements + iframes المتداخلة بشكل دوري
+- إذا فشل Playwright → يجرب استخراج HTML ثابت (يتبع iframes حتى 2 مستويات)
+- **المتصفح يبقى خامل 60 ثانية** ثم ينطفي (توفير موارد)
 - **حد 3 استخراجات متزامنة** + rate limit: 5 طلبات/دقيقة/IP
-- **حماية SSRF**: يحظر كل الطلبات لعناوين خاصة/محلية عبر `context.route()`
-- **Dockerfile**: Chromium مثبت على Alpine + التطبيق يشتغل كـ non-root user
+- **حماية SSRF**: يحظر كل الطلبات لعناوين خاصة عبر `context.route()`
 
-### Fallback: Static HTML Extraction (المرحلة الثانية)
-- إذا فشل المتصفح، يجلب HTML ثابت ويبحث عن روابط فيديو بـ regex
-- يتبع iframes 3 مستويات
+**المسار الثاني — Iframe تفاعلي (أمام المستخدم):**
+- الصفحة تظهر فوراً في iframe — المستخدم يشوف الصفحة ويقدر يتفاعل معها
+- Bridge script مُحقَن في الصفحة يراقب تلقائياً:
+  - `fetch()` و `XHR.open()` hooks عن روابط فيديو
+  - `HTMLMediaElement.src` setter
+  - MutationObserver على `<video>`/`<source>` elements
+  - Polling كل 1.5 ثانية على `video.currentSrc`
+- Bridge يرسل `postMessage` للـ parent عند كشف أي رابط فيديو
+- Nested iframes يتم تمريرها عبر `/api/proxy/page` تلقائياً
 
-### Fallback: Interactive iframe (المرحلة الثالثة)
-- إذا فشل كل شي، يعرض الصفحة في iframe مع bridge script
-- Bridge script يراقب `<video>` elements + hooks على `fetch`/`XHR`/`src setter`
+### Dockerfile
+- Base: `node:20-alpine`
+- يثبت: `chromium nss freetype harfbuzz ca-certificates ttf-freefont`
+- Chromium path: `/usr/bin/chromium-browser` (auto-detect fallback لـ `/usr/bin/chromium`)
+- يشتغل كـ non-root user (`appuser`) — `user-data-dir=/tmp/chromium-user-data`
 
-- **الملفات**: `browser-extract.ts`, `page-proxy.ts`, `page-browser.tsx`, `room.tsx`
+### الملفات
+- `artifacts/api-server/src/lib/browser-extract.ts` — Virtual browser extraction
+- `artifacts/api-server/src/routes/page-proxy.ts` — `/api/proxy/extract` + `/api/proxy/page`
+- `artifacts/web/src/components/player/page-browser.tsx` — Dual-mode UI
 
 - **HTTP على HTTPS**: يتخطى مباشرة إلى S5 (mixed content)
 - **iOS Safari بدون MSE بعد فشل S2**: يذهب لـ S5
