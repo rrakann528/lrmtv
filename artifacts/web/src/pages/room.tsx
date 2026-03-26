@@ -191,18 +191,17 @@ export default function RoomPage() {
   const handlePageVideoDetected = useCallback(async (videoUrl: string) => {
     setPageBrowserUrl(null);
 
-    // URLs extracted by the server-side browser (Playwright) are bound to the server's IP.
-    // Wrap them in our server-side stream proxy so all clients fetch bytes through the
-    // same IP that obtained the token — preventing 403 "IP locked" errors.
-    const isHlsUrl =
-      videoUrl.toLowerCase().includes('.m3u8') ||
-      videoUrl.toLowerCase().includes('m3u8') ||
-      videoUrl.toLowerCase().includes('/hls/');
-    const proxiedUrl = isHlsUrl
-      ? `/api/proxy/stream?url=${encodeURIComponent(videoUrl)}&ref=${encodeURIComponent(videoUrl)}`
-      : videoUrl;
+    // URLs extracted by the server-side browser (Playwright) are IP-bound to the server.
+    // Always route them through our server-side proxy so every viewer fetches bytes
+    // from the same server IP that obtained the CDN token — prevents 403 "IP locked".
+    const proxiedUrl = `/api/proxy/stream?url=${encodeURIComponent(videoUrl)}&ref=${encodeURIComponent(videoUrl)}`;
 
-    const sourceType = isHlsUrl ? 'm3u8' : detectSourceType(videoUrl);
+    // Determine sourceType from the *original* URL (not the proxy URL)
+    const lowerOrig = videoUrl.toLowerCase();
+    const sourceType: 'mp4' | 'm3u8' | 'other' =
+      lowerOrig.endsWith('.mp4') || lowerOrig.endsWith('.webm') ? 'mp4'
+      : lowerOrig.endsWith('.mpd') || lowerOrig.includes('/dash/') ? 'other'
+      : 'm3u8'; // default — most CDN streams extracted from video sites are HLS
     const displayTitle = `Video (${sourceType})`;
     try {
       await addMutation.mutateAsync({ slug, data: { url: proxiedUrl, title: displayTitle, sourceType } });

@@ -789,7 +789,18 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
 
       // ── Main: detect type from URL, route to best engine ─────────────────
       const run = async () => {
-        const lower = src.toLowerCase();
+        // For server-proxy URLs (/api/proxy/stream?url=...) the type must be
+        // inferred from the *inner* original URL, not the proxy URL itself.
+        // Many CDN streams have no .m3u8 extension visible in the proxy URL.
+        let detectSrc = src;
+        if (src.includes('/api/proxy/stream?')) {
+          try {
+            const qs = src.split('?').slice(1).join('?');
+            const innerEncoded = new URLSearchParams(qs).get('url');
+            if (innerEncoded) detectSrc = decodeURIComponent(innerEncoded);
+          } catch { /* use src as-is */ }
+        }
+        const lower = detectSrc.toLowerCase();
 
         if (lower.startsWith('rtsp://') || lower.startsWith('rtsps://') ||
             lower.startsWith('rtmp://') || lower.startsWith('rtmps://')) {
@@ -823,13 +834,14 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           return;
         }
 
-        // Ambiguous URL — ask server to detect type
+        // Ambiguous URL — ask server to detect type.
+        // Use detectSrc (inner URL for proxy URLs) so the server can fetch it.
         setStatusMsg('detecting');
         let type = 'hls';
         try {
           const ctrl = new AbortController();
           const tid = setTimeout(() => ctrl.abort(), 3000);
-          const r = await fetch(`/api/proxy/detect?url=${encodeURIComponent(src)}`, { signal: ctrl.signal });
+          const r = await fetch(`/api/proxy/detect?url=${encodeURIComponent(detectSrc)}`, { signal: ctrl.signal });
           clearTimeout(tid);
           if (r.ok) type = (await r.json()).type ?? 'unknown';
         } catch { /* timeout — default to hls */ }
@@ -838,7 +850,8 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
 
         if      (type === 'dash')                   loadViaDash();
         else if (type === 'mp4' || type === 'webm') loadViaNative();
-        else if (type === 'unknown')                { setStatusMsg(null); setError('unsupported'); }
+        // For proxy URLs with unknown type, try HLS — most CDN streams are HLS
+        else if (type === 'unknown' && !src.includes('/api/proxy/stream?')) { setStatusMsg(null); setError('unsupported'); }
         else                                        loadViaHls();
       };
 

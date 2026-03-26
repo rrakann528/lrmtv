@@ -235,6 +235,10 @@ router.get('/proxy/stream', async (req, res) => {
       'Referer': referer || (() => { try { const u = new URL(targetUrl); return `${u.protocol}//${u.hostname}/`; } catch { return ''; } })(),
     };
 
+    // Forward Range header so byte-range seeking works for MP4 files
+    const rangeHeader = req.headers['range'];
+    if (rangeHeader) headers['Range'] = Array.isArray(rangeHeader) ? rangeHeader[0] : rangeHeader;
+
     const upstream = await fetch(targetUrl, {
       headers,
       redirect: 'follow',
