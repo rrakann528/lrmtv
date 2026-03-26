@@ -711,12 +711,19 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           }
         };
 
+        // Final fallback when no CF proxy: try native video directly from browser (works
+        // for IP-locked streams on Safari since native <video> doesn't enforce CORS)
+        const s6_nativeFinal = () => {
+          if (cancelled) return;
+          s2_native(undefined, 20_000);
+        };
+
         const s5_cfFullProxy = () => {
           if (cancelled) return;
-          if (!CF_PROXY) { setError('ip-locked'); setStatusMsg(null); return; }
+          if (!CF_PROXY) { s6_nativeFinal(); return; }
           const cfUrl = `${CF_PROXY}?url=${encodeURIComponent(src)}&ref=${encodeURIComponent(src)}&mode=full`;
           setStatusMsg('hls-proxy');
-          const hls = makeHls(() => { setError('ip-locked'); setStatusMsg(null); });
+          const hls = makeHls(() => { s6_nativeFinal(); });
           hlsRef.current = hls;
           hls.loadSource(cfUrl);
           hls.attachMedia(video);
