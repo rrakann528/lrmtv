@@ -35,14 +35,35 @@ const BASE_HEADERS: Record<string, string> = {
 };
 
 const VIDEO_RE = /(?:https?:)?\/\/[^\s"'<>\)]+\.(?:m3u8|mp4|webm|mkv)(?:\?[^\s"'<>\)]*)?/gi;
-const IFRAME_SRC_RE = /<iframe[^>]+src=["']([^"']+)["']/gi;
+const IFRAME_SRC_RE = /<iframe[^>]*\ssrc=["']([^"']+)["']/gi;
 
-async function fetchPage(url: string): Promise<{ html: string; finalUrl: string } | null> {
+// Known streaming embed hosts — fetched with parent Referer for better results
+const EMBED_HOSTS = [
+  'filemoon', 'doodstream', 'dood', 'streamtape', 'voe.sx', 'mixdrop',
+  'upstream', 'streamsb', 'fembed', 'vidcloud', 'vidstream', 'vizcloud',
+  'mycloud', 'mcloud', 'embedsito', 'rabbitstream', 'kwik', 'mp4upload',
+  'streamlare', 'streamhide', 'guccihide', 'vidhide', 'embedrise',
+  'uqloads', 'fileone', 'turboplay', 'vudeo', 'filelions', 'brainly',
+  'okru', 'ok.ru', 'dailymotion', 'rumble', 'streamwish', 'wish',
+];
+
+function isEmbedHost(url: string): boolean {
+  try {
+    const h = new URL(url).hostname.toLowerCase();
+    return EMBED_HOSTS.some(e => h.includes(e));
+  } catch { return false; }
+}
+
+async function fetchPage(url: string, referer?: string): Promise<{ html: string; finalUrl: string } | null> {
   if (isPrivateUrl(url)) return null;
   try {
     const parsed = new URL(url);
     const resp = await fetch(url, {
-      headers: { ...BASE_HEADERS, 'Referer': `${parsed.protocol}//${parsed.host}/` },
+      headers: {
+        ...BASE_HEADERS,
+        'Referer': referer || `${parsed.protocol}//${parsed.host}/`,
+        'Origin': referer ? new URL(referer).origin : `${parsed.protocol}//${parsed.host}`,
+      },
       redirect: 'follow',
       signal: AbortSignal.timeout(12000),
     });
@@ -69,7 +90,7 @@ function extractIframeSrcs(html: string, baseUrl: string): string[] {
   const re = new RegExp(IFRAME_SRC_RE.source, 'gi');
   while ((match = re.exec(html)) !== null) {
     let src = match[1];
-    if (!src || src.startsWith('about:') || src.startsWith('javascript:')) continue;
+    if (!src || src.startsWith('about:') || src.startsWith('javascript:') || src.startsWith('data:')) continue;
     try {
       if (src.startsWith('//')) src = 'https:' + src;
       else if (src.startsWith('/')) src = new URL(src, baseUrl).href;
@@ -82,10 +103,13 @@ function extractIframeSrcs(html: string, baseUrl: string): string[] {
 
 function extractEmbedUrls(html: string, baseUrl: string): string[] {
   const patterns = [
-    /(?:src|file|source|url|video_url|stream_url|embed_url)\s*[:=]\s*["']([^"']+\.(?:m3u8|mp4|webm)[^"']*?)["']/gi,
-    /data-src=["']([^"']+\.(?:m3u8|mp4|webm)[^"']*?)["']/gi,
-    /source\s*:\s*["']([^"']+\.(?:m3u8|mp4|webm)[^"']*?)["']/gi,
-    /file\s*:\s*["']([^"']+\.(?:m3u8|mp4|webm)[^"']*?)["']/gi,
+    // Video file patterns
+    /(?:src|file|source|url|video_url|stream_url|embed_url|hls_url|m3u8)\s*[:=]\s*["']([^"']+\.(?:m3u8|mp4|webm)[^"']*?)["']/gi,
+    /data-(?:src|file|url|video)=["']([^"']+\.(?:m3u8|mp4|webm)[^"']*?)["']/gi,
+    // JSON-style patterns
+    /"(?:file|src|url|source|hls|stream)"\s*:\s*"([^"]+\.(?:m3u8|mp4|webm)[^"]*)"/gi,
+    // Unquoted patterns
+    /(?:file|src|url|source):\s*'([^']+\.(?:m3u8|mp4|webm)[^']*)'/gi,
   ];
   const urls = new Set<string>();
   for (const re of patterns) {
@@ -101,6 +125,53 @@ function extractEmbedUrls(html: string, baseUrl: string): string[] {
     }
   }
   return [...urls];
+}
+
+// Try to decode base64 atob() calls which hide video URLs
+function extractBase64Urls(html: string): string[] {
+  const urls: string[] = [];
+  const atobRe = /atob\s*\(\s*["']([A-Za-z0-9+/=]{20,})["']\s*\)/g;
+  let m;
+  while ((m = atobRe.exec(html)) !== null) {
+    try {
+      const decoded = Buffer.from(m[1], 'base64').toString('utf-8');
+      const videoMatches = decoded.match(/https?:\/\/[^\s"'<>)]+\.(?:m3u8|mp4|webm)/gi);
+      if (videoMatches) urls.push(...videoMatches);
+      // Also check if decoded is an embed URL
+      if (/^https?:\/\//.test(decoded) && !decoded.includes('\n')) {
+        urls.push(decoded.trim());
+      }
+    } catch {}
+  }
+  return urls;
+}
+
+// Extract embed URLs from script tags (common in streaming sites)
+function extractScriptEmbedUrls(html: string, baseUrl: string): string[] {
+  const urls: string[] = [];
+  const embedPatterns = [
+    // Common embed URL patterns in scripts
+    /(?:playerUrl|embedUrl|iframeSrc|embedSrc|playerSrc)\s*[=:]\s*["']([^"']+)["']/gi,
+    // Iframe creation in scripts
+    /iframe\.src\s*=\s*["']([^"']+)["']/gi,
+    /createElement\(['"]iframe['"]\)[^;]*\.src\s*=\s*["']([^"']+)["']/gi,
+    // Direct embed domain mentions
+    new RegExp(`["'](https?://(?:${EMBED_HOSTS.join('|').replace(/\./g, '\\.')})\\.[^"'\\s]+)["']`, 'gi'),
+  ];
+  for (const re of embedPatterns) {
+    let m;
+    while ((m = re.exec(html)) !== null) {
+      let u = m[1];
+      try {
+        if (u.startsWith('//')) u = 'https:' + u;
+        else if (u.startsWith('/')) u = new URL(u, baseUrl).href;
+        else if (!u.startsWith('http')) continue;
+        new URL(u);
+        if (!isPrivateUrl(u)) urls.push(u);
+      } catch {}
+    }
+  }
+  return urls;
 }
 
 // ── /proxy/extract — Virtual browser + static fallback ────────────────────────
@@ -142,19 +213,48 @@ router.get('/proxy/extract', extractLimiter, async (req, res) => {
       const page1 = await fetchPage(targetUrl);
       if (page1) {
         visited.add(targetUrl);
+        const parentReferer = targetUrl;
+
+        // Level 1: extract from main page
         allVideos.push(...extractVideoUrls(page1.html));
         allVideos.push(...extractEmbedUrls(page1.html, page1.finalUrl));
+        allVideos.push(...extractBase64Urls(page1.html));
+
+        // Collect all candidate embed URLs from L1
         const iframeSrcs = extractIframeSrcs(page1.html, page1.finalUrl);
-        const fetchPromises = iframeSrcs
-          .filter(src => !visited.has(src) && !isPrivateUrl(src))
-          .slice(0, 5)
-          .map(async (src) => {
-            visited.add(src);
-            const page2 = await fetchPage(src);
-            if (!page2) return;
-            allVideos.push(...extractVideoUrls(page2.html));
-            allVideos.push(...extractEmbedUrls(page2.html, page2.finalUrl));
-          });
+        const scriptEmbeds = extractScriptEmbedUrls(page1.html, page1.finalUrl);
+        const candidateUrls = [...new Set([...iframeSrcs, ...scriptEmbeds])];
+
+        // Sort: known embed hosts first (fetch with parent referer)
+        const embedFirst = [
+          ...candidateUrls.filter(u => isEmbedHost(u)),
+          ...candidateUrls.filter(u => !isEmbedHost(u)),
+        ].filter(src => !visited.has(src) && !isPrivateUrl(src)).slice(0, 8);
+
+        const fetchPromises = embedFirst.map(async (src) => {
+          visited.add(src);
+          // Pass parent page as referer — critical for embed sites
+          const page2 = await fetchPage(src, parentReferer);
+          if (!page2) return;
+          allVideos.push(...extractVideoUrls(page2.html));
+          allVideos.push(...extractEmbedUrls(page2.html, page2.finalUrl));
+          allVideos.push(...extractBase64Urls(page2.html));
+
+          // Level 3: go one more level if it's an embed host
+          if (isEmbedHost(src)) {
+            const l3iframes = extractIframeSrcs(page2.html, page2.finalUrl)
+              .filter(s => !visited.has(s) && !isPrivateUrl(s)).slice(0, 3);
+            const l3promises = l3iframes.map(async (s3) => {
+              visited.add(s3);
+              const page3 = await fetchPage(s3, src);
+              if (!page3) return;
+              allVideos.push(...extractVideoUrls(page3.html));
+              allVideos.push(...extractEmbedUrls(page3.html, page3.finalUrl));
+              allVideos.push(...extractBase64Urls(page3.html));
+            });
+            await Promise.allSettled(l3promises);
+          }
+        });
         await Promise.allSettled(fetchPromises);
         if (allVideos.length > 0) method = 'static';
       }

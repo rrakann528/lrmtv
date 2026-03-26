@@ -240,18 +240,51 @@ export async function extractVideoUrls(targetUrl: string, timeoutMs = 30000): Pr
     });
 
     await context.addInitScript(() => {
-      Object.defineProperty(navigator, 'webdriver', { get: () => false });
-      Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+      // Suppress webdriver detection
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+      // Fake plugins
+      const fakePlugins = ['Chrome PDF Plugin', 'Chrome PDF Viewer', 'Native Client', 'Shockwave Flash', 'Widevine Content Decryption Module'];
+      Object.defineProperty(navigator, 'plugins', {
+        get: () => {
+          const arr: any = fakePlugins.map((name, i) => ({ name, filename: `plugin${i}.so`, description: name, length: 1 }));
+          arr.length = fakePlugins.length;
+          arr.item = (i: number) => arr[i];
+          arr.namedItem = (n: string) => arr.find((p: any) => p.name === n) || null;
+          arr.refresh = () => {};
+          return arr;
+        }
+      });
+      Object.defineProperty(navigator, 'mimeTypes', { get: () => ({ length: 4 }) });
       Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
       Object.defineProperty(navigator, 'platform', { get: () => 'Win32' });
-      (window as any).chrome = { runtime: {} };
-      const origQuery = (window as any).navigator.permissions?.query;
+      Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
+      Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
+      Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 0 });
+      Object.defineProperty(screen, 'colorDepth', { get: () => 24 });
+      // Chrome object
+      (window as any).chrome = {
+        app: { isInstalled: false, InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' }, RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' } },
+        runtime: { onConnect: { addListener: () => {} }, onMessage: { addListener: () => {} } },
+        loadTimes: () => ({ firstPaintTime: 0.5, startLoadTime: 1.0, commitLoadTime: 1.1 }),
+        csi: () => ({ startE: 1, onloadT: 1, pageT: 1, tran: 1 }),
+      };
+      // Permissions API
+      const origQuery = (window as any).navigator.permissions?.query?.bind(navigator.permissions);
       if (origQuery) {
         (window as any).navigator.permissions.query = (params: any) =>
           params.name === 'notifications'
             ? Promise.resolve({ state: 'prompt' as PermissionState, onchange: null } as PermissionStatus)
             : origQuery(params);
       }
+      // Hide automation-related properties
+      delete (window as any).__playwright;
+      delete (window as any).__pw_manual;
+      delete (window as any)._phantom;
+      delete (window as any).callPhantom;
+      // Iframe detection bypass
+      try { Object.defineProperty(window, 'top', { get: () => window, configurable: true }); } catch {}
+      try { Object.defineProperty(window, 'parent', { get: () => window, configurable: true }); } catch {}
+      try { Object.defineProperty(window, 'frameElement', { get: () => null, configurable: true }); } catch {}
     });
 
     await context.route('**/*', (route) => {
@@ -314,19 +347,27 @@ export async function extractVideoUrls(targetUrl: string, timeoutMs = 30000): Pr
       return [...found];
     }
 
+    // Scan all iframes and click play inside them
     const iframes = page.frames();
     for (const frame of iframes) {
       if (frame === page.mainFrame()) continue;
       try {
         const frameUrl = frame.url();
-        if (frameUrl && VIDEO_RE.test(frameUrl)) {
-          found.add(frameUrl);
-        }
+        if (frameUrl && VIDEO_RE.test(frameUrl)) found.add(frameUrl);
         await scanPageForVideos(frame, found);
-
+        // Click play inside iframe
         await frame.evaluate(() => {
-          const btns = document.querySelectorAll('button[class*="play"], .play-btn, [aria-label*="play" i], video');
-          btns.forEach((b: any) => { try { b.click(); } catch {} });
+          const selectors = [
+            '.play-btn', '.btn-play', '.vjs-big-play-button', '.plyr__control--overlaid',
+            'button[class*="play"]', '[aria-label*="play" i]', '[class*="play-button"]',
+            '.jw-icon-playback', '[data-plyr="play"]', '.fp-play', 'video',
+          ];
+          for (const sel of selectors) {
+            const el = document.querySelector(sel) as any;
+            if (el) { try { el.click(); } catch {} break; }
+          }
+          // Also try playing all video elements
+          document.querySelectorAll('video').forEach((v: any) => { try { v.play(); } catch {} });
         }).catch(() => {});
       } catch {}
     }
@@ -336,14 +377,21 @@ export async function extractVideoUrls(targetUrl: string, timeoutMs = 30000): Pr
       return [...found];
     }
 
-    const deadline = Date.now() + Math.min(timeoutMs - 10000, 20000);
+    // Wait for network requests after play clicks and scan again periodically
+    const deadline = Date.now() + Math.min(timeoutMs - 5000, 25000);
     while (found.size === 0 && Date.now() < deadline) {
-      await page.waitForTimeout(2000);
+      await page.waitForTimeout(2500);
       await scanPageForVideos(page, found);
 
       for (const frame of page.frames()) {
         if (frame === page.mainFrame()) continue;
-        try { await scanPageForVideos(frame, found); } catch {}
+        try {
+          await scanPageForVideos(frame, found);
+          // Keep trying to play
+          await frame.evaluate(() => {
+            document.querySelectorAll('video').forEach((v: any) => { try { v.play(); } catch {} });
+          }).catch(() => {});
+        } catch {}
       }
     }
 
