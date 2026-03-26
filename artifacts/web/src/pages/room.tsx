@@ -26,7 +26,7 @@ import FriendsPanel from './room/friends-panel';
 import { RoomSettingsSheet } from './room/room-settings-sheet';
 import { UserProfileSheet } from '@/components/user-profile-sheet';
 import { SmartPlayer, type SmartPlayerHandle } from '@/components/player/smart-player';
-import PageBrowser from '@/components/player/page-browser';
+import BrowserSessionView from '@/components/player/browser-session-view';
 
 import YoutubeSearch from '@/components/youtube-search';
 
@@ -456,11 +456,14 @@ export default function RoomPage() {
               mobile  → fixed 16:9 aspect ratio
               md+     → flex-grow (fills all available height) */}
           <div className="w-full aspect-[2/1] md:aspect-auto md:flex-grow relative bg-black shrink-0">
-            {pageBrowserUrl && (
-              <PageBrowser
-                url={pageBrowserUrl}
-                onVideoDetected={handlePageVideoDetected}
+            {pageBrowserUrl && socket && (
+              <BrowserSessionView
+                socket={socket}
+                roomSlug={slug}
+                initialUrl={pageBrowserUrl}
+                onVideoFound={handlePageVideoDetected}
                 onClose={() => setPageBrowserUrl(null)}
+                canControl={canControl}
               />
             )}
             {!pageBrowserUrl && syncState.url ? (

@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   Globe, X, Loader2, CheckCircle, AlertCircle, RefreshCw, Play, Film, Wifi
 } from 'lucide-react';
-import { useI18n } from '@/lib/i18n';
 
 interface PageBrowserProps {
   url: string;
@@ -45,16 +44,15 @@ function getVideoType(url: string): string {
 }
 
 export default function PageBrowser({ url, onVideoDetected, onClose }: PageBrowserProps) {
-  const { t } = useI18n();
   const [status, setStatus] = useState<Status>('scanning');
   const [foundUrl, setFoundUrl] = useState<string | null>(null);
   const [allUrls, setAllUrls] = useState<string[]>([]);
   const [elapsed, setElapsed] = useState(0);
   const [steps, setSteps] = useState<Step[]>([
-    { id: 'open',    label: t('browserStepOpen')    || 'فتح المتصفح',          done: false, active: true  },
-    { id: 'nav',     label: t('browserStepNav')     || 'تحميل الصفحة',         done: false, active: false },
-    { id: 'scan',    label: t('browserStepScan')    || 'البحث عن الفيديو',     done: false, active: false },
-    { id: 'extract', label: t('browserStepExtract') || 'استخراج الرابط',       done: false, active: false },
+    { id: 'open',    label: 'فتح المتصفح',       done: false, active: true  },
+    { id: 'nav',     label: 'تحميل الصفحة',      done: false, active: false },
+    { id: 'scan',    label: 'البحث عن الفيديو',  done: false, active: false },
+    { id: 'extract', label: 'استخراج الرابط',    done: false, active: false },
   ]);
 
   const detectedRef = useRef(false);
@@ -218,7 +216,7 @@ export default function PageBrowser({ url, onVideoDetected, onClose }: PageBrows
 
             {/* Elapsed */}
             <p className="text-center text-white/30 text-xs">
-              {elapsed}s — {t('browserMaxTime') || 'قد يستغرق حتى 30 ثانية'}
+              {elapsed}s — {'قد يستغرق حتى 30 ثانية'}
             </p>
           </div>
         )}
@@ -232,12 +230,8 @@ export default function PageBrowser({ url, onVideoDetected, onClose }: PageBrows
               </div>
             </div>
             <div>
-              <p className="text-white font-semibold text-base">
-                {t('browserFound') || 'تم كشف الفيديو!'}
-              </p>
-              <p className="text-white/40 text-xs mt-1">
-                {t('browserAutoPlay') || 'جارٍ التشغيل في الغرفة...'}
-              </p>
+              <p className="text-white font-semibold text-base">تم كشف الفيديو!</p>
+              <p className="text-white/40 text-xs mt-1">جارٍ التشغيل في الغرفة...</p>
             </div>
             <div className="flex items-center gap-2 bg-green-500/10 border border-green-500/20 rounded-lg px-3 py-2">
               <Film className="w-4 h-4 text-green-400 shrink-0" />
@@ -248,7 +242,7 @@ export default function PageBrowser({ url, onVideoDetected, onClose }: PageBrows
             </div>
             {allUrls.length > 1 && (
               <p className="text-white/30 text-xs">
-                {allUrls.length} {t('browserLinksFound') || 'روابط وجدت — أفضل واحد يُشغَّل تلقائياً'}
+                {allUrls.length} روابط وجدت — أفضل واحد يُشغَّل تلقائياً
               </p>
             )}
           </div>
@@ -263,12 +257,8 @@ export default function PageBrowser({ url, onVideoDetected, onClose }: PageBrows
               </div>
             </div>
             <div>
-              <p className="text-white font-semibold">
-                {t('browserNotFound') || 'لم يُكتشف رابط مباشر'}
-              </p>
-              <p className="text-white/40 text-sm mt-1">
-                {t('browserNotFoundHint') || 'الموقع محمي أو يحتاج تفاعل يدوي'}
-              </p>
+              <p className="text-white font-semibold">لم يُكتشف رابط مباشر</p>
+              <p className="text-white/40 text-sm mt-1">الموقع محمي أو يحتاج تفاعل يدوي</p>
             </div>
             <div className="flex gap-2 justify-center">
               <button
@@ -276,13 +266,13 @@ export default function PageBrowser({ url, onVideoDetected, onClose }: PageBrows
                 className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-white text-sm transition-colors"
               >
                 <RefreshCw className="w-4 h-4" />
-                {t('browserRetry') || 'إعادة المحاولة'}
+                إعادة المحاولة
               </button>
               <button
                 onClick={onClose}
                 className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 text-sm transition-colors"
               >
-                {t('browserCancel') || 'إلغاء'}
+                إلغاء
               </button>
             </div>
           </div>
@@ -296,13 +286,13 @@ export default function PageBrowser({ url, onVideoDetected, onClose }: PageBrows
                 <AlertCircle className="w-7 h-7 text-red-400" />
               </div>
             </div>
-            <p className="text-white font-semibold">{t('browserError') || 'حدث خطأ'}</p>
+            <p className="text-white font-semibold">حدث خطأ</p>
             <button
               onClick={handleRetry}
               className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-white text-sm transition-colors mx-auto"
             >
               <RefreshCw className="w-4 h-4" />
-              {t('browserRetry') || 'إعادة المحاولة'}
+              إعادة المحاولة
             </button>
           </div>
         )}
