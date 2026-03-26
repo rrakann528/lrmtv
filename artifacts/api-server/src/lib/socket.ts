@@ -641,13 +641,17 @@ export function initSocketServer(httpServer: HttpServer): Server {
         msg.replyToContent = String(data.replyTo.content || "").slice(0, 200);
       }
 
-      const [saved] = await db.insert(chatMessagesTable).values(msg).returning();
-
-      io.to(currentRoomSlug).emit("chat-message", {
-        id: saved.id,
-        ...msg,
-        createdAt: saved.createdAt,
-      });
+      try {
+        const [saved] = await db.insert(chatMessagesTable).values(msg).returning();
+        io.to(currentRoomSlug).emit("chat-message", {
+          id: saved.id,
+          ...msg,
+          createdAt: saved.createdAt,
+        });
+      } catch (err) {
+        console.error("[chat] DB insert error:", err);
+        socket.emit("chat-blocked", { reason: "error" });
+      }
     });
 
     socket.on("delete-message", async (data: { messageId: number }) => {

@@ -41,6 +41,9 @@ export function useSocket(slug: string | null) {
   const { user: authUser } = useAuth();
   const username = authUser ? (authUser.displayName || authUser.username) : sessionUsername;
   const socketRef = useRef<Socket | null>(null);
+  // Always-fresh ref so connect/event handlers read the latest authUser without stale closures
+  const authUserRef = useRef(authUser);
+  useEffect(() => { authUserRef.current = authUser; }, [authUser]);
   const [connected, setConnected] = useState(false);
   const [users, setUsers] = useState<RoomUser[]>([]);
   const [you, setYou] = useState<RoomUser | null>(null);
@@ -73,13 +76,17 @@ export function useSocket(slug: string | null) {
   }, [authUser, sessionUsername, setSessionUsername]);
 
   useEffect(() => {
-    if (!authUser?.id) return;
+    const uid = authUserRef.current?.id;
+    if (!uid) return;
     const sock = socketRef.current;
     if (!sock) return;
     if (sock.connected) {
-      sock.emit('identify', { userId: authUser.id });
+      sock.emit('identify', { userId: uid });
     } else {
-      sock.once('connect', () => sock.emit('identify', { userId: authUser.id }));
+      sock.once('connect', () => {
+        const latestUid = authUserRef.current?.id;
+        if (latestUid) sock.emit('identify', { userId: latestUid });
+      });
     }
   }, [authUser?.id]);
 
@@ -94,8 +101,10 @@ export function useSocket(slug: string | null) {
     socketRef.current = socket;
 
     socket.on('connect', () => {
-      const currentDisplayName = authUser?.displayName || authUser?.username || username;
-      const currentUserId = authUser?.id;
+      // Read from ref to always get the latest authUser value at connection time
+      const fresh = authUserRef.current;
+      const currentDisplayName = fresh?.displayName || fresh?.username || username;
+      const currentUserId = fresh?.id;
       setConnected(true);
       socket.emit('join-room', { slug, username, displayName: currentDisplayName, userId: currentUserId });
     });
@@ -302,7 +311,7 @@ export function useSocket(slug: string | null) {
     socket.on('chat-blocked', (data: { reason: string }) => {
       if (data.reason === 'not_identified') {
         // Re-identify with the server so the next message goes through
-        const uid = authUser?.id;
+        const uid = authUserRef.current?.id;
         if (uid) socket.emit('identify', { userId: uid });
       }
       console.warn('[chat] blocked:', data.reason);
