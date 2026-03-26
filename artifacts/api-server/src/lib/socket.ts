@@ -2,7 +2,7 @@ import { Server as HttpServer } from "http";
 import { Server, Socket } from "socket.io";
 import jwt from "jsonwebtoken";
 import { db, chatMessagesTable, roomsTable, playlistItemsTable, roomInvitesTable, usersTable, siteSettingsTable } from "@workspace/db";
-import { eq, notInArray, inArray } from "drizzle-orm";
+import { eq, and, notInArray, inArray } from "drizzle-orm";
 
 // ── In-memory settings cache (shared across the process) ─────────────────────
 let _settingsMap = new Map<string, string>();
