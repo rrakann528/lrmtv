@@ -189,10 +189,10 @@ router.get('/proxy/page', async (req, res) => {
 
     res.removeHeader('X-Frame-Options');
     res.removeHeader('Content-Security-Policy');
+    res.removeHeader('X-Content-Type-Options');
     res.set({
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-store',
-      'Content-Security-Policy': "frame-ancestors 'self'; script-src 'unsafe-inline' 'unsafe-eval' blob: data: *; default-src * blob: data: 'unsafe-inline' 'unsafe-eval'",
     });
     res.send(html);
   } catch (err) {
