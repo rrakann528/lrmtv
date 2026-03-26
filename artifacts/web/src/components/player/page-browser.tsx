@@ -17,7 +17,6 @@ export default function PageBrowser({ url, onVideoDetected, onClose }: PageBrows
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleMessage = useCallback((e: MessageEvent) => {
-    if (iframeRef.current && e.source !== iframeRef.current.contentWindow) return;
     if (e.data?.type === 'lrmtv-video-detected' && e.data.url && !detectedRef.current) {
       const videoUrl = String(e.data.url);
       if (!videoUrl.startsWith('http')) return;

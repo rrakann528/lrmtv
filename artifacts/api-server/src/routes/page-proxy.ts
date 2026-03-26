@@ -46,6 +46,11 @@ const BRIDGE_SCRIPT = `(function(){
   var P=window.__lrmtvRealParent||window.parent;
   var RE=/\\.m3u8|\\.mp4|\\.webm|\\.mkv/i;
   var sent=new Set();
+  window.addEventListener('message',function(ev){
+    if(ev.data&&ev.data.type==='lrmtv-video-detected'&&ev.data.url&&P!==window){
+      try{P.postMessage(ev.data,'*')}catch(e){}
+    }
+  });
   function abs(u){
     try{return new URL(u,location.href).href}catch(e){return u}
   }
@@ -170,6 +175,11 @@ router.get('/proxy/page', async (req, res) => {
 
     html = html.replace(/<script[^>]*src=["'][^"']*sbx\.js["'][^>]*><\/script>/gi, '');
     html = html.replace(/dtc_sbx\s*\(\s*\)/g, '');
+
+    html = html.replace(/<iframe([^>]*)\ssrc=["'](https?:\/\/[^"']+)["']/gi, (_match, attrs, iframeSrc) => {
+      const proxied = `/api/proxy/page?url=${encodeURIComponent(iframeSrc)}`;
+      return `<iframe${attrs} src="${proxied}"`;
+    });
 
     const antiIframeTag = `<script>${ANTI_IFRAME_SCRIPT}</script>`;
     const baseTag = `<base href="${baseHref}/">`;
