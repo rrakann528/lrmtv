@@ -32,10 +32,18 @@ const BASE_HEADERS = {
   'Accept-Encoding': 'identity',
 };
 
+const ANTI_IFRAME_SCRIPT = `(function(){
+  window.__lrmtvRealParent=window.parent;
+  try{Object.defineProperty(window,'top',{get:function(){return window},configurable:true})}catch(e){}
+  try{Object.defineProperty(window,'parent',{get:function(){return window},configurable:true})}catch(e){}
+  try{Object.defineProperty(window,'frameElement',{get:function(){return null},configurable:true})}catch(e){}
+  try{Object.defineProperty(window,'self',{get:function(){return window},configurable:true})}catch(e){}
+})();`;
+
 const BRIDGE_SCRIPT = `(function(){
   if(window.__lrmtvBridge)return;
   window.__lrmtvBridge=true;
-  var P=window.parent;if(P===window)return;
+  var P=window.__lrmtvRealParent||window.parent;
   var RE=/\\.m3u8|\\.mp4|\\.webm|\\.mkv/i;
   var sent=new Set();
   function abs(u){
@@ -64,9 +72,6 @@ const BRIDGE_SCRIPT = `(function(){
       }
     }
   }
-  try{
-    Object.defineProperty(window,'top',{get:function(){return window},configurable:true});
-  }catch(e){}
   var obs=new MutationObserver(function(muts){
     for(var i=0;i<muts.length;i++){
       var m=muts[i];
@@ -163,12 +168,13 @@ router.get('/proxy/page', async (req, res) => {
 
     let html = await response.text();
 
+    const antiIframeTag = `<script>${ANTI_IFRAME_SCRIPT}</script>`;
     const baseTag = `<base href="${baseHref}/">`;
     const headMatch = html.match(/<head[^>]*>/i);
     if (headMatch) {
-      html = html.replace(headMatch[0], headMatch[0] + baseTag);
+      html = html.replace(headMatch[0], headMatch[0] + antiIframeTag + baseTag);
     } else {
-      html = baseTag + html;
+      html = antiIframeTag + baseTag + html;
     }
 
     const bridgeTag = `<script>${BRIDGE_SCRIPT}</script>`;
