@@ -111,6 +111,8 @@ export default function RoomPage() {
 
   const [mediaConfirm, setMediaConfirm] = useState(false);
   const [pageBrowserUrl, setPageBrowserUrl] = useState<string | null>(null);
+  const [sharedBrowserActive, setSharedBrowserActive] = useState(false);
+  const sharedCanvasRef = useRef<HTMLCanvasElement>(null);
 
   const playerRef = useRef<SmartPlayerHandle>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -150,6 +152,33 @@ export default function RoomPage() {
     };
   }, [isDJ, socket]);
 
+  useEffect(() => {
+    if (!socket) return;
+    const onSessionActive = () => setSharedBrowserActive(true);
+    const onSessionInactive = () => setSharedBrowserActive(false);
+    let busy = false;
+    const onFrame = ({ data }: { data: string }) => {
+      if (busy) return;
+      const canvas = sharedCanvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      busy = true;
+      const img = new Image();
+      img.onload = () => { ctx.drawImage(img, 0, 0, canvas.width, canvas.height); busy = false; };
+      img.onerror = () => { busy = false; };
+      img.src = `data:image/jpeg;base64,${data}`;
+    };
+    socket.on('browser:session-active', onSessionActive);
+    socket.on('browser:session-inactive', onSessionInactive);
+    socket.on('browser:frame', onFrame);
+    return () => {
+      socket.off('browser:session-active', onSessionActive);
+      socket.off('browser:session-inactive', onSessionInactive);
+      socket.off('browser:frame', onFrame);
+    };
+  }, [socket]);
+
 
   const queryClient = useQueryClient();
   const addMutation = useAddPlaylistItem();
@@ -188,30 +217,8 @@ export default function RoomPage() {
     } catch { /* ignore */ }
   }, [slug, addMutation, queryClient, emitPlaylistUpdate, syncState.url, emitSync]);
 
-  const handlePageVideoDetected = useCallback(async (videoUrl: string) => {
-    setPageBrowserUrl(null);
-
-    // URLs extracted by the server-side browser (Playwright) are IP-bound to the server.
-    // Always route them through our server-side proxy so every viewer fetches bytes
-    // from the same server IP that obtained the CDN token — prevents 403 "IP locked".
-    // Include the room slug so the proxy can use the active Playwright session
-    // (same cookie jar + browser fingerprint) instead of a plain fetch()
-    const proxiedUrl = `/api/proxy/stream?url=${encodeURIComponent(videoUrl)}&ref=${encodeURIComponent(videoUrl)}&slug=${encodeURIComponent(slug)}`;
-
-    // Determine sourceType from the *original* URL (not the proxy URL)
-    const lowerOrig = videoUrl.toLowerCase();
-    const sourceType: 'mp4' | 'm3u8' | 'other' =
-      lowerOrig.endsWith('.mp4') || lowerOrig.endsWith('.webm') ? 'mp4'
-      : lowerOrig.endsWith('.mpd') || lowerOrig.includes('/dash/') ? 'other'
-      : 'm3u8'; // default — most CDN streams extracted from video sites are HLS
-    const displayTitle = `Video (${sourceType})`;
-    try {
-      await addMutation.mutateAsync({ slug, data: { url: proxiedUrl, title: displayTitle, sourceType } });
-      queryClient.invalidateQueries({ queryKey: getGetRoomPlaylistQueryKey(slug) });
-      emitPlaylistUpdate('add');
-      emitSync(0, true, proxiedUrl);
-    } catch { /* ignore */ }
-  }, [slug, addMutation, queryClient, emitPlaylistUpdate, emitSync]);
+  const handlePageVideoDetected = useCallback((_videoUrl: string) => {
+  }, []);
 
   useEffect(() => {
     setBgImage(
@@ -479,7 +486,18 @@ export default function RoomPage() {
                 canControl={canControl}
               />
             )}
-            {!pageBrowserUrl && syncState.url ? (
+            {!pageBrowserUrl && sharedBrowserActive && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black z-20">
+                <canvas
+                  ref={sharedCanvasRef}
+                  width={1280}
+                  height={720}
+                  className="w-full h-full"
+                  style={{ objectFit: 'contain' }}
+                />
+              </div>
+            )}
+            {!pageBrowserUrl && !sharedBrowserActive && syncState.url ? (
               <>
                 <div style={{ position: 'absolute', inset: 0 }}>
                 <SmartPlayer

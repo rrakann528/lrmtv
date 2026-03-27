@@ -18,6 +18,7 @@ function isVideoUrl(u: string): boolean {
 interface Session {
   slug: string;
   djSocketId: string;
+  io: any;
   context: BrowserContext;
   page: Page;
   cdp: any;
@@ -251,16 +252,13 @@ export async function startBrowserSession(
           clearInterval(playPollTimer!);
           playPollTimer = null;
           const s = sessions.get(slug);
-          const targetDj = s?.djSocketId ?? djSocketId;
-          io.to(targetDj).emit('browser:video-found', { url: bestUrl });
-          console.log(`[browser-session:${slug}] ✓ Video playing — emitting: ${bestUrl}`);
+          io.to(slug).emit('browser:video-playing', { url: bestUrl });
+          console.log(`[browser-session:${slug}] ✓ Video playing — broadcasting to room`);
 
           if (s) {
             s.videoActive = true;
             clearTimeout(s.idleTimer);
-            s.idleTimer = setTimeout(() => stopBrowserSession(slug, true), 30 * 60_000);
-            try { s.cdp.send('Page.stopScreencast').catch(() => {}); } catch {}
-            console.log(`[browser-session:${slug}] Session kept alive (video active), screencast stopped`);
+            s.idleTimer = setTimeout(() => stopBrowserSession(slug, true), 60 * 60_000);
           }
         } catch { /* page closed / navigating */ }
       }, 800);
@@ -327,32 +325,30 @@ export async function startBrowserSession(
     // CDP session for screencast + input
     const cdp = await context.newCDPSession(page);
 
-    // Start screencast — frames sent only to DJ
     await cdp.send('Page.startScreencast', {
       format: 'jpeg',
-      quality: 35,
+      quality: 65,
       maxWidth: FRAME_W,
       maxHeight: FRAME_H,
-      everyNthFrame: 3,
+      everyNthFrame: 2,
     });
 
     cdp.on('Page.screencastFrame', async ({ data, sessionId }: any) => {
-      io.to(sessions.get(slug)?.djSocketId ?? djSocketId).emit('browser:frame', { data });
+      io.to(slug).emit('browser:frame', { data });
       await cdp.send('Page.screencastFrameAck', { sessionId }).catch(() => {});
     });
 
-    // Page navigation state — reset video tracking on each new page
     page.on('framenavigated', (frame: any) => {
       if (frame === page.mainFrame()) {
         resetVideoTracking();
-        io.to(sessions.get(slug)?.djSocketId ?? djSocketId).emit('browser:state', {
+        io.to(slug).emit('browser:state', {
           url: page.url(), title: '', loading: true,
         });
       }
     });
     page.on('load', async () => {
       const title = await page.title().catch(() => '');
-      io.to(sessions.get(slug)?.djSocketId ?? djSocketId).emit('browser:state', {
+      io.to(slug).emit('browser:state', {
         url: page.url(), title, loading: false,
       });
       // Start polling for video playback on every page load — even if no URL
@@ -361,8 +357,9 @@ export async function startBrowserSession(
     });
 
     const idleTimer = setTimeout(() => stopBrowserSession(slug), IDLE_TIMEOUT_MS);
-    const session: Session = { slug, djSocketId, context, page, cdp, idleTimer, videoFound, videoActive: false };
+    const session: Session = { slug, djSocketId, io, context, page, cdp, idleTimer, videoFound, videoActive: false };
     sessions.set(slug, session);
+    io.to(slug).emit('browser:session-active', { slug });
 
     // Navigate to start URL
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(async () => {
@@ -381,7 +378,6 @@ export async function stopBrowserSession(slug: string, force = false): Promise<v
   const session = sessions.get(slug);
   if (!session) return;
   if (session.videoActive && !force) {
-    try { session.cdp.send('Page.stopScreencast').catch(() => {}); } catch {}
     console.log(`[browser-session:${slug}] Stop requested but video active — keeping session alive`);
     return;
   }
@@ -391,6 +387,7 @@ export async function stopBrowserSession(slug: string, force = false): Promise<v
     await session.cdp.send('Page.stopScreencast').catch(() => {});
     await session.context.close();
   } catch {}
+  session.io.to(slug).emit('browser:session-inactive', { slug });
   console.log(`[browser-session:${slug}] Session stopped${force ? ' (forced)' : ''}`);
 }
 

@@ -47,7 +47,8 @@ const token = conns[0].settings.access_token;
 - **Validation**: Zod (v4) + drizzle-zod
 - **API codegen**: Orval (from OpenAPI spec)
 - **Build**: esbuild (CJS bundle)
-- **Video**: SmartPlayer — HLS.js, dash.js, react-player (YouTube/Twitch/Vimeo), HTML5, SponsorBlock auto-skip, Page Browser (video URL extraction from webpages)
+- **Video**: SmartPlayer — HLS.js, dash.js, react-player (YouTube/Twitch/Vimeo), HTML5, SponsorBlock auto-skip
+- **Shared Browser (Kosmi-style)**: DJ opens Playwright browser → screencast frames broadcast to ALL room users via Socket.IO → everyone sees the same browser view. No URL extraction or HLS proxy needed.
 - **Real-time**: Socket.io (sync, chat, WebRTC)
 - **State**: Zustand
 - **i18n**: Custom React context — 6 لغات (ar, en, fr, tr, es, id) — مفتاح LS: `lrmtv_lang`

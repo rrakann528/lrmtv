@@ -11,6 +11,7 @@ import {
   browserBack,
   browserForward,
   browserRefresh,
+  hasBrowserSession,
 } from "./browser-session.js";
 
 // ── In-memory settings cache (shared across the process) ─────────────────────
@@ -515,6 +516,10 @@ export function initSocketServer(httpServer: HttpServer): Server {
         subtitle: roomState.subtitle,
         serverTs: Date.now(),
       });
+
+      if (hasBrowserSession(slug)) {
+        socket.emit('browser:session-active', { slug });
+      }
 
       const systemMsg = {
         username: "system",
@@ -1093,9 +1098,9 @@ export function initSocketServer(httpServer: HttpServer): Server {
       }
     });
 
-    socket.on("browser:stop", (data: { slug: string }) => {
+    socket.on("browser:stop", (data: { slug: string; force?: boolean }) => {
       if (!data?.slug) return;
-      stopBrowserSession(data.slug);
+      stopBrowserSession(data.slug, data.force ?? false);
       socket.emit("browser:stopped", { slug: data.slug });
     });
 

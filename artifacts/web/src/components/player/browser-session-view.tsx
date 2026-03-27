@@ -51,28 +51,23 @@ export default function BrowserSessionView({
       setIsLoading(loading);
       setIsStarting(false);
     };
-    const handleVideoFound = ({ url }: { url: string }) => {
+    const handleVideoPlaying = ({ url }: { url: string }) => {
       if (videoFoundRef.current) return;
       videoFoundRef.current = true;
       setVideoFoundUrl(url);
-      setTimeout(() => {
-        onVideoFound(url);
-      }, 1800);
     };
 
     socket.on('browser:started', onStarted);
     socket.on('browser:error', onError);
     socket.on('browser:state', onState);
-    socket.on('browser:video-found', handleVideoFound);
+    socket.on('browser:video-playing', handleVideoPlaying);
 
     return () => {
-      if (!videoFoundRef.current) {
-        socket.emit('browser:stop', { slug: roomSlug });
-      }
+      socket.emit('browser:stop', { slug: roomSlug });
       socket.off('browser:started', onStarted);
       socket.off('browser:error', onError);
       socket.off('browser:state', onState);
-      socket.off('browser:video-found', handleVideoFound);
+      socket.off('browser:video-playing', handleVideoPlaying);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -267,8 +262,8 @@ export default function BrowserSessionView({
             <div className="flex items-center gap-2 bg-green-600/90 backdrop-blur border border-green-400/30 rounded-xl px-4 py-2.5 shadow-lg">
               <CheckCircle className="w-5 h-5 text-white shrink-0" />
               <div>
-                <p className="text-white text-sm font-semibold">تم كشف الفيديو!</p>
-                <p className="text-green-200 text-xs">جارٍ التشغيل في الغرفة...</p>
+                <p className="text-white text-sm font-semibold">الفيديو يعمل الآن</p>
+                <p className="text-green-200 text-xs">الجميع يشاهدون البث المباشر</p>
               </div>
             </div>
           </div>
