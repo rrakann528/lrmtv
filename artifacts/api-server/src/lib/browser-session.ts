@@ -29,12 +29,44 @@ const sessions = new Map<string, Session>();
 let sharedBrowser: Browser | null = null;
 
 // ── Server-side header store ────────────────────────────────────────────────
-// When Playwright detects a video URL it stores the request headers
-// (especially Cookie + Referer) so the HLS proxy can reuse them and avoid
-// "IP / token mismatch" 403s from CDNs that validate these headers.
 interface StoredHeaders { cookie: string; referer: string; origin: string }
 const videoHeaderStore = new Map<string, StoredHeaders>();
 const MAX_STORE = 50;
+
+// ── Content cache — populated via route.fetch() (real Chrome network) ───────
+// route.fetch() uses Chromium's actual TLS stack, cookies, and IP —
+// the ONLY way to bypass CDNs that use TLS fingerprinting or signed tokens.
+// We cache the raw bytes so the proxy can serve them without touching the CDN.
+interface CachedContent { data: Buffer; ct: string; ts: number }
+const contentCache = new Map<string, CachedContent>();
+let contentCacheBytes = 0;
+const MAX_CACHE_BYTES = 60 * 1024 * 1024; // 60 MB total
+
+export function getCachedContent(url: string): CachedContent | undefined {
+  const exact = contentCache.get(url);
+  if (exact) return exact;
+  const base = url.split('?')[0];
+  for (const [k, v] of contentCache) {
+    if (k.split('?')[0] === base) return v;
+  }
+  return undefined;
+}
+
+function cacheContent(url: string, data: Buffer, ct: string) {
+  // Evict oldest entries to stay within size limit
+  while (contentCacheBytes + data.length > MAX_CACHE_BYTES && contentCache.size > 0) {
+    let oldestKey = ''; let oldestTs = Infinity;
+    for (const [k, v] of contentCache) {
+      if (v.ts < oldestTs) { oldestTs = v.ts; oldestKey = k; }
+    }
+    if (oldestKey) {
+      contentCacheBytes -= contentCache.get(oldestKey)!.data.length;
+      contentCache.delete(oldestKey);
+    } else break;
+  }
+  contentCache.set(url, { data, ct, ts: Date.now() });
+  contentCacheBytes += data.length;
+}
 
 export function getVideoHeaders(url: string): StoredHeaders | undefined {
   // 1. Exact match
@@ -224,36 +256,56 @@ export async function startBrowserSession(
       }, 800);
     }
 
-    // ── Collect URLs silently; emit only when video is confirmed playing ──────
-    await context.route('**/*', (route) => {
+    // ── Intercept all requests: use route.fetch() for video URLs ─────────────
+    // route.fetch() uses Chromium's ACTUAL network stack (correct IP, cookies,
+    // and TLS fingerprint). We cache the bytes so the proxy can serve them
+    // without ever contacting the CDN directly from Node.js.
+    await context.route('**/*', async (route) => {
       const reqUrl = route.request().url();
-      if (isVideoUrl(reqUrl)) {
-        // Store request headers for CDN cookie/referer forwarding in the proxy
-        try {
-          const reqHeaders = route.request().headers();
-          storeVideoHeaders(reqUrl, reqHeaders, page.url());
-        } catch {}
-        videoFound.add(reqUrl);
-        videoTimestamps.set(reqUrl, Date.now());
-        startPlayPoll();
-      }
       const rt = route.request().resourceType();
-      if (['font'].includes(rt)) { route.abort(); return; }
-      route.continue();
+
+      if (isVideoUrl(reqUrl)) {
+        let fulfilled = false;
+        try {
+          storeVideoHeaders(reqUrl, route.request().headers(), page.url());
+          // Fetch through browser — bypasses all CDN protection
+          const response = await route.fetch();
+          const data = await response.body();
+          const ct = response.headers()['content-type'] || '';
+          // Cache for proxy
+          cacheContent(reqUrl, data, ct);
+          videoFound.add(reqUrl);
+          videoTimestamps.set(reqUrl, Date.now());
+          startPlayPoll();
+          // Pass through to browser unchanged
+          await route.fulfill({ response });
+          fulfilled = true;
+        } catch { /* fall through to continue */ }
+        if (!fulfilled) {
+          try {
+            if (rt === 'font') { route.abort(); } else { route.continue(); }
+          } catch {}
+        }
+        return;
+      }
+
+      // Detect video by content-type even when URL doesn't look like video
+      if (rt === 'font') { route.abort(); return; }
+
+      // For non-video requests: let them pass, but watch responses for stream content-types
+      try { route.continue(); } catch {}
     });
 
-    // Also capture URLs via response content-type (for servers that don't use .m3u8 extension)
+    // Watch for video responses not caught by URL pattern (e.g. no extension)
     page.on('response', async (resp: any) => {
       try {
         const respUrl = resp.url();
+        if (videoFound.has(respUrl)) return;
         const ct = (resp.headers()['content-type'] || '').toLowerCase();
         if (STREAM_CT.some(t => ct.startsWith(t))) {
           const cl = parseInt(resp.headers()['content-length'] || '0', 10);
           if (cl === 0 || cl > 500) {
-            try {
-              const reqHeaders = resp.request().headers();
-              storeVideoHeaders(respUrl, reqHeaders, page.url());
-            } catch {}
+            try { storeVideoHeaders(respUrl, resp.request().headers(), page.url()); } catch {}
             videoFound.add(respUrl);
             videoTimestamps.set(respUrl, Date.now());
             startPlayPoll();
@@ -337,13 +389,17 @@ export async function proxyViaSession(
 ): Promise<{ data: Buffer; status: number; contentType: string } | null> {
   const session = sessions.get(slug);
   if (!session) return null;
+  const stored = getVideoHeaders(url);
   try {
+    const headers: Record<string, string> = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+      'Accept': '*/*',
+      'Accept-Language': 'en-US,en;q=0.9',
+    };
+    if (stored?.referer) headers['Referer'] = stored.referer;
+    if (stored?.origin)  headers['Origin']  = stored.origin;
     const resp = await session.context.request.get(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-        'Accept': '*/*',
-        'Accept-Language': 'en-US,en;q=0.9',
-      },
+      headers,
       timeout: 15000,
       ignoreHTTPSErrors: true,
     });

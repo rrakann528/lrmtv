@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getVideoHeaders, proxyViaSession } from '../lib/browser-session';
+import { getVideoHeaders, proxyViaSession, getCachedContent } from '../lib/browser-session';
 
 const router = Router();
 
@@ -233,11 +233,26 @@ router.get('/proxy/stream', async (req, res) => {
   // (which proxies /api/ → API server) — works in both dev and production.
   const selfBase = '/api/proxy/stream';
 
-  // ── Session-aware fetch (preferred path) ────────────────────────────────
-  // When the request originated from a browser-session room, route the CDN
-  // fetch through the active Playwright context. This uses the EXACT same
-  // cookie jar + browser fingerprint that the CDN authenticated initially,
-  // bypassing all IP/cookie/token validation that a plain fetch() fails.
+  // ── 1. Content cache (BEST PATH) ────────────────────────────────────────
+  // Populated by route.fetch() inside Playwright — uses Chromium's actual
+  // network stack (correct TLS fingerprint, cookies, IP). If the browser
+  // already fetched this URL, serve it straight from cache — no CDN call needed.
+  const cached = getCachedContent(targetUrl);
+  if (cached && cached.data.length > 0) {
+    const ct = cached.ct.toLowerCase();
+    const isManifest = ct.includes('mpegurl') || ct.includes('x-mpegurl') || targetUrl.toLowerCase().includes('.m3u8');
+    if (isManifest) {
+      const text = cached.data.toString('utf8');
+      const rewritten = rewriteM3u8(text, targetUrl, referer || targetUrl, selfBase, slug);
+      res.status(200).set('Content-Type', 'application/vnd.apple.mpegurl').set('Cache-Control', 'no-cache').send(rewritten);
+    } else {
+      res.status(200).set('Content-Type', cached.ct || 'video/mp2t').send(cached.data);
+    }
+    return;
+  }
+
+  // ── 2. Session-aware fetch via Playwright context.request ───────────────
+  // Shares cookies with the browser session, bypasses CDN cookie validation.
   if (slug) {
     try {
       const result = await proxyViaSession(slug, targetUrl);
