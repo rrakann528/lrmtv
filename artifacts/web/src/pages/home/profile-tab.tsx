@@ -1,6 +1,6 @@
-import { useState, type ReactNode } from 'react';
+import { useState, useRef, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
-import { Edit3, LogOut, Save, X, Bell, BellOff, Shield } from 'lucide-react';
+import { Edit3, LogOut, Save, X, Bell, BellOff, Shield, Camera, Trash2 } from 'lucide-react';
 import { Avatar } from '@/components/avatar';
 import { useAuth } from '@/hooks/use-auth';
 import { usePush } from '@/hooks/use-push';
@@ -10,7 +10,7 @@ import { useLocation } from 'wouter';
 type Section = null | 'name' | 'username' | 'bio';
 
 export function ProfileTab() {
-  const { user, logout, updateProfile } = useAuth();
+  const { user, logout, updateProfile, setUser } = useAuth();
   const { lang, setLang, t } = useI18n();
   const [, setLocation] = useLocation();
   const { permission, loading: pushLoading, subscribe, refresh: refreshPush, test: testPush, isSupported } = usePush(user?.id);
@@ -19,6 +19,8 @@ export function ProfileTab() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const [displayName, setDisplayName] = useState(user?.displayName || '');
   const [username, setUsername] = useState(user?.username || '');
@@ -42,6 +44,56 @@ export function ProfileTab() {
     }
   };
 
+  const compressImage = (file: File, maxSize = 256, quality = 0.8): Promise<Blob> =>
+    new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let w = img.width, h = img.height;
+        if (w > h) { if (w > maxSize) { h = (h * maxSize) / w; w = maxSize; } }
+        else { if (h > maxSize) { w = (w * maxSize) / h; h = maxSize; } }
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { reject(new Error('Canvas error')); return; }
+        ctx.drawImage(img, 0, 0, w, h);
+        canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Compression failed')), 'image/jpeg', quality);
+      };
+      img.onerror = () => reject(new Error('Image load failed'));
+      img.src = URL.createObjectURL(file);
+    });
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setError('');
+    try {
+      const compressed = await compressImage(file);
+      const formData = new FormData();
+      formData.append('file', compressed, 'avatar.jpg');
+      const token = localStorage.getItem('lrmtv_auth_token');
+      const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
+      const res = await fetch(`${BASE}/api/auth/avatar-upload`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      });
+      if (!res.ok) throw new Error('Upload failed');
+      const updated = await res.json();
+      setUser(updated);
+      setSuccess(t('saveSuccess'));
+      setTimeout(() => setSuccess(''), 3000);
+    } catch {
+      setError(t('saveError'));
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  const handleRemovePhoto = async () => { await save({ avatarUrl: '' }); };
+
   const name = user.displayName || user.username;
 
   return (
@@ -49,6 +101,24 @@ export function ProfileTab() {
       <div className="flex flex-col items-center pt-8 pb-6 px-4 bg-card border-b border-border">
         <div className="relative mb-3">
           <Avatar name={name} color={user.avatarColor} url={user.avatarUrl} size={88} />
+          <input ref={fileRef} type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" />
+          <button
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading}
+            className="absolute -bottom-1 -right-1 w-9 h-9 bg-primary rounded-full flex items-center justify-center shadow-lg text-primary-foreground"
+          >
+            {uploading
+              ? <div className="w-4 h-4 border-2 border-primary-foreground/50 border-t-transparent rounded-full animate-spin" />
+              : <Camera className="w-4 h-4" />}
+          </button>
+          {user.avatarUrl && (
+            <button
+              onClick={handleRemovePhoto}
+              className="absolute -bottom-1 -left-1 w-7 h-7 bg-destructive rounded-full flex items-center justify-center shadow-lg text-white"
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
+          )}
         </div>
         <h2 className="text-xl font-bold text-foreground">{name}</h2>
         <p className="text-sm text-muted-foreground">@{user.username}</p>
