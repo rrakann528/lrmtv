@@ -3,16 +3,6 @@ import { Server, Socket } from "socket.io";
 import jwt from "jsonwebtoken";
 import { db, chatMessagesTable, roomsTable, playlistItemsTable, roomInvitesTable, usersTable, siteSettingsTable } from "@workspace/db";
 import { eq, and, notInArray, inArray } from "drizzle-orm";
-import {
-  startBrowserSession,
-  stopBrowserSession,
-  sendBrowserInput,
-  navigateBrowser,
-  browserBack,
-  browserForward,
-  browserRefresh,
-  hasBrowserSession,
-} from "./browser-session.js";
 
 // ── In-memory settings cache (shared across the process) ─────────────────────
 let _settingsMap = new Map<string, string>();
@@ -516,10 +506,6 @@ export function initSocketServer(httpServer: HttpServer): Server {
         subtitle: roomState.subtitle,
         serverTs: Date.now(),
       });
-
-      if (hasBrowserSession(slug)) {
-        socket.emit('browser:session-active', { slug });
-      }
 
       const systemMsg = {
         username: "system",
@@ -1078,69 +1064,6 @@ export function initSocketServer(httpServer: HttpServer): Server {
 
       currentRoomSlug = '';
     };
-
-    // ── Virtual Browser Session (CDP Screencast) ──────────────────────────────
-    socket.on("browser:start", async (data: { slug: string; url: string }) => {
-      if (!data?.slug || !data?.url) return;
-      const roomState = getRoomState(data.slug);
-      if (!roomState) return;
-      const user = roomState.users.get(socket.id);
-      if (!user) return;
-      if (!canControl(user, roomState)) {
-        socket.emit("browser:error", { message: "not_allowed" });
-        return;
-      }
-      const result = await startBrowserSession(io, data.slug, data.url, socket.id);
-      if (!result.success) {
-        socket.emit("browser:error", { message: result.error ?? "failed" });
-      } else {
-        socket.emit("browser:started", { slug: data.slug });
-      }
-    });
-
-    socket.on("browser:stop", (data: { slug: string; force?: boolean }) => {
-      if (!data?.slug) return;
-      stopBrowserSession(data.slug, data.force ?? false);
-      socket.emit("browser:stopped", { slug: data.slug });
-    });
-
-    socket.on("browser:input", (data: {
-      slug: string; type: string;
-      x?: number; y?: number;
-      button?: string; key?: string; code?: string;
-      deltaY?: number; text?: string; modifiers?: number;
-    }) => {
-      if (!data?.slug) return;
-      const roomState = getRoomState(data.slug);
-      if (!roomState) return;
-      const user = roomState.users.get(socket.id);
-      if (!user || !canControl(user, roomState)) return;
-      sendBrowserInput(data.slug, data);
-    });
-
-    socket.on("browser:navigate", (data: { slug: string; url: string }) => {
-      if (!data?.slug || !data?.url) return;
-      const roomState = getRoomState(data.slug);
-      if (!roomState) return;
-      const user = roomState.users.get(socket.id);
-      if (!user || !canControl(user, roomState)) return;
-      navigateBrowser(data.slug, data.url);
-    });
-
-    socket.on("browser:back", (data: { slug: string }) => {
-      if (!data?.slug) return;
-      browserBack(data.slug);
-    });
-
-    socket.on("browser:forward", (data: { slug: string }) => {
-      if (!data?.slug) return;
-      browserForward(data.slug);
-    });
-
-    socket.on("browser:refresh", (data: { slug: string }) => {
-      if (!data?.slug) return;
-      browserRefresh(data.slug);
-    });
 
     socket.on("leave-room", handleLeaveRoom);
     socket.on("disconnect", handleLeaveRoom);

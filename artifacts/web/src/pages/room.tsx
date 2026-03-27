@@ -26,7 +26,6 @@ import FriendsPanel from './room/friends-panel';
 import { RoomSettingsSheet } from './room/room-settings-sheet';
 import { UserProfileSheet } from '@/components/user-profile-sheet';
 import { SmartPlayer, type SmartPlayerHandle } from '@/components/player/smart-player';
-import BrowserSessionView from '@/components/player/browser-session-view';
 
 import YoutubeSearch from '@/components/youtube-search';
 
@@ -37,21 +36,6 @@ function detectSourceType(url: string): 'youtube' | 'vimeo' | 'twitch' | 'mp4' |
   if (url.endsWith('.mp4')) return 'mp4';
   if (url.endsWith('.m3u8')) return 'm3u8';
   return 'other';
-}
-
-function isDirectVideoUrl(url: string): boolean {
-  const lower = url.toLowerCase();
-  if (/(?:youtube\.com|youtu\.be|youtube-nocookie\.com)/.test(lower)) return true;
-  if (/vimeo\.com/.test(lower)) return true;
-  if (/twitch\.tv/.test(lower)) return true;
-  if (/dailymotion\.com|dai\.ly/.test(lower)) return true;
-  const path = lower.split('?')[0];
-  if (path.endsWith('.m3u8') || path.endsWith('.mp4') || path.endsWith('.webm') ||
-      path.endsWith('.mkv') || path.endsWith('.mpd') || path.endsWith('.avi') ||
-      path.endsWith('.ts') || path.endsWith('.flv')) return true;
-  if (lower.includes('m3u8') || lower.includes('.mpd') || lower.includes('/hls/') ||
-      lower.includes('/dash/')) return true;
-  return false;
 }
 
 
@@ -110,9 +94,6 @@ export default function RoomPage() {
   const [showRoomSettings, setShowRoomSettings] = useState(false);
 
   const [mediaConfirm, setMediaConfirm] = useState(false);
-  const [pageBrowserUrl, setPageBrowserUrl] = useState<string | null>(null);
-  const [sharedBrowserActive, setSharedBrowserActive] = useState(false);
-  const sharedCanvasRef = useRef<HTMLCanvasElement>(null);
 
   const playerRef = useRef<SmartPlayerHandle>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -152,33 +133,6 @@ export default function RoomPage() {
     };
   }, [isDJ, socket]);
 
-  useEffect(() => {
-    if (!socket) return;
-    const onSessionActive = () => setSharedBrowserActive(true);
-    const onSessionInactive = () => setSharedBrowserActive(false);
-    let busy = false;
-    const onFrame = ({ data }: { data: string }) => {
-      if (busy) return;
-      const canvas = sharedCanvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-      busy = true;
-      const img = new Image();
-      img.onload = () => { ctx.drawImage(img, 0, 0, canvas.width, canvas.height); busy = false; };
-      img.onerror = () => { busy = false; };
-      img.src = `data:image/jpeg;base64,${data}`;
-    };
-    socket.on('browser:session-active', onSessionActive);
-    socket.on('browser:session-inactive', onSessionInactive);
-    socket.on('browser:frame', onFrame);
-    return () => {
-      socket.off('browser:session-active', onSessionActive);
-      socket.off('browser:session-inactive', onSessionInactive);
-      socket.off('browser:frame', onFrame);
-    };
-  }, [socket]);
-
 
   const queryClient = useQueryClient();
   const addMutation = useAddPlaylistItem();
@@ -202,11 +156,6 @@ export default function RoomPage() {
 
   const handleAddVideo = useCallback(async (url: string, title: string) => {
     if (!url.trim()) return;
-    const trimmed = url.trim();
-    if (trimmed.startsWith('http') && !isDirectVideoUrl(trimmed)) {
-      setPageBrowserUrl(trimmed);
-      return;
-    }
     const sourceType = detectSourceType(url);
     const displayTitle = title && title !== url ? title : `Video (${sourceType})`;
     try {
@@ -216,9 +165,6 @@ export default function RoomPage() {
       if (!syncState.url) emitSync(0, false, url);
     } catch { /* ignore */ }
   }, [slug, addMutation, queryClient, emitPlaylistUpdate, syncState.url, emitSync]);
-
-  const handlePageVideoDetected = useCallback((_videoUrl: string) => {
-  }, []);
 
   useEffect(() => {
     setBgImage(
@@ -476,28 +422,7 @@ export default function RoomPage() {
               mobile  → fixed 16:9 aspect ratio
               md+     → flex-grow (fills all available height) */}
           <div className="w-full aspect-[2/1] md:aspect-auto md:flex-grow relative bg-black shrink-0">
-            {pageBrowserUrl && socket && (
-              <BrowserSessionView
-                socket={socket}
-                roomSlug={slug}
-                initialUrl={pageBrowserUrl}
-                onVideoFound={handlePageVideoDetected}
-                onClose={() => setPageBrowserUrl(null)}
-                canControl={canControl}
-              />
-            )}
-            {!pageBrowserUrl && sharedBrowserActive && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black z-20">
-                <canvas
-                  ref={sharedCanvasRef}
-                  width={1280}
-                  height={720}
-                  className="w-full h-full"
-                  style={{ objectFit: 'contain' }}
-                />
-              </div>
-            )}
-            {!pageBrowserUrl && !sharedBrowserActive && syncState.url ? (
+            {syncState.url ? (
               <>
                 <div style={{ position: 'absolute', inset: 0 }}>
                 <SmartPlayer
