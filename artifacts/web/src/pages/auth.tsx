@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth, apiFetch, writeToken } from '@/hooks/use-auth';
 import { useLocation, useSearch } from 'wouter';
-import { Eye, EyeOff, Loader2, Mail, CheckCircle2, Globe } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Mail, CheckCircle2, Globe, KeyRound } from 'lucide-react';
 import { useI18n, LANGUAGES } from '@/lib/i18n';
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -17,6 +17,8 @@ function GoogleIcon() {
     </svg>
   );
 }
+
+type Step = 'form' | 'otp' | 'forgot-email' | 'forgot-otp' | 'forgot-newpass';
 
 export default function AuthPage() {
   const { user, loading, setUser } = useAuth();
@@ -33,7 +35,7 @@ export default function AuthPage() {
   };
 
   const [mode, setMode] = useState<'login' | 'register'>(initialMode);
-  const [step, setStep] = useState<'form' | 'otp'>('form');
+  const [step, setStep] = useState<Step>('form');
   const [loginField, setLoginField] = useState('');
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -47,12 +49,26 @@ export default function AuthPage() {
 
   const displayError = errorKey ? t(errorKey as any) : errorRaw;
 
+  // Email OTP (registration)
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [otpError, setOtpError] = useState('');
   const [otpSubmitting, setOtpSubmitting] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
   const [pendingUser, setPendingUser] = useState<any>(null);
   const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+  // Forgot password flow
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotOtp, setForgotOtp] = useState(['', '', '', '', '', '']);
+  const [forgotOtpError, setForgotOtpError] = useState('');
+  const [forgotSubmitting, setForgotSubmitting] = useState(false);
+  const [forgotResendCooldown, setForgotResendCooldown] = useState(0);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPass, setShowNewPass] = useState(false);
+  const [showConfirmPass, setShowConfirmPass] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState(false);
+  const forgotOtpRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   useEffect(() => {
     if (!loading && user && step !== 'otp') {
@@ -71,6 +87,12 @@ export default function AuthPage() {
     const timer = setTimeout(() => setResendCooldown(v => v - 1), 1000);
     return () => clearTimeout(timer);
   }, [resendCooldown]);
+
+  useEffect(() => {
+    if (forgotResendCooldown <= 0) return;
+    const timer = setTimeout(() => setForgotResendCooldown(v => v - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [forgotResendCooldown]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -112,27 +134,27 @@ export default function AuthPage() {
     }
   }
 
-  function handleOtpInput(idx: number, val: string) {
+  function handleOtpInput(idx: number, val: string, otpArr: string[], setOtpArr: (v: string[]) => void, refs: React.MutableRefObject<(HTMLInputElement | null)[]>, setErr: (v: string) => void) {
     const digit = val.replace(/\D/g, '').slice(-1);
-    const next = [...otp];
+    const next = [...otpArr];
     next[idx] = digit;
-    setOtp(next);
-    setOtpError('');
-    if (digit && idx < 5) otpRefs.current[idx + 1]?.focus();
+    setOtpArr(next);
+    setErr('');
+    if (digit && idx < 5) refs.current[idx + 1]?.focus();
   }
 
-  function handleOtpKeyDown(idx: number, e: React.KeyboardEvent) {
-    if (e.key === 'Backspace' && !otp[idx] && idx > 0) {
-      otpRefs.current[idx - 1]?.focus();
+  function handleOtpKeyDown(idx: number, e: React.KeyboardEvent, otpArr: string[], refs: React.MutableRefObject<(HTMLInputElement | null)[]>) {
+    if (e.key === 'Backspace' && !otpArr[idx] && idx > 0) {
+      refs.current[idx - 1]?.focus();
     }
   }
 
-  function handleOtpPaste(e: React.ClipboardEvent) {
+  function handleOtpPaste(e: React.ClipboardEvent, setOtpArr: (v: string[]) => void, refs: React.MutableRefObject<(HTMLInputElement | null)[]>) {
     e.preventDefault();
     const digits = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
     if (digits.length === 6) {
-      setOtp(digits.split(''));
-      otpRefs.current[5]?.focus();
+      setOtpArr(digits.split(''));
+      refs.current[5]?.focus();
     }
   }
 
@@ -164,6 +186,81 @@ export default function AuthPage() {
       setOtpError('');
       otpRefs.current[0]?.focus();
     } catch { setOtpError(t('authResendFailed')); }
+  }
+
+  // ── Forgot password handlers ────────────────────────────────────────────────
+  async function handleForgotSendOtp(e: React.FormEvent) {
+    e.preventDefault();
+    if (!forgotEmail.trim()) return;
+    setForgotSubmitting(true);
+    setForgotOtpError('');
+    try {
+      const res = await apiFetch('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email: forgotEmail.trim() }) });
+      if (!res.ok) {
+        const data = await res.json();
+        setForgotOtpError(data.error || t('authGenericError'));
+        return;
+      }
+      setForgotResendCooldown(60);
+      setStep('forgot-otp');
+      setTimeout(() => forgotOtpRefs.current[0]?.focus(), 100);
+    } catch {
+      setForgotOtpError(t('authConnectionError'));
+    } finally {
+      setForgotSubmitting(false);
+    }
+  }
+
+  async function handleForgotVerifyOtp(e: React.FormEvent) {
+    e.preventDefault();
+    const code = forgotOtp.join('');
+    if (code.length < 6) { setForgotOtpError(t('authEnterFullCode')); return; }
+    setForgotSubmitting(true);
+    setForgotOtpError('');
+    // Just move to new password step — we'll verify code together with new password
+    setForgotSubmitting(false);
+    setStep('forgot-newpass');
+  }
+
+  async function handleForgotResend() {
+    if (forgotResendCooldown > 0) return;
+    try {
+      const res = await apiFetch('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email: forgotEmail.trim() }) });
+      if (!res.ok) return;
+      setForgotResendCooldown(60);
+      setForgotOtp(['', '', '', '', '', '']);
+      setForgotOtpError('');
+      forgotOtpRefs.current[0]?.focus();
+    } catch {}
+  }
+
+  async function handleForgotReset(e: React.FormEvent) {
+    e.preventDefault();
+    if (newPassword !== confirmPassword) { setForgotOtpError(t('forgotPasswordMismatch')); return; }
+    if (newPassword.length < 6) { setForgotOtpError('كلمة المرور 6 أحرف على الأقل'); return; }
+    setForgotSubmitting(true);
+    setForgotOtpError('');
+    try {
+      const res = await apiFetch('/auth/reset-password', {
+        method: 'POST',
+        body: JSON.stringify({ email: forgotEmail.trim(), code: forgotOtp.join(''), newPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setForgotOtpError(data.error || t('authGenericError')); return; }
+      setResetSuccess(true);
+      setTimeout(() => {
+        setStep('form');
+        setResetSuccess(false);
+        setForgotEmail('');
+        setForgotOtp(['', '', '', '', '', '']);
+        setNewPassword('');
+        setConfirmPassword('');
+      }, 2000);
+    } catch {
+      setForgotOtpError(t('authConnectionError'));
+    } finally {
+      setForgotSubmitting(false);
+    }
   }
 
   const currentLang = LANGUAGES.find(l => l.code === lang);
@@ -215,7 +312,9 @@ export default function AuthPage() {
         className="relative w-full max-w-xs flex flex-col items-center gap-6"
       >
         <AnimatePresence mode="wait">
-          {step === 'otp' ? (
+
+          {/* ── Email verification OTP (after registration) ── */}
+          {step === 'otp' && (
             <motion.div
               key="otp"
               initial={{ opacity: 0, y: 16 }}
@@ -236,7 +335,7 @@ export default function AuthPage() {
 
               <div className="w-full rounded-2xl border border-white/10 p-6 flex flex-col gap-4" style={{ backgroundColor: 'rgba(255,255,255,0.03)' }}>
                 <form onSubmit={handleVerifyOtp} className="flex flex-col gap-4">
-                  <div className="flex gap-2 justify-center" dir="ltr" onPaste={handleOtpPaste}>
+                  <div className="flex gap-2 justify-center" dir="ltr" onPaste={e => handleOtpPaste(e, setOtp, otpRefs)}>
                     {otp.map((digit, i) => (
                       <input
                         key={i}
@@ -245,8 +344,8 @@ export default function AuthPage() {
                         inputMode="numeric"
                         maxLength={1}
                         value={digit}
-                        onChange={e => handleOtpInput(i, e.target.value)}
-                        onKeyDown={e => handleOtpKeyDown(i, e)}
+                        onChange={e => handleOtpInput(i, e.target.value, otp, setOtp, otpRefs, setOtpError)}
+                        onKeyDown={e => handleOtpKeyDown(i, e, otp, otpRefs)}
                         className="w-11 h-13 text-center text-xl font-bold text-white bg-white/5 border border-white/15 rounded-xl focus:border-cyan-400 focus:outline-none transition"
                         style={{ height: '52px' }}
                       />
@@ -280,7 +379,213 @@ export default function AuthPage() {
                 </div>
               </div>
             </motion.div>
-          ) : (
+          )}
+
+          {/* ── Forgot: enter email ── */}
+          {step === 'forgot-email' && (
+            <motion.div
+              key="forgot-email"
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -16 }}
+              className="w-full flex flex-col items-center gap-6"
+            >
+              <div className="text-center">
+                <div className="w-14 h-14 rounded-full bg-violet-500/15 border border-violet-500/30 flex items-center justify-center mx-auto mb-3">
+                  <KeyRound className="w-7 h-7 text-violet-400" />
+                </div>
+                <h1 className="text-white text-xl font-bold">{t('forgotPasswordOtpTitle')}</h1>
+                <p className="text-white/40 text-sm mt-1">{t('forgotPasswordDesc')}</p>
+              </div>
+
+              <div className="w-full rounded-2xl border border-white/10 p-6 flex flex-col gap-4" style={{ backgroundColor: 'rgba(255,255,255,0.03)' }}>
+                <form onSubmit={handleForgotSendOtp} className="flex flex-col gap-3">
+                  <input
+                    type="email"
+                    placeholder={t('authEmail')}
+                    value={forgotEmail}
+                    onChange={e => setForgotEmail(e.target.value)}
+                    required
+                    autoComplete="email"
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-primary/50 transition"
+                    dir="ltr"
+                  />
+
+                  {forgotOtpError && (
+                    <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-red-400 text-xs text-center">
+                      {forgotOtpError}
+                    </motion.p>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={forgotSubmitting || !forgotEmail.trim()}
+                    className="flex items-center justify-center gap-2 w-full py-3 rounded-xl bg-primary text-white font-semibold text-sm hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60"
+                  >
+                    {forgotSubmitting ? <Loader2 size={16} className="animate-spin" /> : <Mail size={16} />}
+                    {t('forgotPasswordSend')}
+                  </button>
+                </form>
+
+                <button
+                  onClick={() => { setStep('form'); setForgotOtpError(''); }}
+                  className="text-sm text-white/30 hover:text-white/60 transition text-center"
+                >
+                  {dir === 'rtl' ? '→' : '←'} {t('authBack')}
+                </button>
+              </div>
+            </motion.div>
+          )}
+
+          {/* ── Forgot: enter OTP ── */}
+          {step === 'forgot-otp' && (
+            <motion.div
+              key="forgot-otp"
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -16 }}
+              className="w-full flex flex-col items-center gap-6"
+            >
+              <div className="text-center">
+                <div className="w-14 h-14 rounded-full bg-violet-500/15 border border-violet-500/30 flex items-center justify-center mx-auto mb-3">
+                  <Mail className="w-7 h-7 text-violet-400" />
+                </div>
+                <h1 className="text-white text-xl font-bold">{t('forgotPasswordOtpTitle')}</h1>
+                <p className="text-white/40 text-sm mt-1">
+                  {t('forgotPasswordOtpDesc')}<br />
+                  <span className="text-violet-400 font-mono">{forgotEmail}</span>
+                </p>
+              </div>
+
+              <div className="w-full rounded-2xl border border-white/10 p-6 flex flex-col gap-4" style={{ backgroundColor: 'rgba(255,255,255,0.03)' }}>
+                <form onSubmit={handleForgotVerifyOtp} className="flex flex-col gap-4">
+                  <div className="flex gap-2 justify-center" dir="ltr" onPaste={e => handleOtpPaste(e, setForgotOtp, forgotOtpRefs)}>
+                    {forgotOtp.map((digit, i) => (
+                      <input
+                        key={i}
+                        ref={el => { forgotOtpRefs.current[i] = el; }}
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={1}
+                        value={digit}
+                        onChange={e => handleOtpInput(i, e.target.value, forgotOtp, setForgotOtp, forgotOtpRefs, setForgotOtpError)}
+                        onKeyDown={e => handleOtpKeyDown(i, e, forgotOtp, forgotOtpRefs)}
+                        className="w-11 text-center text-xl font-bold text-white bg-white/5 border border-white/15 rounded-xl focus:border-violet-400 focus:outline-none transition"
+                        style={{ height: '52px' }}
+                      />
+                    ))}
+                  </div>
+
+                  {forgotOtpError && (
+                    <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-red-400 text-xs text-center">
+                      {forgotOtpError}
+                    </motion.p>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={forgotOtp.join('').length < 6}
+                    className="flex items-center justify-center gap-2 w-full py-3 rounded-xl bg-violet-600 text-white font-semibold text-sm hover:bg-violet-500 active:scale-95 transition-all disabled:opacity-60"
+                  >
+                    <CheckCircle2 size={16} />
+                    {t('authConfirmCode')}
+                  </button>
+                </form>
+
+                <div className="text-center">
+                  <button
+                    onClick={handleForgotResend}
+                    disabled={forgotResendCooldown > 0}
+                    className="text-sm text-violet-400 hover:text-violet-300 disabled:text-white/30 transition"
+                  >
+                    {forgotResendCooldown > 0 ? `${t('authResendIn')} ${forgotResendCooldown}${t('authSecondsSuffix')}` : t('authResendCode')}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {/* ── Forgot: new password ── */}
+          {step === 'forgot-newpass' && (
+            <motion.div
+              key="forgot-newpass"
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -16 }}
+              className="w-full flex flex-col items-center gap-6"
+            >
+              <div className="text-center">
+                <div className="w-14 h-14 rounded-full bg-green-500/15 border border-green-500/30 flex items-center justify-center mx-auto mb-3">
+                  {resetSuccess
+                    ? <CheckCircle2 className="w-7 h-7 text-green-400" />
+                    : <KeyRound className="w-7 h-7 text-green-400" />
+                  }
+                </div>
+                <h1 className="text-white text-xl font-bold">{t('forgotPasswordNewPassTitle')}</h1>
+                {resetSuccess && (
+                  <p className="text-green-400 text-sm mt-1">{t('forgotPasswordSuccess')}</p>
+                )}
+              </div>
+
+              {!resetSuccess && (
+                <div className="w-full rounded-2xl border border-white/10 p-6 flex flex-col gap-4" style={{ backgroundColor: 'rgba(255,255,255,0.03)' }}>
+                  <form onSubmit={handleForgotReset} className="flex flex-col gap-3">
+                    <div className="relative">
+                      <input
+                        type={showNewPass ? 'text' : 'password'}
+                        placeholder={t('forgotPasswordNewPass')}
+                        value={newPassword}
+                        onChange={e => setNewPassword(e.target.value)}
+                        required
+                        minLength={6}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 pr-11 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-green-500/50 transition"
+                      />
+                      <button type="button" onClick={() => setShowNewPass(v => !v)}
+                        className="absolute top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60"
+                        style={{ insetInlineStart: '0.75rem' }}>
+                        {showNewPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+
+                    <div className="relative">
+                      <input
+                        type={showConfirmPass ? 'text' : 'password'}
+                        placeholder={t('forgotPasswordConfirmPass')}
+                        value={confirmPassword}
+                        onChange={e => setConfirmPassword(e.target.value)}
+                        required
+                        minLength={6}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 pr-11 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-green-500/50 transition"
+                      />
+                      <button type="button" onClick={() => setShowConfirmPass(v => !v)}
+                        className="absolute top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60"
+                        style={{ insetInlineStart: '0.75rem' }}>
+                        {showConfirmPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+
+                    {forgotOtpError && (
+                      <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-red-400 text-xs text-center">
+                        {forgotOtpError}
+                      </motion.p>
+                    )}
+
+                    <button
+                      type="submit"
+                      disabled={forgotSubmitting || !newPassword || !confirmPassword}
+                      className="flex items-center justify-center gap-2 w-full py-3 rounded-xl bg-green-600 text-white font-semibold text-sm hover:bg-green-500 active:scale-95 transition-all disabled:opacity-60"
+                    >
+                      {forgotSubmitting ? <Loader2 size={16} className="animate-spin" /> : <KeyRound size={16} />}
+                      {t('forgotPasswordReset')}
+                    </button>
+                  </form>
+                </div>
+              )}
+            </motion.div>
+          )}
+
+          {/* ── Login / Register form ── */}
+          {step === 'form' && (
             <motion.div
               key="form"
               initial={{ opacity: 0, y: 16 }}
@@ -388,6 +693,17 @@ export default function AuthPage() {
                     </button>
                   </div>
 
+                  {/* Forgot password link — login only */}
+                  {mode === 'login' && (
+                    <button
+                      type="button"
+                      onClick={() => { setForgotEmail(loginField.includes('@') ? loginField : ''); setForgotOtpError(''); setStep('forgot-email'); }}
+                      className="text-xs text-white/30 hover:text-primary transition text-start"
+                    >
+                      {t('forgotPassword')}
+                    </button>
+                  )}
+
                   {displayError && (
                     <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-red-400 text-xs text-center">
                       {displayError}
@@ -427,6 +743,7 @@ export default function AuthPage() {
               </button>
             </motion.div>
           )}
+
         </AnimatePresence>
       </motion.div>
     </div>

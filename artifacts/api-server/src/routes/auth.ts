@@ -244,6 +244,78 @@ router.post("/auth/verify-otp", requireAuth, async (req: AuthRequest, res): Prom
   }
 });
 
+// ── Forgot Password — send OTP ────────────────────────────────────────────────
+router.post("/auth/forgot-password", async (req, res): Promise<void> => {
+  try {
+    const { email } = req.body;
+    if (!email || typeof email !== 'string') { res.status(400).json({ error: "البريد الإلكتروني مطلوب" }); return; }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.email, normalizedEmail)).limit(1);
+
+    // Always return ok to not leak whether email exists
+    if (!user || !user.passwordHash) { res.json({ ok: true }); return; }
+
+    // Rate limit: max 3 OTPs per email per 10 minutes
+    const { rows } = await pool.query(
+      `SELECT COUNT(*) FROM email_otps WHERE email=$1 AND created_at > NOW() - INTERVAL '10 minutes'`,
+      [normalizedEmail]
+    );
+    if (parseInt(rows[0].count) >= 3) {
+      res.status(429).json({ error: "أرسلنا عدة رموز مؤخراً، انتظر 10 دقائق" }); return;
+    }
+
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    await pool.query(
+      `INSERT INTO email_otps (email, code, expires_at) VALUES ($1, $2, NOW() + INTERVAL '10 minutes')`,
+      [normalizedEmail, code]
+    );
+
+    sendOtpEmail(normalizedEmail, code).catch((err: any) =>
+      console.error("[forgot-password] SMTP error:", err?.message || err)
+    );
+    res.json({ ok: true });
+  } catch (err: any) {
+    console.error("[forgot-password]", err?.message || err);
+    res.status(500).json({ error: "خطأ داخلي في الخادم" });
+  }
+});
+
+// ── Reset Password — verify OTP + set new password ───────────────────────────
+router.post("/auth/reset-password", async (req, res): Promise<void> => {
+  try {
+    const { email, code, newPassword } = req.body;
+    if (!email || !code || !newPassword) {
+      res.status(400).json({ error: "جميع الحقول مطلوبة" }); return;
+    }
+    if (typeof newPassword !== 'string' || newPassword.length < 6) {
+      res.status(400).json({ error: "كلمة المرور 6 أحرف على الأقل" }); return;
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.email, normalizedEmail)).limit(1);
+    if (!user) { res.status(404).json({ error: "البريد الإلكتروني غير مسجل" }); return; }
+    if (!user.passwordHash) { res.status(400).json({ error: "هذا الحساب مرتبط بـ Google" }); return; }
+
+    const { rows } = await pool.query(
+      `SELECT id FROM email_otps WHERE email=$1 AND code=$2 AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1`,
+      [normalizedEmail, code.trim()]
+    );
+    if (rows.length === 0) {
+      res.status(400).json({ error: "الرمز غير صحيح أو انتهت صلاحيته" }); return;
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    await pool.query(`DELETE FROM email_otps WHERE email=$1`, [normalizedEmail]);
+    await db.update(usersTable).set({ passwordHash }).where(eq(usersTable.id, user.id));
+
+    res.json({ ok: true });
+  } catch (err: any) {
+    console.error("[reset-password]", err?.message || err);
+    res.status(500).json({ error: "خطأ داخلي في الخادم" });
+  }
+});
+
 // ── Update Profile ────────────────────────────────────────────────────────────
 const ProfileBody = z.object({
   displayName: z.string().max(40).optional(),
