@@ -598,8 +598,9 @@ function GroupChatView({ groupId, group }: { groupId: number; group: GroupDetail
   });
 
   useEffect(() => {
-    setMessages(history);
-    history.forEach(m => seenIds.current.add(m.id));
+    const msgs = Array.isArray(history) ? history : [];
+    setMessages(msgs);
+    msgs.forEach(m => seenIds.current.add(m.id));
   }, [history]);
 
   useEffect(() => {
