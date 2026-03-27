@@ -760,6 +760,24 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
 
         setStatusMsg('hls-direct');
         const canNativeHls = video.canPlayType('application/vnd.apple.mpegurl') !== '';
+        const isServerProxy = src.includes('/api/proxy/');
+
+        if (isServerProxy) {
+          const showProxyError = () => { if (!cancelled) { setStatusMsg(null); setError('ip-locked'); } };
+          if (Hls.isSupported()) {
+            const hls = makeHls(() => {
+              s2_native(showProxyError, 12_000);
+            });
+            hlsRef.current = hls;
+            hls.loadSource(src);
+            hls.attachMedia(video);
+          } else if (canNativeHls) {
+            s2_native(showProxyError, 12_000);
+          } else {
+            setStatusMsg(null); setError('unsupported');
+          }
+          return;
+        }
 
         if (canNativeHls) {
           s2_native(() => {

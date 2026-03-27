@@ -423,7 +423,27 @@ export async function proxyViaSession(
     console.log(`[proxy-via-session:${slug}] ${resp.status()} ${url.substring(0, 80)}`);
     return { data, status: resp.status(), contentType };
   } catch (e: any) {
-    console.error(`[proxy-via-session:${slug}] Error: ${e.message}`);
+    console.error(`[proxy-via-session:${slug}] context.request failed: ${e.message}`);
+  }
+
+  // Fallback: fetch through the actual Chromium page (full TLS fingerprint)
+  try {
+    console.log(`[proxy-via-session:${slug}] Trying page.evaluate fetch...`);
+    const result = await session.page.evaluate(async (fetchUrl: string) => {
+      const r = await fetch(fetchUrl, { credentials: 'include' });
+      const ab = await r.arrayBuffer();
+      return {
+        status: r.status,
+        contentType: r.headers.get('content-type') || 'application/octet-stream',
+        data: Array.from(new Uint8Array(ab)),
+      };
+    }, url);
+    const data = Buffer.from(result.data);
+    console.log(`[proxy-via-session:${slug}] page.evaluate OK ${result.status} (${data.length} bytes) ${url.substring(0, 80)}`);
+    cacheContent(url, data, result.contentType);
+    return { data, status: result.status, contentType: result.contentType };
+  } catch (e2: any) {
+    console.error(`[proxy-via-session:${slug}] page.evaluate also failed: ${e2.message}`);
     return null;
   }
 }
