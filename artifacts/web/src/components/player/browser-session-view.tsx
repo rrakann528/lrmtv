@@ -66,7 +66,9 @@ export default function BrowserSessionView({
     socket.on('browser:video-found', handleVideoFound);
 
     return () => {
-      socket.emit('browser:stop', { slug: roomSlug });
+      if (!videoFoundRef.current) {
+        socket.emit('browser:stop', { slug: roomSlug });
+      }
       socket.off('browser:started', onStarted);
       socket.off('browser:error', onError);
       socket.off('browser:state', onState);

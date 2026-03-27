@@ -23,6 +23,7 @@ interface Session {
   cdp: any;
   idleTimer: ReturnType<typeof setTimeout>;
   videoFound: Set<string>;
+  videoActive: boolean;
 }
 
 const sessions = new Map<string, Session>();
@@ -249,9 +250,18 @@ export async function startBrowserSession(
           videoEmitted = true;
           clearInterval(playPollTimer!);
           playPollTimer = null;
-          const targetDj = sessions.get(slug)?.djSocketId ?? djSocketId;
+          const s = sessions.get(slug);
+          const targetDj = s?.djSocketId ?? djSocketId;
           io.to(targetDj).emit('browser:video-found', { url: bestUrl });
           console.log(`[browser-session:${slug}] ✓ Video playing — emitting: ${bestUrl}`);
+
+          if (s) {
+            s.videoActive = true;
+            clearTimeout(s.idleTimer);
+            s.idleTimer = setTimeout(() => stopBrowserSession(slug, true), 30 * 60_000);
+            try { s.cdp.send('Page.stopScreencast').catch(() => {}); } catch {}
+            console.log(`[browser-session:${slug}] Session kept alive (video active), screencast stopped`);
+          }
         } catch { /* page closed / navigating */ }
       }, 800);
     }
@@ -351,7 +361,7 @@ export async function startBrowserSession(
     });
 
     const idleTimer = setTimeout(() => stopBrowserSession(slug), IDLE_TIMEOUT_MS);
-    const session: Session = { slug, djSocketId, context, page, cdp, idleTimer, videoFound };
+    const session: Session = { slug, djSocketId, context, page, cdp, idleTimer, videoFound, videoActive: false };
     sessions.set(slug, session);
 
     // Navigate to start URL
@@ -367,16 +377,21 @@ export async function startBrowserSession(
   }
 }
 
-export async function stopBrowserSession(slug: string): Promise<void> {
+export async function stopBrowserSession(slug: string, force = false): Promise<void> {
   const session = sessions.get(slug);
   if (!session) return;
+  if (session.videoActive && !force) {
+    try { session.cdp.send('Page.stopScreencast').catch(() => {}); } catch {}
+    console.log(`[browser-session:${slug}] Stop requested but video active — keeping session alive`);
+    return;
+  }
   sessions.delete(slug);
   clearTimeout(session.idleTimer);
   try {
     await session.cdp.send('Page.stopScreencast').catch(() => {});
     await session.context.close();
   } catch {}
-  console.log(`[browser-session:${slug}] Session stopped`);
+  console.log(`[browser-session:${slug}] Session stopped${force ? ' (forced)' : ''}`);
 }
 
 // ── Session-aware proxy ──────────────────────────────────────────────────────
