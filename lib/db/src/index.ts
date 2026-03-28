@@ -198,6 +198,14 @@ CREATE TABLE IF NOT EXISTS group_invitations (
   UNIQUE (group_id, invitee_id)
 );
 CREATE INDEX IF NOT EXISTS idx_group_invitations_invitee ON group_invitations(invitee_id);
+
+ALTER TABLE direct_messages ADD COLUMN IF NOT EXISTS reply_to_id INTEGER;
+ALTER TABLE direct_messages ADD COLUMN IF NOT EXISTS reply_to_content TEXT;
+ALTER TABLE direct_messages ADD COLUMN IF NOT EXISTS reply_to_sender_name TEXT;
+
+ALTER TABLE group_messages ADD COLUMN IF NOT EXISTS reply_to_id INTEGER;
+ALTER TABLE group_messages ADD COLUMN IF NOT EXISTS reply_to_content TEXT;
+ALTER TABLE group_messages ADD COLUMN IF NOT EXISTS reply_to_sender_name TEXT;
 `;
 
 export async function runMigrations(): Promise<void> {
