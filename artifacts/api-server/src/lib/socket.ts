@@ -362,6 +362,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
 
   io.on("connection", (socket: Socket) => {
     let currentRoomSlug: string | null = null;
+    let socketUserId: number | null = null;
 
     socket.on("join-user-room", (data: { userId?: number }) => {
       if (!data?.userId) return;
@@ -371,8 +372,37 @@ export function initSocketServer(httpServer: HttpServer): Server {
         const decoded = jwt.verify(token, secret) as any;
         if (decoded?.userId === data.userId) {
           socket.join(`user:${data.userId}`);
+          socketUserId = data.userId;
         }
       } catch {}
+    });
+
+    socket.on("dm:typing", (data: { toUserId: number; isTyping: boolean }) => {
+      if (!socketUserId || !data?.toUserId) return;
+      io.to(`user:${data.toUserId}`).emit("dm:typing", {
+        fromUserId: socketUserId,
+        isTyping: !!data.isTyping,
+      });
+    });
+
+    socket.on("join-group-typing", (data: { groupId: number }) => {
+      if (!socketUserId || !data?.groupId) return;
+      socket.join(`group-typing:${data.groupId}`);
+    });
+
+    socket.on("leave-group-typing", (data: { groupId: number }) => {
+      if (!data?.groupId) return;
+      socket.leave(`group-typing:${data.groupId}`);
+    });
+
+    socket.on("group:typing", (data: { groupId: number; isTyping: boolean; displayName?: string }) => {
+      if (!socketUserId || !data?.groupId) return;
+      socket.to(`group-typing:${data.groupId}`).emit("group:typing", {
+        fromUserId: socketUserId,
+        groupId: data.groupId,
+        isTyping: !!data.isTyping,
+        displayName: data.displayName || '',
+      });
     });
 
     // Late identification — sent when authUser loads after connect

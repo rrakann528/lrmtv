@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, groupsTable, groupMembersTable, groupMessagesTable, groupInvitationsTable, usersTable, pushSubscriptionsTable } from "@workspace/db";
+import { db, pool, groupsTable, groupMembersTable, groupMessagesTable, groupInvitationsTable, usersTable, pushSubscriptionsTable } from "@workspace/db";
 import { eq, and, desc, asc, sql, inArray, ilike, not } from "drizzle-orm";
 import { requireAuth, type AuthRequest } from "../middlewares/auth";
 import webpush from "web-push";
@@ -570,6 +570,8 @@ router.get("/groups/:id/messages", requireAuth, async (req: AuthRequest, res) =>
         replyToId: groupMessagesTable.replyToId,
         replyToContent: groupMessagesTable.replyToContent,
         replyToSenderName: groupMessagesTable.replyToSenderName,
+        isEdited: groupMessagesTable.isEdited,
+        editedAt: groupMessagesTable.editedAt,
         createdAt: groupMessagesTable.createdAt,
         senderUsername: usersTable.username,
         senderDisplayName: usersTable.displayName,
@@ -650,6 +652,26 @@ router.post("/groups/:id/messages", requireAuth, async (req: AuthRequest, res) =
       });
     }
 
+    // ── @mention detection ────────────────────────────────────────────────────
+    const mentionMatches = content.trim().match(/@([a-zA-Z0-9_]+)/g) || [];
+    if (mentionMatches.length > 0 && io) {
+      const mentionedUsernames = [...new Set(mentionMatches.map((m: string) => m.slice(1).toLowerCase()))];
+      const mentionedUsers = await db.select({ id: usersTable.id, username: usersTable.username })
+        .from(usersTable)
+        .where(inArray(usersTable.username, mentionedUsernames));
+      for (const mu of mentionedUsers) {
+        if (mu.id === userId) continue;
+        const isMember = members.find(m => m.userId === mu.id);
+        if (!isMember) continue;
+        io.to(`user:${mu.id}`).emit("group:mention", {
+          groupId,
+          groupName: group?.name || 'مجموعة',
+          fromUser: sender?.displayName || sender?.username || 'شخص ما',
+          content: content.trim().slice(0, 80),
+        });
+      }
+    }
+
     res.status(201).json(fullMsg);
   } catch (err: any) {
     console.error("[groups] send message error:", err.message);
@@ -691,6 +713,97 @@ router.delete("/groups/:id/messages/:messageId", requireAuth, async (req: AuthRe
   } catch (err: any) {
     console.error("[groups] delete message error:", err.message);
     res.status(500).json({ error: "Failed to delete" });
+  }
+});
+
+// ── Edit group message ────────────────────────────────────────────────────────
+router.patch("/groups/:id/messages/:messageId", requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const userId = req.userId!;
+    const groupId = parseInt(req.params.id as string);
+    const messageId = parseInt(req.params.messageId as string);
+    if (isNaN(groupId) || isNaN(messageId)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+    const { content } = req.body;
+    if (!content || typeof content !== 'string' || !content.trim() || content.length > 1000) {
+      res.status(400).json({ error: "Content required" }); return;
+    }
+
+    const [msg] = await db.select().from(groupMessagesTable)
+      .where(and(eq(groupMessagesTable.id, messageId), eq(groupMessagesTable.groupId, groupId)))
+      .limit(1);
+    if (!msg) { res.status(404).json({ error: "Not found" }); return; }
+    if (msg.senderId !== userId) { res.status(403).json({ error: "Not allowed" }); return; }
+
+    const [updated] = await db.update(groupMessagesTable)
+      .set({ content: content.trim(), isEdited: true, editedAt: new Date() })
+      .where(eq(groupMessagesTable.id, messageId))
+      .returning();
+
+    const { getIO } = await import("../lib/socket");
+    const io = getIO();
+    if (io) {
+      const members = await db.select({ userId: groupMembersTable.userId })
+        .from(groupMembersTable).where(eq(groupMembersTable.groupId, groupId));
+      for (const m of members) {
+        io.to(`user:${m.userId}`).emit("group:message-edited", { groupId, messageId, content: updated.content, isEdited: true });
+      }
+    }
+
+    res.json({ ok: true, message: updated });
+  } catch (err: any) {
+    console.error("[groups] edit message error:", err.message);
+    res.status(500).json({ error: "Failed to edit" });
+  }
+});
+
+// ── React to group message ────────────────────────────────────────────────────
+router.post("/groups/:id/messages/:messageId/react", requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const userId = req.userId!;
+    const groupId = parseInt(req.params.id as string);
+    const messageId = parseInt(req.params.messageId as string);
+    if (isNaN(groupId) || isNaN(messageId)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+    const { emoji } = req.body;
+    if (!emoji || typeof emoji !== 'string' || emoji.length > 10) { res.status(400).json({ error: "Emoji required" }); return; }
+
+    const [membership] = await db.select().from(groupMembersTable)
+      .where(and(eq(groupMembersTable.groupId, groupId), eq(groupMembersTable.userId, userId))).limit(1);
+    if (!membership) { res.status(403).json({ error: "Not a member" }); return; }
+
+    const { rows: existing } = await pool.query(
+      `SELECT id FROM message_reactions WHERE message_type='group' AND message_id=$1 AND user_id=$2 AND emoji=$3`,
+      [messageId, userId, emoji]
+    );
+    if (existing.length > 0) {
+      await pool.query(`DELETE FROM message_reactions WHERE id=$1`, [existing[0].id]);
+    } else {
+      await pool.query(
+        `INSERT INTO message_reactions (message_type, message_id, user_id, emoji) VALUES ('group',$1,$2,$3) ON CONFLICT DO NOTHING`,
+        [messageId, userId, emoji]
+      );
+    }
+
+    const { rows: reactions } = await pool.query(
+      `SELECT emoji, user_id as "userId" FROM message_reactions WHERE message_type='group' AND message_id=$1`,
+      [messageId]
+    );
+
+    const { getIO } = await import("../lib/socket");
+    const io = getIO();
+    if (io) {
+      const members = await db.select({ userId: groupMembersTable.userId })
+        .from(groupMembersTable).where(eq(groupMembersTable.groupId, groupId));
+      for (const m of members) {
+        io.to(`user:${m.userId}`).emit("group:reaction", { groupId, messageId, reactions });
+      }
+    }
+
+    res.json({ ok: true, reactions });
+  } catch (err: any) {
+    console.error("[groups] react error:", err.message);
+    res.status(500).json({ error: "Failed to react" });
   }
 });
 

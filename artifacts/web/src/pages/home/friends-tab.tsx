@@ -686,7 +686,7 @@ function FriendCard({
       </button>
 
       {/* Info + last message */}
-      <button onClick={onProfile} className="flex-1 min-w-0 text-right">
+      <button onClick={onChat} className="flex-1 min-w-0 text-right">
         <div className="flex items-center gap-1.5">
           <p className="font-semibold text-sm text-foreground truncate">{name}</p>
           {friend.muted && (

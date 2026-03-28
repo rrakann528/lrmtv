@@ -87,6 +87,7 @@ export default function RoomPage() {
   const [playerReady, setPlayerReady] = useState(false);
 
   const [watcherReadyState, setWatcherReadyState] = useState(false);
+  const [localPlaying, setLocalPlaying] = useState(false);
   const prevVideoUrlRef = useRef<string | null>(null);
   const suppressPauseRef = useRef(false);
 
@@ -181,6 +182,9 @@ export default function RoomPage() {
   // Ref mirror of syncState.playing so closures (event handlers) always see the latest value.
   const syncPlayingRef = useRef(syncState.playing);
   useEffect(() => { syncPlayingRef.current = syncState.playing; }, [syncState.playing]);
+
+  // Reset optimistic localPlaying once the server confirms the playing state.
+  useEffect(() => { if (syncState.playing) setLocalPlaying(false); }, [syncState.playing]);
 
   // Keep a ref of isDJ so the URL-change effect can read it without adding it to deps.
   const isDJRef = useRef(isDJ);
@@ -428,7 +432,7 @@ export default function RoomPage() {
                 <SmartPlayer
                   ref={playerRef}
                   url={syncState.url}
-                  playing={syncState.playing && watcherReady}
+                  playing={(syncState.playing || localPlaying) && watcherReady}
                   controls={canControl && watcherReady}
                   canControl={canControl && watcherReady}
                   initialTime={syncState.time}
@@ -454,17 +458,10 @@ export default function RoomPage() {
                     className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 backdrop-blur-sm cursor-pointer select-none"
                     onClick={() => {
                       setWatcherReadyState(true);
-
                       if (canControl) {
+                        setLocalPlaying(true);
                         emitSync(syncState.time > 1 ? syncState.time : 0, true, syncState.url);
                       }
-
-                      setTimeout(() => {
-                        if (syncState.time > 1) {
-                          playerRef.current?.seekTo(syncState.time);
-                        }
-                        playerRef.current?.play();
-                      }, 200);
                     }}
                   >
                     <div className="text-center space-y-3 animate-pulse">

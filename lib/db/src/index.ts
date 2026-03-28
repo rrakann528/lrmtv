@@ -210,6 +210,26 @@ ALTER TABLE group_messages ADD COLUMN IF NOT EXISTS reply_to_sender_name TEXT;
 ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS reply_to_id INTEGER;
 ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS reply_to_username TEXT;
 ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS reply_to_content TEXT;
+
+ALTER TABLE direct_messages ADD COLUMN IF NOT EXISTS is_edited BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE direct_messages ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ;
+
+ALTER TABLE group_messages ADD COLUMN IF NOT EXISTS is_edited BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE group_messages ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ;
+
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS is_edited BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ;
+
+CREATE TABLE IF NOT EXISTS message_reactions (
+  id SERIAL PRIMARY KEY,
+  message_type VARCHAR(10) NOT NULL,
+  message_id INTEGER NOT NULL,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  emoji VARCHAR(10) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (message_type, message_id, user_id, emoji)
+);
+CREATE INDEX IF NOT EXISTS idx_message_reactions_msg ON message_reactions(message_type, message_id);
 `;
 
 export async function runMigrations(): Promise<void> {

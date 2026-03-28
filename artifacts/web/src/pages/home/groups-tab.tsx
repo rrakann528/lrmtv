@@ -57,7 +57,11 @@ interface GroupMsg {
   replyToId?: number | null;
   replyToContent?: string | null;
   replyToSenderName?: string | null;
+  isEdited?: boolean;
+  editedAt?: string | null;
 }
+
+interface GroupReaction { emoji: string; userId: number; }
 
 interface GroupInvite {
   id: number;
@@ -586,11 +590,19 @@ function GroupChatView({ groupId, group }: { groupId: number; group: GroupDetail
   const [messages, setMessages] = useState<GroupMsg[]>([]);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  const [typingUsers, setTypingUsers] = useState<{ userId: number; displayName: string }[]>([]);
+  const [editingMsgId, setEditingMsgId] = useState<number | null>(null);
+  const [editText, setEditText] = useState('');
+  const [reactions, setReactions] = useState<Record<number, GroupReaction[]>>({});
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const editInputRef = useRef<HTMLInputElement>(null);
   const socketRef = useRef<Socket | null>(null);
   const seenIds = useRef<Set<number>>(new Set());
   const [replyTarget, setReplyTarget] = useState<{ id: number; senderName: string; content: string } | null>(null);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isTypingEmittedRef = useRef(false);
+  const displayName = user?.displayName || user?.username || '';
 
   const { data: history = [], isLoading } = useQuery<GroupMsg[]>({
     queryKey: ['group-messages', groupId],
@@ -633,7 +645,37 @@ function GroupChatView({ groupId, group }: { groupId: number; group: GroupDetail
       setMessages(prev => prev.filter(m => m.id !== data.messageId));
     });
 
+    socket.on('group:message-edited', (data: { groupId: number; messageId: number; content: string; isEdited: boolean }) => {
+      if (data.groupId !== groupId) return;
+      setMessages(prev => prev.map(m => m.id === data.messageId ? { ...m, content: data.content, isEdited: true } : m));
+    });
+
+    socket.on('group:reaction', (data: { groupId: number; messageId: number; reactions: GroupReaction[] }) => {
+      if (data.groupId !== groupId) return;
+      setReactions(prev => ({ ...prev, [data.messageId]: data.reactions }));
+    });
+
+    socket.on('group:typing', (data: { fromUserId: number; groupId: number; isTyping: boolean; displayName: string }) => {
+      if (data.groupId !== groupId || data.fromUserId === user?.id) return;
+      setTypingUsers(prev => {
+        if (data.isTyping) {
+          if (prev.find(u => u.userId === data.fromUserId)) return prev;
+          return [...prev, { userId: data.fromUserId, displayName: data.displayName }];
+        } else {
+          return prev.filter(u => u.userId !== data.fromUserId);
+        }
+      });
+      if (data.isTyping) {
+        setTimeout(() => {
+          setTypingUsers(prev => prev.filter(u => u.userId !== data.fromUserId));
+        }, 3500);
+      }
+    });
+
+    socket.emit('join-group-typing', { groupId });
+
     return () => {
+      socket.emit('leave-group-typing', { groupId });
       socket.disconnect();
       socketRef.current = null;
     };
@@ -643,9 +685,59 @@ function GroupChatView({ groupId, group }: { groupId: number; group: GroupDetail
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  const stopTyping = () => {
+    if (isTypingEmittedRef.current) {
+      socketRef.current?.emit('group:typing', { groupId, isTyping: false, displayName });
+      isTypingEmittedRef.current = false;
+    }
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setText(e.target.value);
+    if (!socketRef.current) return;
+    if (!isTypingEmittedRef.current) {
+      socketRef.current.emit('group:typing', { groupId, isTyping: true, displayName });
+      isTypingEmittedRef.current = true;
+    }
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(stopTyping, 2000);
+  };
+
+  const handleEdit = async (msgId: number) => {
+    const newContent = editText.trim();
+    if (!newContent) return;
+    setEditingMsgId(null);
+    setMessages(prev => prev.map(m => m.id === msgId ? { ...m, content: newContent, isEdited: true } : m));
+    try {
+      await apiFetch(`/groups/${groupId}/messages/${msgId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ content: newContent }),
+      });
+    } catch {}
+  };
+
+  const startEdit = (msg: GroupMsg) => {
+    setEditingMsgId(msg.id);
+    setEditText(msg.content);
+  };
+
+  const handleReact = async (msgId: number, emoji: string) => {
+    try {
+      const res = await apiFetch(`/groups/${groupId}/messages/${msgId}/react`, {
+        method: 'POST',
+        body: JSON.stringify({ emoji }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setReactions(prev => ({ ...prev, [msgId]: data.reactions }));
+      }
+    } catch {}
+  };
+
   const send = async () => {
     const content = text.trim();
     if (!content || sending || !user) return;
+    stopTyping();
     setSending(true);
     setText('');
     const currentReply = replyTarget;
@@ -769,30 +861,69 @@ function GroupChatView({ groupId, group }: { groupId: number; group: GroupDetail
                       isOwnMessage={isMe || isGroupAdmin}
                       onReply={() => handleReply(msg)}
                       onDelete={(isMe || isGroupAdmin) && !isOptimistic ? () => handleDelete(msg.id) : undefined}
+                      onEdit={isMe && !isOptimistic ? () => startEdit(msg) : undefined}
+                      onReact={!isOptimistic ? (emoji) => handleReact(msg.id, emoji) : undefined}
                     >
-                      <div className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                        {!isMe && (
-                          <Avatar name={senderName} color={msg.senderAvatarColor} url={msg.senderAvatarUrl} size={28} />
-                        )}
-                        <div className={`max-w-[75%] min-w-0 overflow-hidden px-3.5 py-2 rounded-2xl text-sm ${!isMe ? 'ms-2' : ''} ${
-                          isMe
-                            ? `bg-primary text-primary-foreground ${dir === 'rtl' ? 'rounded-tl-sm' : 'rounded-tr-sm'} ${isOptimistic ? 'opacity-60' : ''}`
-                            : `bg-muted text-foreground ${dir === 'rtl' ? 'rounded-tr-sm' : 'rounded-tl-sm'}`
-                        }`}>
+                      <div className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+                        <div className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
                           {!isMe && (
-                            <p className="text-[11px] font-bold mb-0.5" style={{ color: msg.senderAvatarColor }}>{senderName}</p>
+                            <Avatar name={senderName} color={msg.senderAvatarColor} url={msg.senderAvatarUrl} size={28} />
                           )}
-                          {msg.replyToId && msg.replyToSenderName && (
-                            <QuotedMessage
-                              senderName={msg.replyToSenderName}
-                              text={msg.replyToContent || ''}
-                            />
-                          )}
-                          <LinkifiedText text={msg.content} />
-                          <p className={`text-[10px] mt-0.5 ${isMe ? 'text-primary-foreground/50 text-end' : 'text-muted-foreground text-start'}`}>
-                            {isOptimistic ? '...' : formatTime(msg.createdAt)}
-                          </p>
+                          <div className={`max-w-[75%] min-w-0 overflow-hidden px-3.5 py-2 rounded-2xl text-sm ${!isMe ? 'ms-2' : ''} ${
+                            isMe
+                              ? `bg-primary text-primary-foreground ${dir === 'rtl' ? 'rounded-tl-sm' : 'rounded-tr-sm'} ${isOptimistic ? 'opacity-60' : ''}`
+                              : `bg-muted text-foreground ${dir === 'rtl' ? 'rounded-tr-sm' : 'rounded-tl-sm'}`
+                          }`}>
+                            {!isMe && (
+                              <p className="text-[11px] font-bold mb-0.5" style={{ color: msg.senderAvatarColor }}>{senderName}</p>
+                            )}
+                            {msg.replyToId && msg.replyToSenderName && (
+                              <QuotedMessage
+                                senderName={msg.replyToSenderName}
+                                text={msg.replyToContent || ''}
+                              />
+                            )}
+                            {editingMsgId === msg.id ? (
+                              <div className="flex items-center gap-1">
+                                <input
+                                  ref={editInputRef}
+                                  value={editText}
+                                  onChange={e => setEditText(e.target.value)}
+                                  onKeyDown={e => { if (e.key === 'Enter') handleEdit(msg.id); if (e.key === 'Escape') setEditingMsgId(null); }}
+                                  className="flex-1 bg-white/10 rounded px-2 py-0.5 text-sm outline-none border border-white/30 min-w-0"
+                                  autoFocus
+                                />
+                                <button onClick={() => handleEdit(msg.id)} className="text-[10px] opacity-80 hover:opacity-100 font-medium">✓</button>
+                                <button onClick={() => setEditingMsgId(null)} className="text-[10px] opacity-80 hover:opacity-100">✕</button>
+                              </div>
+                            ) : (
+                              <LinkifiedText text={msg.content} />
+                            )}
+                            <p className={`text-[10px] mt-0.5 ${isMe ? 'text-primary-foreground/50 text-end' : 'text-muted-foreground text-start'}`}>
+                              {isOptimistic ? '...' : formatTime(msg.createdAt)}{msg.isEdited && !isOptimistic && <span className="ms-1 italic">{t('edited') || 'edited'}</span>}
+                            </p>
+                          </div>
                         </div>
+                        {(reactions[msg.id] || []).length > 0 && (
+                          <div className={`flex flex-wrap gap-1 mt-0.5 ${isMe ? 'justify-end me-1' : 'justify-start ms-9'}`}>
+                            {Object.entries(
+                              (reactions[msg.id] || []).reduce((acc: Record<string, number>, r) => { acc[r.emoji] = (acc[r.emoji] || 0) + 1; return acc; }, {})
+                            ).map(([emoji, count]) => (
+                              <button
+                                key={emoji}
+                                onClick={() => handleReact(msg.id, emoji)}
+                                className={`flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded-full border transition-colors ${
+                                  (reactions[msg.id] || []).some(r => r.userId === user?.id && r.emoji === emoji)
+                                    ? 'bg-primary/20 border-primary/50 text-primary'
+                                    : 'bg-muted/60 border-border text-foreground'
+                                }`}
+                              >
+                                <span>{emoji}</span>
+                                {count > 1 && <span>{count}</span>}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </MessageContextMenu>
                   );
@@ -803,6 +934,21 @@ function GroupChatView({ groupId, group }: { groupId: number; group: GroupDetail
         )}
         <div ref={bottomRef} />
       </div>
+
+      {typingUsers.length > 0 && (
+        <div className="px-4 py-1 text-xs text-muted-foreground italic flex items-center gap-1.5">
+          <span className="flex gap-0.5">
+            <span className="w-1 h-1 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+            <span className="w-1 h-1 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+            <span className="w-1 h-1 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+          </span>
+          <span>
+            {typingUsers.length === 1
+              ? `${typingUsers[0].displayName} يكتب...`
+              : `${typingUsers.length} أشخاص يكتبون...`}
+          </span>
+        </div>
+      )}
 
       {replyTarget && (
         <ReplyPreview
@@ -817,7 +963,7 @@ function GroupChatView({ groupId, group }: { groupId: number; group: GroupDetail
           <input
             ref={inputRef}
             value={text}
-            onChange={e => setText(e.target.value)}
+            onChange={handleInputChange}
             onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}
             placeholder={t('typeMessage') || 'Type a message...'}
             className="flex-1 bg-muted/50 border border-border rounded-2xl px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"

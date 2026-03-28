@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq, or, and, asc } from "drizzle-orm";
 import webpush from "web-push";
-import { db, directMessagesTable, usersTable, friendshipsTable, pushSubscriptionsTable, dmReadReceiptsTable, mutedFriendsTable } from "@workspace/db";
+import { db, pool, directMessagesTable, usersTable, friendshipsTable, pushSubscriptionsTable, dmReadReceiptsTable, mutedFriendsTable } from "@workspace/db";
 import { requireAuth, type AuthRequest } from "../middlewares/auth";
 import { z } from "zod";
 
@@ -36,6 +36,8 @@ router.get("/dm/:friendId", requireAuth, async (req: AuthRequest, res): Promise<
     replyToId: directMessagesTable.replyToId,
     replyToContent: directMessagesTable.replyToContent,
     replyToSenderName: directMessagesTable.replyToSenderName,
+    isEdited: directMessagesTable.isEdited,
+    editedAt: directMessagesTable.editedAt,
     createdAt: directMessagesTable.createdAt,
   })
   .from(directMessagesTable)
@@ -46,7 +48,12 @@ router.get("/dm/:friendId", requireAuth, async (req: AuthRequest, res): Promise<
   .orderBy(asc(directMessagesTable.createdAt))
   .limit(100);
 
-  res.json(msgs);
+  const [receipt] = await db.select()
+    .from(dmReadReceiptsTable)
+    .where(and(eq(dmReadReceiptsTable.userId, friendId), eq(dmReadReceiptsTable.friendId, uid)))
+    .limit(1);
+
+  res.json({ messages: msgs, friendLastReadAt: receipt?.lastReadAt?.toISOString() || null });
 });
 
 // ── Send DM ───────────────────────────────────────────────────────────────────
@@ -177,6 +184,78 @@ router.delete("/dm/:messageId", requireAuth, async (req: AuthRequest, res): Prom
   }
 
   res.json({ ok: true });
+});
+
+// ── Edit DM ───────────────────────────────────────────────────────────────────
+router.patch("/dm/:messageId", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  const messageId = parseInt(req.params.messageId, 10);
+  if (isNaN(messageId)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const uid = req.userId!;
+  const { content } = req.body;
+  if (!content || typeof content !== 'string' || !content.trim() || content.length > 1000) {
+    res.status(400).json({ error: "محتوى الرسالة مطلوب" }); return;
+  }
+
+  const [msg] = await db.select().from(directMessagesTable).where(eq(directMessagesTable.id, messageId)).limit(1);
+  if (!msg) { res.status(404).json({ error: "Not found" }); return; }
+  if (msg.senderId !== uid) { res.status(403).json({ error: "Not allowed" }); return; }
+
+  const [updated] = await db.update(directMessagesTable)
+    .set({ content: content.trim(), isEdited: true, editedAt: new Date() })
+    .where(eq(directMessagesTable.id, messageId))
+    .returning();
+
+  const { getIO } = await import("../lib/socket");
+  const io = getIO();
+  if (io) {
+    io.to(`user:${msg.senderId}`).emit("dm:edited", updated);
+    io.to(`user:${msg.receiverId}`).emit("dm:edited", updated);
+  }
+
+  res.json(updated);
+});
+
+// ── React to DM ───────────────────────────────────────────────────────────────
+router.post("/dm/:messageId/react", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  const messageId = parseInt(req.params.messageId, 10);
+  if (isNaN(messageId)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const uid = req.userId!;
+  const { emoji } = req.body;
+  if (!emoji || typeof emoji !== 'string' || emoji.length > 10) {
+    res.status(400).json({ error: "Emoji required" }); return;
+  }
+
+  const [msg] = await db.select().from(directMessagesTable).where(eq(directMessagesTable.id, messageId)).limit(1);
+  if (!msg) { res.status(404).json({ error: "Not found" }); return; }
+
+  const { rows: existing } = await pool.query(
+    `SELECT id FROM message_reactions WHERE message_type='dm' AND message_id=$1 AND user_id=$2 AND emoji=$3`,
+    [messageId, uid, emoji]
+  );
+  if (existing.length > 0) {
+    await pool.query(`DELETE FROM message_reactions WHERE id=$1`, [existing[0].id]);
+  } else {
+    await pool.query(
+      `INSERT INTO message_reactions (message_type, message_id, user_id, emoji) VALUES ('dm',$1,$2,$3) ON CONFLICT DO NOTHING`,
+      [messageId, uid, emoji]
+    );
+  }
+
+  const { rows: reactions } = await pool.query(
+    `SELECT emoji, user_id as "userId" FROM message_reactions WHERE message_type='dm' AND message_id=$1`,
+    [messageId]
+  );
+
+  const { getIO } = await import("../lib/socket");
+  const io = getIO();
+  if (io) {
+    io.to(`user:${msg.senderId}`).emit("dm:reaction", { messageId, reactions });
+    io.to(`user:${msg.receiverId}`).emit("dm:reaction", { messageId, reactions });
+  }
+
+  res.json({ ok: true, reactions });
 });
 
 export default router;

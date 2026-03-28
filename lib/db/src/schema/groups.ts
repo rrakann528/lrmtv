@@ -27,6 +27,8 @@ export const groupMessagesTable = pgTable("group_messages", {
   replyToId: integer("reply_to_id"),
   replyToContent: text("reply_to_content"),
   replyToSenderName: text("reply_to_sender_name"),
+  isEdited: boolean("is_edited").notNull().default(false),
+  editedAt: timestamp("edited_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

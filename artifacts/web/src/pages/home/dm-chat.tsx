@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, ArrowRight, Send } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Send, Check, CheckCheck } from 'lucide-react';
 import { Avatar } from '@/components/avatar';
 import { useAuth, apiFetch } from '@/hooks/use-auth';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -22,7 +22,11 @@ interface DmMessage {
   replyToId?: number | null;
   replyToContent?: string | null;
   replyToSenderName?: string | null;
+  isEdited?: boolean;
+  editedAt?: string | null;
 }
+
+interface Reaction { emoji: string; userId: number; }
 
 interface Friend {
   id: number;
@@ -44,27 +48,41 @@ export function DmChat({ friend, onBack }: Props) {
   const [messages, setMessages] = useState<DmMessage[]>([]);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  const [friendLastReadAt, setFriendLastReadAt] = useState<string | null>(null);
+  const [friendTyping, setFriendTyping] = useState(false);
+  const [editingMsgId, setEditingMsgId] = useState<number | null>(null);
+  const [editText, setEditText] = useState('');
+  const [reactions, setReactions] = useState<Record<number, Reaction[]>>({});
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const editInputRef = useRef<HTMLInputElement>(null);
   const socketRef = useRef<Socket | null>(null);
   const seenIds = useRef<Set<number>>(new Set());
   const [replyTarget, setReplyTarget] = useState<{ id: number; senderName: string; content: string } | null>(null);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const friendTypingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isTypingEmittedRef = useRef(false);
 
-  const { data: history = [], isLoading } = useQuery<DmMessage[]>({
+  const { data: historyData, isLoading } = useQuery<{ messages: DmMessage[]; friendLastReadAt: string | null }>({
     queryKey: ['dm', friend.id],
-    queryFn: () => apiFetch(`/dm/${friend.id}`).then(r => r.json()).then(d => Array.isArray(d) ? d : []),
+    queryFn: () => apiFetch(`/dm/${friend.id}`).then(r => r.json()).then(d => {
+      if (Array.isArray(d)) return { messages: d, friendLastReadAt: null };
+      return { messages: Array.isArray(d.messages) ? d.messages : [], friendLastReadAt: d.friendLastReadAt || null };
+    }),
     refetchInterval: 4000,
     refetchIntervalInBackground: true,
   });
 
   useEffect(() => {
-    const msgs = Array.isArray(history) ? history : [];
+    if (!historyData) return;
+    const msgs = historyData.messages;
+    setFriendLastReadAt(historyData.friendLastReadAt);
     msgs.forEach(m => seenIds.current.add(m.id));
     setMessages(prev => {
       const optimistic = prev.filter(m => m.id < 0);
       return [...msgs, ...optimistic];
     });
-  }, [history]);
+  }, [historyData]);
 
   useEffect(() => {
     apiFetch(`/dm/${friend.id}/read`, { method: 'POST' }).then(() => {
@@ -104,6 +122,23 @@ export function DmChat({ friend, onBack }: Props) {
       setMessages(prev => prev.filter(m => m.id !== data.messageId));
     });
 
+    socket.on('dm:edited', (updated: DmMessage) => {
+      setMessages(prev => prev.map(m => m.id === updated.id ? { ...m, content: updated.content, isEdited: true } : m));
+    });
+
+    socket.on('dm:reaction', (data: { messageId: number; reactions: Reaction[] }) => {
+      setReactions(prev => ({ ...prev, [data.messageId]: data.reactions }));
+    });
+
+    socket.on('dm:typing', (data: { fromUserId: number; isTyping: boolean }) => {
+      if (data.fromUserId !== friend.id) return;
+      setFriendTyping(data.isTyping);
+      if (data.isTyping) {
+        if (friendTypingTimeoutRef.current) clearTimeout(friendTypingTimeoutRef.current);
+        friendTypingTimeoutRef.current = setTimeout(() => setFriendTyping(false), 3500);
+      }
+    });
+
     return () => {
       socket.disconnect();
       socketRef.current = null;
@@ -114,6 +149,28 @@ export function DmChat({ friend, onBack }: Props) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  useEffect(() => {
+    if (editingMsgId !== null) editInputRef.current?.focus();
+  }, [editingMsgId]);
+
+  const stopTyping = useCallback(() => {
+    if (isTypingEmittedRef.current) {
+      socketRef.current?.emit('dm:typing', { toUserId: friend.id, isTyping: false });
+      isTypingEmittedRef.current = false;
+    }
+  }, [friend.id]);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setText(e.target.value);
+    if (!socketRef.current) return;
+    if (!isTypingEmittedRef.current) {
+      socketRef.current.emit('dm:typing', { toUserId: friend.id, isTyping: true });
+      isTypingEmittedRef.current = true;
+    }
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(stopTyping, 2000);
+  };
+
   const getSenderName = (senderId: number) => {
     if (senderId === user?.id) return user?.displayName || user?.username || '';
     return friend.displayName || friend.username;
@@ -122,6 +179,7 @@ export function DmChat({ friend, onBack }: Props) {
   const send = async () => {
     const content = text.trim();
     if (!content || sending || !user) return;
+    stopTyping();
     setSending(true);
     setText('');
     const currentReply = replyTarget;
@@ -174,6 +232,24 @@ export function DmChat({ friend, onBack }: Props) {
     } catch {}
   };
 
+  const handleEdit = async (msgId: number) => {
+    const newContent = editText.trim();
+    if (!newContent) return;
+    setEditingMsgId(null);
+    setMessages(prev => prev.map(m => m.id === msgId ? { ...m, content: newContent, isEdited: true } : m));
+    try {
+      await apiFetch(`/dm/${msgId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ content: newContent }),
+      });
+    } catch {}
+  };
+
+  const startEdit = (msg: DmMessage) => {
+    setEditingMsgId(msg.id);
+    setEditText(msg.content);
+  };
+
   const handleReply = (msg: DmMessage) => {
     setReplyTarget({
       id: msg.id,
@@ -181,6 +257,19 @@ export function DmChat({ friend, onBack }: Props) {
       content: msg.content,
     });
     inputRef.current?.focus();
+  };
+
+  const handleReact = async (msgId: number, emoji: string) => {
+    try {
+      const res = await apiFetch(`/dm/${msgId}/react`, {
+        method: 'POST',
+        body: JSON.stringify({ emoji }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setReactions(prev => ({ ...prev, [msgId]: data.reactions }));
+      }
+    } catch {}
   };
 
   const locale = lang === 'ar' ? 'ar-SA' : lang === 'fr' ? 'fr-FR' : lang === 'tr' ? 'tr-TR' : lang === 'es' ? 'es-ES' : lang === 'id' ? 'id-ID' : 'en-US';
@@ -214,6 +303,11 @@ export function DmChat({ friend, onBack }: Props) {
     }
   }
 
+  const getReactionSummary = (msgId: number): Record<string, number> => {
+    const reacts = reactions[msgId] || [];
+    return reacts.reduce((acc, r) => { acc[r.emoji] = (acc[r.emoji] || 0) + 1; return acc; }, {} as Record<string, number>);
+  };
+
   return (
     <motion.div
       className="absolute inset-0 bg-background z-40 flex flex-col"
@@ -222,6 +316,7 @@ export function DmChat({ friend, onBack }: Props) {
       exit={{ x: dir === 'rtl' ? '-100%' : '100%' }}
       transition={{ type: 'spring', damping: 30, stiffness: 400 }}
     >
+      {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-card/95 backdrop-blur-sm">
         <button onClick={onBack} className="p-2 rounded-xl hover:bg-muted/50 active:scale-95 transition-transform">
           <BackArrow className="w-5 h-5" />
@@ -229,10 +324,15 @@ export function DmChat({ friend, onBack }: Props) {
         <Avatar name={displayName} color={friend.avatarColor} url={friend.avatarUrl} size={40} />
         <div className="flex-1 min-w-0">
           <p className="font-semibold text-foreground text-sm truncate">{displayName}</p>
-          <p className="text-xs text-muted-foreground">@{friend.username}</p>
+          {friendTyping ? (
+            <p className="text-xs text-primary animate-pulse">{t('typing') || 'يكتب...'}</p>
+          ) : (
+            <p className="text-xs text-muted-foreground">@{friend.username}</p>
+          )}
         </div>
       </div>
 
+      {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-3">
         {isLoading ? (
           <div className="flex justify-center py-10">
@@ -242,7 +342,7 @@ export function DmChat({ friend, onBack }: Props) {
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-3">
             <Avatar name={displayName} color={friend.avatarColor} url={friend.avatarUrl} size={64} />
             <p className="text-sm font-medium">{displayName}</p>
-            <p className="text-xs text-muted-foreground/60">{t('startConversation') || 'Start a conversation'}</p>
+            <p className="text-xs text-muted-foreground/60">{t('startConversation') || 'ابدأ المحادثة'}</p>
           </div>
         ) : (
           groupedMessages.map((group, gi) => (
@@ -256,33 +356,84 @@ export function DmChat({ friend, onBack }: Props) {
                 {group.msgs.map(msg => {
                   const isMe = msg.senderId === user?.id;
                   const isOptimistic = msg.id < 0;
+                  const isRead = !!(friendLastReadAt && new Date(friendLastReadAt) >= new Date(msg.createdAt));
+                  const reactionSummary = getReactionSummary(msg.id);
+                  const hasReactions = Object.keys(reactionSummary).length > 0;
+
                   return (
-                    <MessageContextMenu
-                      key={msg.id}
-                      messageText={msg.content}
-                      isOwnMessage={isMe}
-                      onReply={() => handleReply(msg)}
-                      onDelete={isMe && !isOptimistic ? () => handleDelete(msg.id) : undefined}
-                    >
-                      <div className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[80%] min-w-0 overflow-hidden px-3.5 py-2 rounded-2xl text-sm ${
-                          isMe
-                            ? `bg-primary text-primary-foreground ${dir === 'rtl' ? 'rounded-tl-sm' : 'rounded-tr-sm'} ${isOptimistic ? 'opacity-60' : ''}`
-                            : `bg-muted text-foreground ${dir === 'rtl' ? 'rounded-tr-sm' : 'rounded-tl-sm'}`
-                        }`}>
-                          {msg.replyToId && msg.replyToSenderName && (
-                            <QuotedMessage
-                              senderName={msg.replyToSenderName}
-                              text={msg.replyToContent || ''}
-                            />
-                          )}
-                          <LinkifiedText text={msg.content} />
-                          <p className={`text-[10px] mt-0.5 ${isMe ? 'text-primary-foreground/50' : 'text-muted-foreground'} ${isMe ? 'text-end' : 'text-start'}`}>
-                            {isOptimistic ? '...' : formatTime(msg.createdAt)}
-                          </p>
+                    <div key={msg.id}>
+                      <MessageContextMenu
+                        messageText={msg.content}
+                        isOwnMessage={isMe}
+                        onReply={() => handleReply(msg)}
+                        onDelete={isMe && !isOptimistic ? () => handleDelete(msg.id) : undefined}
+                        onEdit={isMe && !isOptimistic ? () => startEdit(msg) : undefined}
+                        onReact={!isOptimistic ? (emoji) => handleReact(msg.id, emoji) : undefined}
+                      >
+                        <div className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                          <div className={`max-w-[80%] min-w-0 overflow-hidden px-3.5 py-2 rounded-2xl text-sm ${
+                            isMe
+                              ? `bg-primary text-primary-foreground ${dir === 'rtl' ? 'rounded-tl-sm' : 'rounded-tr-sm'} ${isOptimistic ? 'opacity-60' : ''}`
+                              : `bg-muted text-foreground ${dir === 'rtl' ? 'rounded-tr-sm' : 'rounded-tl-sm'}`
+                          }`}>
+                            {msg.replyToId && msg.replyToSenderName && (
+                              <QuotedMessage
+                                senderName={msg.replyToSenderName}
+                                text={msg.replyToContent || ''}
+                              />
+                            )}
+
+                            {editingMsgId === msg.id ? (
+                              <form onSubmit={e => { e.preventDefault(); handleEdit(msg.id); }}>
+                                <input
+                                  ref={editInputRef}
+                                  value={editText}
+                                  onChange={e => setEditText(e.target.value)}
+                                  onKeyDown={e => e.key === 'Escape' && setEditingMsgId(null)}
+                                  className={`w-full bg-white/20 rounded px-2 py-0.5 text-sm ${isMe ? 'text-primary-foreground' : 'text-foreground'} outline-none`}
+                                />
+                                <div className="flex gap-2 mt-1 justify-end">
+                                  <button type="button" onClick={() => setEditingMsgId(null)} className="text-[10px] opacity-60">✗</button>
+                                  <button type="submit" className="text-[10px] opacity-80">✓</button>
+                                </div>
+                              </form>
+                            ) : (
+                              <LinkifiedText text={msg.content} />
+                            )}
+
+                            <div className={`flex items-center gap-1 mt-0.5 ${isMe ? 'justify-end' : 'justify-start'}`}>
+                              {msg.isEdited && (
+                                <span className={`text-[9px] ${isMe ? 'text-primary-foreground/40' : 'text-muted-foreground/50'}`}>
+                                  {t('edited') || 'تم التعديل'}
+                                </span>
+                              )}
+                              <p className={`text-[10px] ${isMe ? 'text-primary-foreground/50' : 'text-muted-foreground'}`}>
+                                {isOptimistic ? '...' : formatTime(msg.createdAt)}
+                              </p>
+                              {isMe && !isOptimistic && (
+                                isRead
+                                  ? <CheckCheck className="w-3 h-3 text-primary-foreground/70" />
+                                  : <Check className="w-3 h-3 text-primary-foreground/40" />
+                              )}
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    </MessageContextMenu>
+                      </MessageContextMenu>
+
+                      {hasReactions && (
+                        <div className={`flex gap-0.5 mt-0.5 flex-wrap ${isMe ? 'justify-end pe-1' : 'justify-start ps-1'}`}>
+                          {Object.entries(reactionSummary).map(([emoji, count]) => (
+                            <button
+                              key={emoji}
+                              onClick={() => handleReact(msg.id, emoji)}
+                              className="text-xs bg-muted rounded-full px-1.5 py-0.5 flex items-center gap-0.5 border border-border hover:border-primary/40 transition-colors"
+                            >
+                              {emoji}{count > 1 && <span className="text-[10px] text-muted-foreground">{count}</span>}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
               </div>
@@ -305,9 +456,10 @@ export function DmChat({ friend, onBack }: Props) {
           <input
             ref={inputRef}
             value={text}
-            onChange={e => setText(e.target.value)}
+            onChange={handleInputChange}
             onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}
-            placeholder={t('typeMessage') || 'Type a message...'}
+            onBlur={stopTyping}
+            placeholder={t('typeMessage') || 'اكتب رسالة...'}
             className="flex-1 bg-muted/50 border border-border rounded-2xl px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
           />
           <button
