@@ -93,9 +93,11 @@ export function useSocket(slug: string | null) {
   useEffect(() => {
     if (!slug || !username) return;
 
+    const token = localStorage.getItem('lrmtv_auth_token') || '';
     const socket = io('/', {
       path: '/api/socket.io',
-      transports: ['websocket', 'polling']
+      transports: ['websocket', 'polling'],
+      auth: { token },
     });
 
     socketRef.current = socket;

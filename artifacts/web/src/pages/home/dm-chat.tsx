@@ -53,12 +53,16 @@ export function DmChat({ friend, onBack }: Props) {
   const { data: history = [], isLoading } = useQuery<DmMessage[]>({
     queryKey: ['dm', friend.id],
     queryFn: () => apiFetch(`/dm/${friend.id}`).then(r => r.json()).then(d => Array.isArray(d) ? d : []),
+    refetchInterval: 6000,
   });
 
   useEffect(() => {
     const msgs = Array.isArray(history) ? history : [];
-    setMessages(msgs);
     msgs.forEach(m => seenIds.current.add(m.id));
+    setMessages(prev => {
+      const optimistic = prev.filter(m => m.id < 0);
+      return [...msgs, ...optimistic];
+    });
   }, [history]);
 
   useEffect(() => {

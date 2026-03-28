@@ -388,8 +388,18 @@ export function initSocketServer(httpServer: HttpServer): Server {
     });
 
     socket.on("join-room", async (data: { slug: string; username: string; displayName?: string; userId?: number }) => {
-      const { slug, username, displayName: rawDisplayName, userId } = data;
+      const { slug, username, displayName: rawDisplayName } = data;
       const displayName = rawDisplayName || username;
+      // If client didn't send userId, try to get it from the socket auth token
+      let userId = data.userId;
+      if (!userId) {
+        try {
+          const tok = (socket.handshake.auth as any)?.token || '';
+          const secret = process.env.JWT_SECRET || 'lrmtv_jwt_fallback_secret_2025_please_set_in_env';
+          const decoded = jwt.verify(tok, secret) as any;
+          if (decoded?.userId) userId = decoded.userId as number;
+        } catch {}
+      }
 
       let roomState = getRoomState(slug);
       if (!roomState) {
