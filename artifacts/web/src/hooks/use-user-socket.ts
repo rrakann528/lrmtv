@@ -26,9 +26,11 @@ export function useUserSocket({ userId, onFriendRequest, onFriendAccepted, onDmR
   useEffect(() => {
     if (!userId) return;
 
+    const token = localStorage.getItem('lrmtv_auth_token') || '';
     const socket = io(BASE || '/', {
       path: '/api/socket.io',
       transports: ['websocket', 'polling'],
+      auth: { token },
     });
     socketRef.current = socket;
 
