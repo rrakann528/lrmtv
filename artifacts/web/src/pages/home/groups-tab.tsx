@@ -774,7 +774,7 @@ function GroupChatView({ groupId, group }: { groupId: number; group: GroupDetail
                         {!isMe && (
                           <Avatar name={senderName} color={msg.senderAvatarColor} url={msg.senderAvatarUrl} size={28} />
                         )}
-                        <div className={`max-w-[75%] px-3.5 py-2 rounded-2xl text-sm ${!isMe ? 'ms-2' : ''} ${
+                        <div className={`max-w-[75%] min-w-0 overflow-hidden px-3.5 py-2 rounded-2xl text-sm ${!isMe ? 'ms-2' : ''} ${
                           isMe
                             ? `bg-primary text-primary-foreground ${dir === 'rtl' ? 'rounded-tl-sm' : 'rounded-tr-sm'} ${isOptimistic ? 'opacity-60' : ''}`
                             : `bg-muted text-foreground ${dir === 'rtl' ? 'rounded-tr-sm' : 'rounded-tl-sm'}`
@@ -788,7 +788,7 @@ function GroupChatView({ groupId, group }: { groupId: number; group: GroupDetail
                               text={msg.replyToContent || ''}
                             />
                           )}
-                          <LinkifiedText text={msg.content} className="whitespace-pre-wrap break-words" />
+                          <LinkifiedText text={msg.content} />
                           <p className={`text-[10px] mt-0.5 ${isMe ? 'text-primary-foreground/50 text-end' : 'text-muted-foreground text-start'}`}>
                             {isOptimistic ? '...' : formatTime(msg.createdAt)}
                           </p>

@@ -196,7 +196,7 @@ export default function ChatPanel({
                   </div>
                 )}
 
-                <div className={cn('flex flex-col max-w-[75%]', isMe ? 'items-end' : 'items-start')}>
+                <div className={cn('flex flex-col min-w-0 max-w-[75%]', isMe ? 'items-end' : 'items-start')}>
                   {!isMe && isFirstInGroup && (
                     <button
                       onClick={() => openProfile(msg.username)}
@@ -209,7 +209,7 @@ export default function ChatPanel({
 
                   <div
                     className={cn(
-                      'px-3 py-2 text-sm break-words',
+                      'px-3 py-2 text-sm overflow-hidden w-full',
                       isMe
                         ? 'bg-primary text-primary-foreground'
                         : 'bg-white/10 text-white border border-white/8',

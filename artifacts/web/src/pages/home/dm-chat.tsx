@@ -265,7 +265,7 @@ export function DmChat({ friend, onBack }: Props) {
                       onDelete={isMe && !isOptimistic ? () => handleDelete(msg.id) : undefined}
                     >
                       <div className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[80%] px-3.5 py-2 rounded-2xl text-sm ${
+                        <div className={`max-w-[80%] min-w-0 overflow-hidden px-3.5 py-2 rounded-2xl text-sm ${
                           isMe
                             ? `bg-primary text-primary-foreground ${dir === 'rtl' ? 'rounded-tl-sm' : 'rounded-tr-sm'} ${isOptimistic ? 'opacity-60' : ''}`
                             : `bg-muted text-foreground ${dir === 'rtl' ? 'rounded-tr-sm' : 'rounded-tl-sm'}`
@@ -276,7 +276,7 @@ export function DmChat({ friend, onBack }: Props) {
                               text={msg.replyToContent || ''}
                             />
                           )}
-                          <LinkifiedText text={msg.content} className="whitespace-pre-wrap break-words" />
+                          <LinkifiedText text={msg.content} />
                           <p className={`text-[10px] mt-0.5 ${isMe ? 'text-primary-foreground/50' : 'text-muted-foreground'} ${isMe ? 'text-end' : 'text-start'}`}>
                             {isOptimistic ? '...' : formatTime(msg.createdAt)}
                           </p>

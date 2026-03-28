@@ -7,13 +7,14 @@ interface Props {
 
 export function LinkifiedText({ text, className }: Props) {
   const parts = linkifyText(text);
+  const base = `whitespace-pre-wrap break-all leading-relaxed ${className ?? ''}`.trim();
 
   if (parts.length === 1 && parts[0].type === 'text') {
-    return <span className={className}>{text}</span>;
+    return <p className={base}>{text}</p>;
   }
 
   return (
-    <span className={className}>
+    <p className={base}>
       {parts.map((part, i) =>
         part.type === 'link' ? (
           <a
@@ -30,6 +31,6 @@ export function LinkifiedText({ text, className }: Props) {
           <span key={i}>{part.value}</span>
         )
       )}
-    </span>
+    </p>
   );
 }
