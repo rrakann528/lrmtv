@@ -129,7 +129,7 @@ export default function ChatPanel({
       exit={{ opacity: 0, x: -20 }}
       className="flex flex-col h-full bg-black/20"
     >
-      <div className="flex-grow overflow-y-auto px-3 py-3 flex flex-col gap-1" ref={scrollRef}>
+      <div className="flex-grow overflow-y-auto overflow-x-hidden px-3 py-3 flex flex-col gap-1" ref={scrollRef}>
         {messages.map((msg, i) => {
           const isMe = msg.username === username;
           const isSystem = msg.type === 'system';
@@ -175,7 +175,7 @@ export default function ChatPanel({
             >
               <div
                 className={cn(
-                  'flex items-end gap-2',
+                  'flex items-end gap-2 min-w-0 w-full',
                   isMe ? 'flex-row-reverse' : 'flex-row',
                   isFirstInGroup ? 'mt-2' : 'mt-0.5',
                 )}
