@@ -59,7 +59,7 @@ export default function ChatPanel({
 
   useEffect(() => {
     if (history) {
-      const hist = history as ChatMessage[];
+      const hist = Array.isArray(history) ? (history as ChatMessage[]) : [];
       setMessages(hist.slice(-MAX_MESSAGES));
     }
   }, [history]);
