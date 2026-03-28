@@ -206,6 +206,10 @@ ALTER TABLE direct_messages ADD COLUMN IF NOT EXISTS reply_to_sender_name TEXT;
 ALTER TABLE group_messages ADD COLUMN IF NOT EXISTS reply_to_id INTEGER;
 ALTER TABLE group_messages ADD COLUMN IF NOT EXISTS reply_to_content TEXT;
 ALTER TABLE group_messages ADD COLUMN IF NOT EXISTS reply_to_sender_name TEXT;
+
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS reply_to_id INTEGER;
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS reply_to_username TEXT;
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS reply_to_content TEXT;
 `;
 
 export async function runMigrations(): Promise<void> {
