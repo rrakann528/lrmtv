@@ -209,7 +209,7 @@ export default function ChatPanel({
 
                   <div
                     className={cn(
-                      'px-3 py-2 text-sm overflow-hidden w-full',
+                      'px-3 py-2 text-sm overflow-hidden w-full break-all',
                       isMe
                         ? 'bg-primary text-primary-foreground'
                         : 'bg-white/10 text-white border border-white/8',
