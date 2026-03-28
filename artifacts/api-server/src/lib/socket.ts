@@ -627,6 +627,15 @@ export function initSocketServer(httpServer: HttpServer): Server {
 
       if (roomState.chatDisabled && !user.isAdmin) return;
       if (!user.userId) {
+        // Try to recover userId from the socket auth token
+        try {
+          const tok = (socket.handshake.auth as any)?.token || '';
+          const secret = process.env.JWT_SECRET || 'lrmtv_jwt_fallback_secret_2025_please_set_in_env';
+          const decoded = jwt.verify(tok, secret) as any;
+          if (decoded?.userId) user.userId = decoded.userId as number;
+        } catch {}
+      }
+      if (!user.userId) {
         socket.emit("chat-blocked", { reason: "not_identified" });
         return;
       }

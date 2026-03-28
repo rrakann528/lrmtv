@@ -595,7 +595,8 @@ function GroupChatView({ groupId, group }: { groupId: number; group: GroupDetail
   const { data: history = [], isLoading } = useQuery<GroupMsg[]>({
     queryKey: ['group-messages', groupId],
     queryFn: () => apiFetch(`/groups/${groupId}/messages`).then(r => r.json()).then(d => Array.isArray(d) ? d : []),
-    refetchInterval: 6000,
+    refetchInterval: 4000,
+    refetchIntervalInBackground: true,
   });
 
   useEffect(() => {

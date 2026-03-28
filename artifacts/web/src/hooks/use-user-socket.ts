@@ -53,10 +53,15 @@ export function useUserSocket({ userId, onFriendRequest, onFriendAccepted, onDmR
     socket.on('dm:receive', (msg: DmMsg) => {
       qc.invalidateQueries({ queryKey: ['friends-conversations'] });
       qc.invalidateQueries({ queryKey: ['friends-badge'] });
-      // Invalidate the specific DM thread for both participants
       if (msg?.senderId) qc.invalidateQueries({ queryKey: ['dm', msg.senderId] });
       if (msg?.receiverId) qc.invalidateQueries({ queryKey: ['dm', msg.receiverId] });
       onDmReceive?.(msg);
+    });
+
+    socket.on('group:message', (msg: { groupId?: number }) => {
+      if (msg?.groupId) {
+        qc.invalidateQueries({ queryKey: ['group-messages', msg.groupId] });
+      }
     });
 
     socket.on('room-invite', () => {
