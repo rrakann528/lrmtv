@@ -103,10 +103,31 @@ export default function HomePage() {
       return pending + unread;
     },
     enabled: !!user,
-    refetchInterval: 20_000,
+    refetchInterval: 15_000,
     refetchOnMount: true,
     refetchOnWindowFocus: true,
   });
+
+  // Badge: unread group messages (groups with new messages since last seen)
+  const { data: groupsBadge = 0 } = useQuery<number>({
+    queryKey: ['groups-badge'],
+    queryFn: async () => {
+      const since = localStorage.getItem('lrmtv_groups_last_seen') || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const data = await apiFetch(`/groups/badge?since=${encodeURIComponent(since)}`).then(r => r.json()).catch(() => ({ count: 0 }));
+      return data.count || 0;
+    },
+    enabled: !!user,
+    refetchInterval: 15_000,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+  });
+
+  // Clear groups badge when groups tab is active
+  useEffect(() => {
+    if (activeTab === 'groups') {
+      localStorage.setItem('lrmtv_groups_last_seen', new Date().toISOString());
+    }
+  }, [activeTab]);
 
   // Badge: pending room invites
   const { data: roomsBadge = 0 } = useQuery<number>({
@@ -186,6 +207,7 @@ export default function HomePage() {
               const active = activeTab === id;
               const badge = id === 'friends' && !active ? friendsBadge
                           : id === 'rooms'   && !active ? roomsBadge
+                          : id === 'groups'  && !active ? groupsBadge
                           : 0;
               return (
                 <button

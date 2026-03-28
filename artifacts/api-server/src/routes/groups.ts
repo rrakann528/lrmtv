@@ -49,6 +49,32 @@ router.get("/groups", requireAuth, async (req: AuthRequest, res) => {
   }
 });
 
+// ── Groups badge (unread count for bottom nav) ────────────────────────────────
+router.get("/groups/badge", requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const userId = req.userId!;
+    const since = req.query.since ? new Date(req.query.since as string) : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+    const myGroups = await db.select({ id: groupMembersTable.groupId })
+      .from(groupMembersTable)
+      .where(eq(groupMembersTable.userId, userId));
+
+    if (myGroups.length === 0) { res.json({ count: 0 }); return; }
+
+    const groupIds = myGroups.map(g => g.id);
+    const { rows } = await pool.query(
+      `SELECT COUNT(DISTINCT group_id)::int as count
+       FROM group_messages
+       WHERE group_id = ANY($1) AND sender_id != $2 AND created_at > $3`,
+      [groupIds, userId, since]
+    );
+    res.json({ count: rows[0]?.count || 0 });
+  } catch (err: any) {
+    console.error("[groups] badge error:", err.message);
+    res.json({ count: 0 });
+  }
+});
+
 router.post("/groups", requireAuth, async (req: AuthRequest, res) => {
   try {
     const userId = req.userId!;

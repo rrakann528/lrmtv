@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Search, UserPlus, MessageCircle, Check, X, Clock, Bell, Users, Send, MoreVertical, UserMinus, BellOff, Bell as BellOn, AlertCircle, RefreshCw } from 'lucide-react';
+import { Search, UserPlus, Check, X, Clock, Bell, Users, Send, MoreVertical, UserMinus, BellOff, Bell as BellOn, AlertCircle, RefreshCw } from 'lucide-react';
 import { Avatar } from '@/components/avatar';
 import { useAuth, apiFetch } from '@/hooks/use-auth';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -223,25 +223,36 @@ export function FriendsTab({ acceptedToast, onDismissAcceptedToast }: FriendsTab
       </AnimatePresence>
 
       {/* Sub tabs */}
-      <div className="flex gap-1 mx-4 mt-4 mb-3 bg-muted/50 rounded-2xl p-1">
-        {([
-          ['friends',  t('myFriends')],
-          ['requests', `${t('requestsTab')}${pendingReceived.length > 0 ? ` (${pendingReceived.length})` : ''}`],
-          ['search',   t('searchTab')],
-        ] as [SubTab, string][]).map(([key, label]) => (
-          <button
-            key={key}
-            onClick={() => setSubTab(key)}
-            className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-all ${
-              subTab === key
-                ? 'bg-card text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      {(() => {
+        const totalUnreadDms = conversations.reduce((s, c) => s + (c.unreadCount || 0), 0);
+        const tabs: { key: SubTab; label: string; badge?: number }[] = [
+          { key: 'friends',  label: t('myFriends'),    badge: totalUnreadDms },
+          { key: 'requests', label: t('requestsTab'),  badge: pendingReceived.length },
+          { key: 'search',   label: t('searchTab') },
+        ];
+        return (
+          <div className="flex gap-1 mx-4 mt-4 mb-3 bg-muted/50 rounded-2xl p-1">
+            {tabs.map(({ key, label, badge }) => (
+              <button
+                key={key}
+                onClick={() => setSubTab(key)}
+                className={`relative flex-1 py-2 rounded-xl text-xs font-semibold transition-all ${
+                  subTab === key
+                    ? 'bg-card text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {label}
+                {badge != null && badge > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-0.5 leading-none shadow-sm">
+                    {badge > 99 ? '99+' : badge}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        );
+      })()}
 
       {/* Search input */}
       {subTab === 'search' && (
@@ -703,34 +714,25 @@ function FriendCard({
       </button>
 
       {/* Right side */}
-      <div className="flex flex-col items-end gap-1 flex-shrink-0">
-        {lastMsg && (
-          <span className="text-[10px] text-muted-foreground">{formatLastTime(lastMsg.createdAt, lang)}</span>
-        )}
+      <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
         <div className="flex items-center gap-1.5">
-          {/* Chat button with unread badge */}
-          <div className="relative">
-            <button
-              onClick={onChat}
-              className="w-9 h-9 bg-primary/15 rounded-xl flex items-center justify-center"
-            >
-              <MessageCircle className="w-4 h-4 text-primary" />
-            </button>
-            {unread > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] bg-primary text-primary-foreground text-[10px] font-bold rounded-full flex items-center justify-center px-0.5">
-                {unread > 99 ? '99+' : unread}
-              </span>
-            )}
-          </div>
-
+          {lastMsg && (
+            <span className="text-[10px] text-muted-foreground">{formatLastTime(lastMsg.createdAt, lang)}</span>
+          )}
           {/* Options button */}
           <button
             onClick={onMenu}
-            className="w-9 h-9 bg-muted/50 rounded-xl flex items-center justify-center"
+            className="w-8 h-8 bg-muted/50 rounded-xl flex items-center justify-center"
           >
             <MoreVertical className="w-4 h-4 text-muted-foreground" />
           </button>
         </div>
+        {/* Unread badge */}
+        {unread > 0 && (
+          <span className="min-w-[20px] h-[20px] bg-primary text-primary-foreground text-[10px] font-bold rounded-full flex items-center justify-center px-1 leading-none">
+            {unread > 99 ? '99+' : unread}
+          </span>
+        )}
       </div>
     </div>
   );
