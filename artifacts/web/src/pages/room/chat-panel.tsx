@@ -127,9 +127,9 @@ export default function ChatPanel({
       initial={{ opacity: 0, x: 20 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -20 }}
-      className="flex flex-col h-full bg-black/20"
+      className="flex flex-col h-full w-full overflow-hidden bg-black/20"
     >
-      <div className="flex-grow overflow-y-auto overflow-x-hidden px-3 py-3 flex flex-col gap-1" ref={scrollRef}>
+      <div className="flex-grow overflow-y-auto overflow-x-hidden px-3 py-3 flex flex-col gap-1 min-w-0" ref={scrollRef}>
         {messages.map((msg, i) => {
           const isMe = msg.username === username;
           const isSystem = msg.type === 'system';

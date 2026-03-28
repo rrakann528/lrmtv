@@ -141,7 +141,7 @@ export function MessageContextMenu({ children, messageText, isOwnMessage, onRepl
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
         onTouchMove={handleTouchMove}
-        className="select-none"
+        className="select-none min-w-0 overflow-hidden"
       >
         {children}
       </div>

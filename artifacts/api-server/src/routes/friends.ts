@@ -3,6 +3,7 @@ import { eq, or, and, ne, ilike, desc, gt, sql } from "drizzle-orm";
 import webpush from "web-push";
 import {
   db,
+  pool,
   usersTable,
   friendshipsTable,
   directMessagesTable,
@@ -216,21 +217,23 @@ router.get("/friends/conversations", requireAuth, async (req: AuthRequest, res):
 
   const receiptMap = new Map(receipts.map(r => [r.friendId, r.lastReadAt]));
 
-  const lastMsgResult = await db.execute(sql`
-    SELECT DISTINCT ON (friend_id) friend_id, content, sender_id, created_at
-    FROM (
-      SELECT
-        CASE WHEN sender_id = ${uid} THEN receiver_id ELSE sender_id END AS friend_id,
-        content, sender_id, created_at
-      FROM direct_messages
-      WHERE (sender_id = ${uid} AND receiver_id = ANY(${friendIds}))
-         OR (receiver_id = ${uid} AND sender_id = ANY(${friendIds}))
-    ) sub
-    ORDER BY friend_id, created_at DESC
-  `);
+  // Use pool.query for reliable array parameterization
+  const { rows: lastMsgRows } = await pool.query(
+    `SELECT DISTINCT ON (friend_id) friend_id, content, sender_id, created_at
+     FROM (
+       SELECT
+         CASE WHEN sender_id = $1 THEN receiver_id ELSE sender_id END AS friend_id,
+         content, sender_id, created_at
+       FROM direct_messages
+       WHERE (sender_id = $1 AND receiver_id = ANY($2::int[]))
+          OR (receiver_id = $1 AND sender_id = ANY($2::int[]))
+     ) sub
+     ORDER BY friend_id, created_at DESC`,
+    [uid, friendIds]
+  );
 
   const lastMsgMap = new Map<number, { content: string; createdAt: Date; fromMe: boolean }>();
-  for (const row of lastMsgResult.rows as any[]) {
+  for (const row of lastMsgRows) {
     lastMsgMap.set(Number(row.friend_id), {
       content: row.content,
       createdAt: new Date(row.created_at),
@@ -238,20 +241,21 @@ router.get("/friends/conversations", requireAuth, async (req: AuthRequest, res):
     });
   }
 
-  const unreadResult = await db.execute(sql`
-    SELECT dm.sender_id, cast(count(*) as int) AS cnt
-    FROM direct_messages dm
-    WHERE dm.receiver_id = ${uid}
-      AND dm.sender_id = ANY(${friendIds})
-      AND dm.created_at > COALESCE(
-        (SELECT last_read_at FROM dm_read_receipts WHERE user_id = ${uid} AND friend_id = dm.sender_id),
-        '1970-01-01'::timestamptz
-      )
-    GROUP BY dm.sender_id
-  `);
+  const { rows: unreadRows } = await pool.query(
+    `SELECT dm.sender_id, cast(count(*) as int) AS cnt
+     FROM direct_messages dm
+     WHERE dm.receiver_id = $1
+       AND dm.sender_id = ANY($2::int[])
+       AND dm.created_at > COALESCE(
+         (SELECT last_read_at FROM dm_read_receipts WHERE user_id = $1 AND friend_id = dm.sender_id),
+         '1970-01-01'::timestamptz
+       )
+     GROUP BY dm.sender_id`,
+    [uid, friendIds]
+  );
 
   const unreadMap = new Map<number, number>();
-  for (const row of unreadResult.rows as any[]) {
+  for (const row of unreadRows) {
     unreadMap.set(Number(row.sender_id), Number(row.cnt));
   }
 

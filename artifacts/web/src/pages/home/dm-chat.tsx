@@ -311,10 +311,10 @@ export function DmChat({ friend, onBack }: Props) {
   return (
     <motion.div
       className="fixed inset-0 bg-background z-[200] flex flex-col"
-      initial={{ x: dir === 'rtl' ? '-100%' : '100%' }}
+      initial={{ x: '100%' }}
       animate={{ x: 0 }}
-      exit={{ x: dir === 'rtl' ? '-100%' : '100%' }}
-      transition={{ type: 'spring', damping: 30, stiffness: 400 }}
+      exit={{ x: '100%' }}
+      transition={{ type: 'tween', ease: [0.25, 0.46, 0.45, 0.94], duration: 0.22 }}
     >
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-card/95 backdrop-blur-sm">
