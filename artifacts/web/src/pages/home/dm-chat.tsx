@@ -310,7 +310,7 @@ export function DmChat({ friend, onBack }: Props) {
 
   return (
     <motion.div
-      className="absolute inset-0 bg-background z-40 flex flex-col"
+      className="fixed inset-0 bg-background z-[200] flex flex-col"
       initial={{ x: dir === 'rtl' ? '-100%' : '100%' }}
       animate={{ x: 0 }}
       exit={{ x: dir === 'rtl' ? '-100%' : '100%' }}
@@ -451,7 +451,7 @@ export function DmChat({ friend, onBack }: Props) {
         />
       )}
 
-      <div className="p-3 border-t border-border bg-card/95 backdrop-blur-sm">
+      <div className="p-3 border-t border-border bg-card/95 backdrop-blur-sm" style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom, 0px))' }}>
         <div className="flex items-center gap-2">
           <input
             ref={inputRef}
@@ -460,7 +460,8 @@ export function DmChat({ friend, onBack }: Props) {
             onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}
             onBlur={stopTyping}
             placeholder={t('typeMessage') || 'اكتب رسالة...'}
-            className="flex-1 bg-muted/50 border border-border rounded-2xl px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            className="flex-1 bg-muted/50 border border-border rounded-2xl px-4 py-2.5 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            style={{ fontSize: '16px' }}
           />
           <button
             onClick={send}

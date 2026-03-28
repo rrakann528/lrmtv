@@ -966,7 +966,8 @@ function GroupChatView({ groupId, group }: { groupId: number; group: GroupDetail
             onChange={handleInputChange}
             onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}
             placeholder={t('typeMessage') || 'Type a message...'}
-            className="flex-1 bg-muted/50 border border-border rounded-2xl px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            className="flex-1 bg-muted/50 border border-border rounded-2xl px-4 py-2.5 text-[16px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            style={{ fontSize: '16px' }}
           />
           <button
             onClick={send}

@@ -94,7 +94,9 @@ export function FriendsTab({ acceptedToast, onDismissAcceptedToast }: FriendsTab
     queryKey: ['friends-conversations'],
     queryFn: fetchConversations,
     enabled: !!user,
-    refetchInterval: 15000,
+    refetchInterval: 8000,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
   });
 
   const { data: searchResults = [], isFetching: searching } = useQuery<FriendUser[]>({
