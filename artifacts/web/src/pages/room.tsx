@@ -484,6 +484,10 @@ export default function RoomPage() {
                     className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 backdrop-blur-sm cursor-pointer select-none"
                     onClick={() => {
                       setWatcherReadyState(true);
+                      // Call play() synchronously within the user gesture —
+                      // iOS Safari ONLY allows autoplay when play() is triggered
+                      // directly from a user interaction (not from useEffect/setTimeout)
+                      playerRef.current?.play();
                       if (canControl) {
                         setLocalPlaying(true);
                         emitSync(syncState.time > 1 ? syncState.time : 0, true, syncState.url);

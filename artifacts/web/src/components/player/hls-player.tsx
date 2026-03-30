@@ -630,7 +630,7 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
       const loadViaHls = () => {
         if (cancelled) return;
 
-        const s2_native = (onFail?: () => void, timeoutMs = 15_000) => {
+        const s2_native = (onFail?: () => void, timeoutMs = 15_000, overrideUrl?: string) => {
           if (cancelled) return;
           destroyAll();
           setStatusMsg('native');
@@ -638,7 +638,7 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
             if (cancelled) return;
             video.removeAttribute('crossorigin');
             video.setAttribute('referrerpolicy', 'no-referrer');
-            video.src = src;
+            video.src = overrideUrl ?? src;
             let nativeDone = false;
             const cleanup = () => {
               video.removeEventListener('loadedmetadata', onSuccess);
@@ -704,8 +704,26 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         const isProxied = src.includes('/api/proxy/stream');
         const isIosSafari = /iPad|iPhone|iPod/.test(navigator.userAgent) && !Hls.isSupported();
 
+        // Extract original URL if the src is our proxy wrapper
+        let originalUrl: string | undefined;
+        if (isProxied) {
+          try {
+            const qs = src.includes('?') ? src.slice(src.indexOf('?') + 1) : '';
+            const u = new URLSearchParams(qs).get('url');
+            if (u) originalUrl = u;
+          } catch {}
+        }
+
         if (isIosSafari && canNativeHls) {
-          s2_native(undefined, 25_000);
+          // iOS Safari: try the ORIGINAL URL first (same as opening directly in Safari)
+          // If that fails after 15s, fall back to our proxy URL
+          if (originalUrl) {
+            s2_native(() => {
+              if (!cancelled) s2_native(undefined, 25_000);
+            }, 15_000, originalUrl);
+          } else {
+            s2_native(undefined, 25_000);
+          }
         } else if (isProxied && Hls.isSupported()) {
           const hls = makeHls(() => {
             s2_native(undefined, 20_000);
