@@ -156,6 +156,12 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
     const [toastQueue, setToastQueue] = useState<ToastMessage[]>([]);
     const prevMsgCountRef = useRef(0);
     const overlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    // pendingPlayRef: set when play() is called via imperative handle but the YouTube
+    // internal player isn't initialized yet. Consumed in onReady to flush the request.
+    const pendingPlayRef = useRef(false);
+    // Mirror of the playing prop so onReady can read the latest value without stale closure
+    const playingRef = useRef(playing);
+    useEffect(() => { playingRef.current = playing; }, [playing]);
     // ReactPlayer playback tracking
     const [rpCurrentTime, setRpCurrentTime] = useState(0);
     const [rpDuration, setRpDuration] = useState(0);
@@ -189,6 +195,8 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       setAutoplayBlocked(false);
       lastSkippedRef.current = null;
       setSponsorSegments([]);
+      // Reset pending-play so a stale request from the old URL never fires
+      pendingPlayRef.current = false;
       if (isYouTubeUrl(normalizedUrl)) {
         fetchSponsorSegments(normalizedUrl, setSponsorSegments);
       }
@@ -301,9 +309,13 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
         if (isHls) { hlsPlayerRef.current?.play(); return; }
         try {
           const ip = reactPlayerRef.current?.getInternalPlayer();
-          if (ip?.playVideo) ip.playVideo();
-          else if (ip?.play) ip.play().catch?.(() => {});
+          if (ip?.playVideo) { ip.playVideo(); return; }
+          if (ip?.play)      { ip.play().catch?.(() => {}); return; }
         } catch {}
+        // Internal player not ready yet — store the request so onReady flushes it.
+        // This handles the case where the user clicks "Press to Watch" before the
+        // YouTube IFrame API has fully initialised.
+        pendingPlayRef.current = true;
       },
       pause: () => {
         if (isHls) { hlsPlayerRef.current?.pause(); return; }
@@ -386,6 +398,22 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       document.addEventListener('visibilitychange', onVisible);
       return () => document.removeEventListener('visibilitychange', onVisible);
     }, [isHls, ready, playing]);
+
+    // Belt-and-suspenders: when playing transitions false→true and the player is
+    // already ready, call playVideo() directly.  ReactPlayer does the same internally
+    // but this catches any edge-cases where its internal call doesn't fire.
+    const prevPlayingForForceRef = useRef(false);
+    useEffect(() => {
+      if (isHls) { prevPlayingForForceRef.current = playing; return; }
+      const was = prevPlayingForForceRef.current;
+      prevPlayingForForceRef.current = playing;
+      if (playing && !was && ready) {
+        try {
+          const ip = reactPlayerRef.current?.getInternalPlayer();
+          if (ip?.playVideo) ip.playVideo();
+        } catch {}
+      }
+    }, [playing, isHls, ready]);
 
     const handleError = useCallback((err: unknown) => {
       // YouTube IFrame API error codes (passed as numeric data)
@@ -527,6 +555,18 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
             if (initialTime > 2) {
               try { reactPlayerRef.current?.seekTo(initialTime, 'seconds'); } catch {}
             }
+
+            // Flush a pending play that was requested while the player was still
+            // loading (e.g. user clicked "Press to Watch" before onReady fired).
+            // Also cover the common case where playing=true is already set but
+            // ReactPlayer's own internal play() hasn't executed yet.
+            if (pendingPlayRef.current || playingRef.current) {
+              pendingPlayRef.current = false;
+              try {
+                const ip = reactPlayerRef.current?.getInternalPlayer();
+                if (ip?.playVideo) ip.playVideo();
+              } catch {}
+            }
           }}
           onError={handleError}
           style={{ position: 'absolute', top: 0, left: 0 }}
@@ -553,8 +593,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
             onMouseMove={resetOverlayTimer}
             onTouchStart={resetOverlayTimer}
             onClick={() => {
-              if (!playing && canControl) directPlay();
-              else resetOverlayTimer();
+              resetOverlayTimer();
             }}
           />
         )}
@@ -570,9 +609,9 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
               transition={{ duration: 0.15 }}
               className="absolute inset-0 z-10 flex flex-col justify-end select-none"
               onClick={(e) => {
-                // tap center of video = toggle play; don't fire on controls bar
+                // tap center of overlay only resets the hide-timer, no playback change
                 if (e.target === e.currentTarget) {
-                  if (playing) directPause(); else directPlay();
+                  resetOverlayTimer();
                 }
               }}
             >
@@ -740,43 +779,36 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
           lang={lang}
         />
 
-        {/* Room event notifications (join/leave) — top-right, fullscreen only */}
-        {roomNotifications.length > 0 && (
-          <div className="absolute top-4 end-4 z-50 flex flex-col gap-2 pointer-events-none">
-            <AnimatePresence>
-              {roomNotifications.map((n) => (
-                <motion.div
-                  key={n.id}
-                  initial={{ opacity: 0, y: -16, scale: 0.9 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -10, scale: 0.9 }}
-                  transition={{ type: 'spring', stiffness: 320, damping: 26 }}
-                  className={`flex items-center gap-2.5 px-3 py-2 rounded-xl border shadow-2xl backdrop-blur-md text-sm font-medium text-white ${
-                    n.type === 'join'
-                      ? 'bg-green-900/70 border-green-500/30'
-                      : 'bg-red-900/70 border-red-500/30'
-                  }`}
+        {/* Room event notifications (join/leave) — bottom-right toast, fullscreen only */}
+        <div className="absolute bottom-20 end-4 z-50 flex flex-col gap-2 pointer-events-none">
+          <AnimatePresence>
+            {roomNotifications.map((n) => (
+              <motion.div
+                key={n.id}
+                initial={{ opacity: 0, x: 40, scale: 0.9 }}
+                animate={{ opacity: 1, x: 0, scale: 1 }}
+                exit={{ opacity: 0, x: 40, scale: 0.9 }}
+                transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+                className="max-w-[260px] bg-black/85 backdrop-blur-md rounded-xl p-3 flex items-center gap-3 border border-white/10 shadow-2xl"
+              >
+                <div
+                  className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-xs font-bold text-white"
+                  style={{ backgroundColor: generateColorFromString(n.username) }}
                 >
-                  <span className={`w-2 h-2 rounded-full shrink-0 ${n.type === 'join' ? 'bg-green-400' : 'bg-red-400'}`} />
-                  <div
-                    className="w-6 h-6 rounded-full shrink-0 flex items-center justify-center text-[10px] font-bold text-white"
-                    style={{ backgroundColor: generateColorFromString(n.username) }}
-                  >
-                    {n.username.substring(0, 2).toUpperCase()}
-                  </div>
-                  <span>
-                    {n.username}
-                    <span className={`ms-1.5 text-xs font-normal opacity-80`}>
-                      {n.type === 'join'
-                        ? (lang === 'ar' ? 'دخل الغرفة' : 'joined')
-                        : (lang === 'ar' ? 'غادر الغرفة' : 'left')}
-                    </span>
-                  </span>
-                </motion.div>
-              ))}
-            </AnimatePresence>
-          </div>
-        )}
+                  {n.username.substring(0, 2).toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[11px] font-semibold text-white/60 mb-0.5">{n.username}</p>
+                  <p className={`text-xs font-medium ${n.type === 'join' ? 'text-green-400' : 'text-red-400'}`}>
+                    {n.type === 'join'
+                      ? (lang === 'ar' ? 'دخل الغرفة' : 'joined the room')
+                      : (lang === 'ar' ? 'غادر الغرفة' : 'left the room')}
+                  </p>
+                </div>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>
 
         {/* Toast notifications — bottom-right, 5s, fullscreen only */}
         <div className="absolute bottom-16 right-4 z-40 flex flex-col gap-2 pointer-events-none">
