@@ -687,7 +687,7 @@ function FriendCard({
   onMenu: () => void;
   onProfile: () => void;
 }) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const name = friend.displayName || friend.username;
   const unread = conv?.unreadCount ?? 0;
   const lastMsg = conv?.lastMessage ?? null;

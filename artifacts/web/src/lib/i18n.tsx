@@ -324,6 +324,10 @@ const translations = {
     forgotPasswordReset: "Reset Password",
     forgotPasswordMismatch: "Passwords don't match",
     forgotPasswordSuccess: "Password changed successfully",
+    typing: "typing...",
+    edited: "edited",
+    chatReact: "React",
+    chatEdit: "Edit",
   },
   ar: {
     tagline: "شاهدوا معاً، مهما بعدت المسافات.",
@@ -628,6 +632,10 @@ const translations = {
     forgotPasswordReset: "إعادة تعيين كلمة المرور",
     forgotPasswordMismatch: "كلمتا المرور غير متطابقتين",
     forgotPasswordSuccess: "تم تغيير كلمة المرور بنجاح",
+    typing: "يكتب...",
+    edited: "تم التعديل",
+    chatReact: "تفاعل",
+    chatEdit: "تعديل",
   },
   fr: {
     tagline: "Regarder ensemble, à des kilomètres.",
@@ -931,6 +939,10 @@ const translations = {
     forgotPasswordReset: "Réinitialiser",
     forgotPasswordMismatch: "Les mots de passe ne correspondent pas",
     forgotPasswordSuccess: "Mot de passe modifié avec succès",
+    typing: "écrit...",
+    edited: "modifié",
+    chatReact: "Réagir",
+    chatEdit: "Modifier",
   },
   tr: {
     tagline: "Birlikte izleyin, mesafe önemli değil.",
@@ -1234,6 +1246,10 @@ const translations = {
     forgotPasswordReset: "Şifreyi Sıfırla",
     forgotPasswordMismatch: "Şifreler eşleşmiyor",
     forgotPasswordSuccess: "Şifre başarıyla değiştirildi",
+    typing: "yazıyor...",
+    edited: "düzenlendi",
+    chatReact: "Tepki",
+    chatEdit: "Düzenle",
   },
   es: {
     tagline: "Mira juntos, sin importar la distancia.",
@@ -1537,6 +1553,10 @@ const translations = {
     forgotPasswordReset: "Restablecer contraseña",
     forgotPasswordMismatch: "Las contraseñas no coinciden",
     forgotPasswordSuccess: "Contraseña cambiada con éxito",
+    typing: "escribiendo...",
+    edited: "editado",
+    chatReact: "Reaccionar",
+    chatEdit: "Editar",
   },
   id: {
     tagline: "Nonton bareng, walau berjauhan.",
@@ -1840,6 +1860,10 @@ const translations = {
     forgotPasswordReset: "Reset Kata Sandi",
     forgotPasswordMismatch: "Kata sandi tidak cocok",
     forgotPasswordSuccess: "Kata sandi berhasil diubah",
+    typing: "mengetik...",
+    edited: "diedit",
+    chatReact: "Reaksi",
+    chatEdit: "Edit",
   },
 };
 

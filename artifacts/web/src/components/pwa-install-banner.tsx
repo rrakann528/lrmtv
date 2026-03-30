@@ -203,8 +203,7 @@ export default function PwaInstallBanner() {
         localStorage.setItem('pwa-dismissed', '1');
       }
       setDeferredPrompt(null);
-    } else if (isIos) {
-      // iOS: show instructions
+    } else if (getPlatformInfo().isIos) {
       setShowIosGuide(true);
     }
   };

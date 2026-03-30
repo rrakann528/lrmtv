@@ -600,6 +600,9 @@ function GroupChatView({ groupId, group }: { groupId: number; group: GroupDetail
   const socketRef = useRef<Socket | null>(null);
   const seenIds = useRef<Set<number>>(new Set());
   const [replyTarget, setReplyTarget] = useState<{ id: number; senderName: string; content: string } | null>(null);
+  const [mentionAlert, setMentionAlert] = useState<string | null>(null);
+  const [mentionSuggestions, setMentionSuggestions] = useState<GroupMember[]>([]);
+  const mentionAlertTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isTypingEmittedRef = useRef(false);
   const displayName = user?.displayName || user?.username || '';
@@ -672,9 +675,17 @@ function GroupChatView({ groupId, group }: { groupId: number; group: GroupDetail
       }
     });
 
+    socket.on('group:mention', (data: { groupId: number; fromUser: string; content: string }) => {
+      if (data.groupId !== groupId) return;
+      setMentionAlert(`${data.fromUser}: ${data.content}`);
+      if (mentionAlertTimeoutRef.current) clearTimeout(mentionAlertTimeoutRef.current);
+      mentionAlertTimeoutRef.current = setTimeout(() => setMentionAlert(null), 4000);
+    });
+
     socket.emit('join-group-typing', { groupId });
 
     return () => {
+      if (mentionAlertTimeoutRef.current) clearTimeout(mentionAlertTimeoutRef.current);
       socket.emit('leave-group-typing', { groupId });
       socket.disconnect();
       socketRef.current = null;
@@ -693,7 +704,22 @@ function GroupChatView({ groupId, group }: { groupId: number; group: GroupDetail
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setText(e.target.value);
+    const val = e.target.value;
+    setText(val);
+
+    const atMatch = val.match(/@(\w*)$/);
+    if (atMatch) {
+      const q = atMatch[1].toLowerCase();
+      const matches = group.members.filter(m =>
+        m.id !== user?.id &&
+        ((m.username.toLowerCase().includes(q)) ||
+         (m.displayName?.toLowerCase().includes(q)))
+      ).slice(0, 5);
+      setMentionSuggestions(matches);
+    } else {
+      setMentionSuggestions([]);
+    }
+
     if (!socketRef.current) return;
     if (!isTypingEmittedRef.current) {
       socketRef.current.emit('group:typing', { groupId, isTyping: true, displayName });
@@ -701,6 +727,12 @@ function GroupChatView({ groupId, group }: { groupId: number; group: GroupDetail
     }
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     typingTimeoutRef.current = setTimeout(stopTyping, 2000);
+  };
+
+  const insertMention = (username: string) => {
+    setText(prev => prev.replace(/@\w*$/, `@${username} `));
+    setMentionSuggestions([]);
+    inputRef.current?.focus();
   };
 
   const handleEdit = async (msgId: number) => {
@@ -740,6 +772,7 @@ function GroupChatView({ groupId, group }: { groupId: number; group: GroupDetail
     stopTyping();
     setSending(true);
     setText('');
+    setMentionSuggestions([]);
     const currentReply = replyTarget;
     setReplyTarget(null);
 
@@ -950,12 +983,42 @@ function GroupChatView({ groupId, group }: { groupId: number; group: GroupDetail
         </div>
       )}
 
+      {mentionAlert && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 10 }}
+          className="mx-4 mb-1 px-3 py-2 bg-cyan-500/15 border border-cyan-500/30 rounded-xl text-xs text-cyan-400 flex items-center gap-2"
+        >
+          <span className="font-bold">@</span>
+          <span className="truncate">{mentionAlert}</span>
+        </motion.div>
+      )}
+
       {replyTarget && (
         <ReplyPreview
           senderName={replyTarget.senderName}
           text={replyTarget.content}
           onCancel={() => setReplyTarget(null)}
         />
+      )}
+
+      {mentionSuggestions.length > 0 && (
+        <div className="mx-3 mb-1 bg-card border border-border rounded-xl overflow-hidden shadow-lg">
+          {mentionSuggestions.map(m => (
+            <button
+              key={m.id}
+              onClick={() => insertMention(m.username)}
+              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-muted/50 transition-colors text-start"
+            >
+              <Avatar name={m.displayName || m.username} color={m.avatarColor} url={m.avatarUrl} size={28} />
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-foreground truncate">{m.displayName || m.username}</p>
+                <p className="text-[10px] text-muted-foreground">@{m.username}</p>
+              </div>
+            </button>
+          ))}
+        </div>
       )}
 
       <div className="p-3 border-t border-border bg-card/95 backdrop-blur-sm">

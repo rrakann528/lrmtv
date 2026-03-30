@@ -167,10 +167,10 @@ export function useSocket(slug: string | null) {
       if ((state as any).allowGuestEntry !== undefined) setAllowGuestEntry((state as any).allowGuestEntry);
       setBackground(state.background || 'default');
       if (state.roomName) setRoomName(state.roomName);
-      if (state.isPrivate !== undefined) setIsPrivate(state.isPrivate);
-      if (state.chatDisabled !== undefined) setChatDisabled(state.chatDisabled);
-      if (state.micDisabled !== undefined) setMicDisabled(state.micDisabled);
-      if (state.sponsorSkipEnabled !== undefined) setSponsorSkipEnabled(state.sponsorSkipEnabled);
+      if ((state as any).isPrivate !== undefined) setIsPrivate((state as any).isPrivate);
+      if ((state as any).chatDisabled !== undefined) setChatDisabled((state as any).chatDisabled);
+      if ((state as any).micDisabled !== undefined) setMicDisabled((state as any).micDisabled);
+      if ((state as any).sponsorSkipEnabled !== undefined) setSponsorSkipEnabled((state as any).sponsorSkipEnabled);
       if ((state as any).subtitle) setSubtitleSync((state as any).subtitle);
     });
 
