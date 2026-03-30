@@ -68,7 +68,7 @@ function rewriteM3u8(body: string, originalUrl: string, proxyBase: string): stri
       }
 
       const absoluteUrl = resolveUrl(originalUrl, trimmed);
-      return `${proxyBase}?url=${encodeURIComponent(absoluteUrl)}`;
+      return `${proxyBase}?url=${encodeURIComponent(absoluteUrl)}&seg=1`;
     })
     .join("\n");
 }
@@ -250,7 +250,13 @@ async function handleUpstreamResponse(
     return;
   }
 
-  if (contentType) res.setHeader("Content-Type", contentType);
+  const isSegment = req.query.seg === "1";
+  const isVideoContent = contentType.startsWith("video/") || contentType.startsWith("audio/");
+  if (isSegment && !isVideoContent) {
+    res.setHeader("Content-Type", "video/mp2t");
+  } else if (contentType) {
+    res.setHeader("Content-Type", contentType);
+  }
   if (contentLength) res.setHeader("Content-Length", contentLength);
 
   const acceptRanges = upstream.headers.get("accept-ranges");
