@@ -13,6 +13,7 @@ import { useUserSession } from '@/hooks/use-user-session';
 import { useSocket } from '@/hooks/use-socket';
 import { useWebRTC } from '@/hooks/use-webrtc';
 import { useAuth, apiFetch } from '@/hooks/use-auth';
+import { useBackgroundAlive } from '@/hooks/use-background-alive';
 import { useGetRoom, useAddPlaylistItem, getGetRoomPlaylistQueryKey } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -106,6 +107,31 @@ export default function RoomPage() {
   const isGuest    = !you?.userId && !authUser?.id;
   const canControl = isDJ || allowGuestControl;
   const watcherReady = watcherReadyState;
+
+  const hasVideo = !!syncState.currentVideo;
+  const bgMediaInfo = React.useMemo(() => ({
+    title: roomName || room?.name || 'LrmTV',
+    artist: 'LrmTV',
+  }), [roomName, room?.name]);
+
+  const bgCallbacks = React.useMemo(() => ({
+    onPlay: () => { if (canControl) emitSync(true); },
+    onPause: () => { if (canControl) emitSync(false); },
+    onSeekBackward: () => {
+      if (!canControl) return;
+      const t = playerRef.current?.getCurrentTime() ?? 0;
+      playerRef.current?.seekTo(Math.max(0, t - 10));
+      emitSeek(Math.max(0, t - 10));
+    },
+    onSeekForward: () => {
+      if (!canControl) return;
+      const t = playerRef.current?.getCurrentTime() ?? 0;
+      playerRef.current?.seekTo(t + 10);
+      emitSeek(t + 10);
+    },
+  }), [canControl, emitSync, emitSeek]);
+
+  useBackgroundAlive(hasVideo, bgMediaInfo, bgCallbacks);
 
   // Tell the server when the DJ hides/closes so it can keep the room playing.
   // Also sets suppressPauseRef so the browser's auto-pause is NOT forwarded
