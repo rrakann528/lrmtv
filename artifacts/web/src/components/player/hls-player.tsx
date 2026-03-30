@@ -388,6 +388,7 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
       // because computedTime may overshoot the available segment window.
       const startPos = isLiveHint ? -1 : (initialTimeRef.current > 2 ? initialTimeRef.current : -1);
 
+      const isProxiedStream = src.includes('/api/proxy/stream');
       const HLS_CONFIG: Partial<Hls['config']> = {
         enableWorker: true,
         lowLatencyMode: false,
@@ -398,28 +399,28 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         liveMaxLatencyDurationCount: 4,
         maxLiveSyncPlaybackRate:     1.2,
 
-        backBufferLength:   20,
-        maxBufferLength:    60,
-        maxMaxBufferLength: 120,
+        backBufferLength:   isProxiedStream ? 10 : 20,
+        maxBufferLength:    isProxiedStream ? 90 : 60,
+        maxMaxBufferLength: isProxiedStream ? 180 : 120,
 
-        manifestLoadingMaxRetry:   1,
-        manifestLoadingTimeOut:    6_000,
-        manifestLoadingRetryDelay: 500,
-        levelLoadingMaxRetry:      3,
-        levelLoadingTimeOut:       10_000,
-        levelLoadingRetryDelay:    500,
-        fragLoadingMaxRetry:       5,
-        fragLoadingTimeOut:        12_000,
-        fragLoadingRetryDelay:     300,
+        manifestLoadingMaxRetry:   isProxiedStream ? 3 : 1,
+        manifestLoadingTimeOut:    isProxiedStream ? 15_000 : 6_000,
+        manifestLoadingRetryDelay: isProxiedStream ? 1_000 : 500,
+        levelLoadingMaxRetry:      isProxiedStream ? 5 : 3,
+        levelLoadingTimeOut:       isProxiedStream ? 20_000 : 10_000,
+        levelLoadingRetryDelay:    isProxiedStream ? 1_000 : 500,
+        fragLoadingMaxRetry:       isProxiedStream ? 8 : 5,
+        fragLoadingTimeOut:        isProxiedStream ? 25_000 : 12_000,
+        fragLoadingRetryDelay:     isProxiedStream ? 500 : 300,
 
-        startLevel:             -1,
-        abrEwmaDefaultEstimate: 2_000_000,
+        startLevel:             isProxiedStream ? 1 : -1,
+        abrEwmaDefaultEstimate: isProxiedStream ? 1_000_000 : 2_000_000,
         abrBandWidthFactor:     0.9,
         abrBandWidthUpFactor:   0.7,
         testBandwidth:          true,
 
         progressive:   true,
-        nudgeMaxRetry: 10,
+        nudgeMaxRetry: isProxiedStream ? 20 : 10,
         nudgeOffset:   0.1,
       };
 
@@ -696,8 +697,16 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
 
         setStatusMsg('hls-direct');
         const canNativeHls = video.canPlayType('application/vnd.apple.mpegurl') !== '';
+        const isProxied = src.includes('/api/proxy/stream');
 
-        if (canNativeHls) {
+        if (isProxied && Hls.isSupported()) {
+          const hls = makeHls(() => {
+            s2_native(undefined, 15_000);
+          });
+          hlsRef.current = hls;
+          hls.loadSource(src);
+          hls.attachMedia(video);
+        } else if (canNativeHls) {
           s2_native(() => {
             if (cancelled) return;
             if (Hls.isSupported()) {

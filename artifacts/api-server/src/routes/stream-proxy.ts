@@ -267,7 +267,8 @@ async function handleUpstreamResponse(
   const setCookie = upstream.headers.get("set-cookie");
   if (setCookie) res.setHeader("Set-Cookie", setCookie);
 
-  res.setHeader("Cache-Control", "public, max-age=300");
+  res.setHeader("Cache-Control", isSegment ? "public, max-age=3600" : "public, max-age=300");
+  res.setHeader("X-Content-Type-Options", "nosniff");
 
   if (!upstream.body) {
     res.status(204).end();
