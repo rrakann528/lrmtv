@@ -94,6 +94,14 @@ router.post("/dm/:friendId", requireAuth, async (req: AuthRequest, res): Promise
 
   // ── Push notification (fire & forget) ────────────────────────────────────────
   try {
+    // Skip if recipient is currently viewing this conversation in the app
+    const { isUserViewingDm } = await import("../lib/socket");
+    if (isUserViewingDm(friendId, uid)) {
+      console.log(`[DM Push] Skipped — userId=${friendId} is actively viewing DM with sender=${uid}`);
+      res.status(201).json(msg);
+      return;
+    }
+
     // Check if receiver has muted the sender
     const [muteRow] = await db
       .select()

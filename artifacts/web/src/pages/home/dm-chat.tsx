@@ -102,6 +102,9 @@ export function DmChat({ friend, onBack }: Props) {
 
     socket.on('connect', () => {
       socket.emit('join-user-room', { userId: user?.id });
+      if (!document.hidden) {
+        socket.emit('dm:viewing', { friendId: friend.id, active: true });
+      }
     });
 
     socket.on('dm:receive', (msg: DmMessage) => {
@@ -139,7 +142,16 @@ export function DmChat({ friend, onBack }: Props) {
       }
     });
 
+    const onVisibilityChange = () => {
+      if (socketRef.current?.connected) {
+        socketRef.current.emit('dm:viewing', { friendId: friend.id, active: !document.hidden });
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
     return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      socket.emit('dm:viewing', { friendId: friend.id, active: false });
       socket.disconnect();
       socketRef.current = null;
     };

@@ -158,6 +158,26 @@ function applyWordFilter(content: string): string {
 
 const rooms = new Map<string, RoomState>();
 
+// ── Active DM view tracking ───────────────────────────────────────────────────
+// Each socket that opens a DM chat emits "dm:viewing { friendId, active }".
+// We store which friendIds each socket is currently viewing so the push
+// notification code can skip delivery when the recipient is already looking.
+// Keyed by socketId so cleanup on disconnect is trivial.
+interface DmViewEntry { userId: number; friendIds: Set<number>; }
+const socketDmViews = new Map<string, DmViewEntry>();
+
+/**
+ * Returns true when the given user has AT LEAST ONE connected socket that
+ * is currently viewing the DM conversation with `withFriendId` AND the
+ * document is not hidden on that device.
+ */
+export function isUserViewingDm(userId: number, withFriendId: number): boolean {
+  for (const entry of socketDmViews.values()) {
+    if (entry.userId === userId && entry.friendIds.has(withFriendId)) return true;
+  }
+  return false;
+}
+
 // ── Grace-period leave tracking ───────────────────────────────────────────────
 // When a socket disconnects we start a 30-second timer before broadcasting
 // "user left". If the user reconnects within that window (e.g. PWA background)
@@ -440,6 +460,24 @@ export function initSocketServer(httpServer: HttpServer): Server {
         fromUserId: socketUserId,
         isTyping: !!data.isTyping,
       });
+    });
+
+    // ── DM view tracking ──────────────────────────────────────────────────────
+    // Client emits this when it opens/closes a DM chat window (and when the
+    // document visibility changes). We use it to suppress push notifications
+    // while the user is actively looking at the conversation.
+    socket.on("dm:viewing", (data: { friendId: number; active: boolean }) => {
+      if (!socketUserId || typeof data?.friendId !== "number") return;
+      if (data.active) {
+        let entry = socketDmViews.get(socket.id);
+        if (!entry) {
+          entry = { userId: socketUserId, friendIds: new Set() };
+          socketDmViews.set(socket.id, entry);
+        }
+        entry.friendIds.add(data.friendId);
+      } else {
+        socketDmViews.get(socket.id)?.friendIds.delete(data.friendId);
+      }
     });
 
     socket.on("join-group-typing", (data: { groupId: number }) => {
@@ -1263,6 +1301,9 @@ export function initSocketServer(httpServer: HttpServer): Server {
       chatThrottle.cleanup(socket.id);
       syncThrottle.cleanup(socket.id);
       joinThrottle.cleanup(socket.id);
+
+      // ── Clean up DM view tracking ────────────────────────────────────────
+      socketDmViews.delete(socket.id);
 
       // ── Decrement per-IP connection counter ─────────────────────────────
       const c = connectionsByIp.get(clientIp) || 0;
