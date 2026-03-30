@@ -115,7 +115,7 @@ export default function FullscreenChat({
                     )}
                     <div
                       className={cn(
-                        'px-3 py-1.5 rounded-2xl text-[13px] shadow-md',
+                        'px-3 py-1.5 rounded-2xl text-[13px] shadow-md overflow-hidden',
                         isMe
                           ? 'bg-primary text-primary-foreground rounded-bl-sm'
                           : 'bg-white/10 text-white rounded-br-sm border border-white/5',
@@ -126,7 +126,7 @@ export default function FullscreenChat({
                           {msg.username}
                         </div>
                       )}
-                      {msg.content}
+                      <span className="whitespace-pre-wrap break-all">{msg.content}</span>
                     </div>
                   </div>
                   <span className="text-[9px] text-white/30 mt-0.5 px-1">
