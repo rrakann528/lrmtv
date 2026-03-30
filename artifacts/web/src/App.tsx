@@ -34,9 +34,34 @@ const queryClient = new QueryClient({
   },
 });
 
+// Auto-reload on Vite chunk loading errors (happens after new deployments when
+// the browser has a cached index.html referencing old hashed chunk files).
+if (typeof window !== 'undefined') {
+  window.addEventListener('vite:preloadError', () => {
+    window.location.reload();
+  });
+}
+
+function isChunkLoadError(err: Error) {
+  const msg = err?.message ?? '';
+  return (
+    msg.includes('Importing a module script failed') ||
+    msg.includes('Failed to fetch dynamically imported module') ||
+    msg.includes('error loading dynamically imported module') ||
+    msg.includes('ChunkLoadError')
+  );
+}
+
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null };
-  static getDerivedStateFromError(error: Error) { return { error }; }
+  static getDerivedStateFromError(error: Error) {
+    // Chunk load errors → reload silently so the user never sees the error screen
+    if (isChunkLoadError(error)) {
+      window.location.reload();
+      return { error: null };
+    }
+    return { error };
+  }
   render() {
     if (this.state.error) {
       return (
