@@ -725,12 +725,38 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
             s2_native(undefined, 25_000);
           }
         } else if (isProxied && Hls.isSupported()) {
-          const hls = makeHls(() => {
-            s2_native(undefined, 20_000);
-          });
-          hlsRef.current = hls;
-          hls.loadSource(src);
-          hls.attachMedia(video);
+          if (originalUrl) {
+            // S1: Try HLS.js directly with the original URL first.
+            // The browser has the correct IP for IP-locked streams (e.g. scdns.io).
+            // If the CDN has CORS headers this succeeds without needing the server proxy.
+            const hlsDirect = makeHls(() => {
+              // S1 failed → S2: native <video> with original URL (no CORS restriction,
+              // works for Safari and for any browser when the CDN accepts direct access).
+              s2_native(() => {
+                if (cancelled) return;
+                // S2 also failed → S5: fall back to server proxy (handles CORS-only blocked,
+                // non-IP-locked streams where the proxy can fetch freely).
+                destroyAll();
+                setStatusMsg('hls-direct');
+                const hlsProxy = makeHls(() => {
+                  s2_native(undefined, 20_000);
+                });
+                hlsRef.current = hlsProxy;
+                hlsProxy.loadSource(src);
+                hlsProxy.attachMedia(video);
+              }, 15_000, originalUrl);
+            });
+            hlsRef.current = hlsDirect;
+            hlsDirect.loadSource(originalUrl);
+            hlsDirect.attachMedia(video);
+          } else {
+            const hls = makeHls(() => {
+              s2_native(undefined, 20_000);
+            });
+            hlsRef.current = hls;
+            hls.loadSource(src);
+            hls.attachMedia(video);
+          }
         } else if (canNativeHls) {
           s2_native(() => {
             if (cancelled) return;
