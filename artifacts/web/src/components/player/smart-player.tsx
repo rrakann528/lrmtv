@@ -82,6 +82,12 @@ export interface ChatMessage {
   createdAt: string;
 }
 
+export interface RoomEventNotif {
+  id: string;
+  username: string;
+  type: 'join' | 'leave';
+}
+
 interface SmartPlayerProps {
   url: string;
   playing: boolean;
@@ -107,6 +113,8 @@ interface SmartPlayerProps {
   /** Fired when HLS manifest is parsed and live/VOD status is known */
   onIsLive?: (isLive: boolean) => void;
   sponsorSkipEnabled?: boolean;
+  /** User join/leave notifications to show as fullscreen overlays */
+  roomNotifications?: RoomEventNotif[];
 }
 
 export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
@@ -131,6 +139,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       isLiveHint = false,
       onIsLive,
       sponsorSkipEnabled = true,
+      roomNotifications = [],
     },
     ref,
   ) => {
@@ -730,6 +739,44 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
           onSend={onSendChatMessage ?? (() => {})}
           lang={lang}
         />
+
+        {/* Room event notifications (join/leave) — top-right, fullscreen only */}
+        {roomNotifications.length > 0 && (
+          <div className="absolute top-4 end-4 z-50 flex flex-col gap-2 pointer-events-none">
+            <AnimatePresence>
+              {roomNotifications.map((n) => (
+                <motion.div
+                  key={n.id}
+                  initial={{ opacity: 0, y: -16, scale: 0.9 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -10, scale: 0.9 }}
+                  transition={{ type: 'spring', stiffness: 320, damping: 26 }}
+                  className={`flex items-center gap-2.5 px-3 py-2 rounded-xl border shadow-2xl backdrop-blur-md text-sm font-medium text-white ${
+                    n.type === 'join'
+                      ? 'bg-green-900/70 border-green-500/30'
+                      : 'bg-red-900/70 border-red-500/30'
+                  }`}
+                >
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${n.type === 'join' ? 'bg-green-400' : 'bg-red-400'}`} />
+                  <div
+                    className="w-6 h-6 rounded-full shrink-0 flex items-center justify-center text-[10px] font-bold text-white"
+                    style={{ backgroundColor: generateColorFromString(n.username) }}
+                  >
+                    {n.username.substring(0, 2).toUpperCase()}
+                  </div>
+                  <span>
+                    {n.username}
+                    <span className={`ms-1.5 text-xs font-normal opacity-80`}>
+                      {n.type === 'join'
+                        ? (lang === 'ar' ? 'دخل الغرفة' : 'joined')
+                        : (lang === 'ar' ? 'غادر الغرفة' : 'left')}
+                    </span>
+                  </span>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          </div>
+        )}
 
         {/* Toast notifications — bottom-right, 5s, fullscreen only */}
         <div className="absolute bottom-16 right-4 z-40 flex flex-col gap-2 pointer-events-none">

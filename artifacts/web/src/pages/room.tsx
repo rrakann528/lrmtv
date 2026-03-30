@@ -26,7 +26,8 @@ import UsersPanel from './room/users-panel';
 import FriendsPanel from './room/friends-panel';
 import { RoomSettingsSheet } from './room/room-settings-sheet';
 import { UserProfileSheet } from '@/components/user-profile-sheet';
-import { SmartPlayer, type SmartPlayerHandle } from '@/components/player/smart-player';
+import { SmartPlayer, type SmartPlayerHandle, type RoomEventNotif } from '@/components/player/smart-player';
+import { isFullscreenActive } from '@/lib/fullscreen';
 
 import YoutubeSearch from '@/components/youtube-search';
 
@@ -124,6 +125,52 @@ export default function RoomPage() {
     refetchIntervalInBackground: false,
   });
   const friendsUnread = ((dmBadge?.count ?? 0) + (groupBadge?.count ?? 0)) > 0;
+
+  // ── Fullscreen state (for room-event notifications) ──────────────────────
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  useEffect(() => {
+    const onNative  = () => setIsFullscreen(isFullscreenActive());
+    const onSimEnter = () => setIsFullscreen(true);
+    const onSimExit  = () => setIsFullscreen(false);
+    document.addEventListener('fullscreenchange', onNative);
+    document.addEventListener('webkitfullscreenchange', onNative);
+    document.addEventListener('simulatedfullscreenenter', onSimEnter);
+    document.addEventListener('simulatedfullscreenexit', onSimExit);
+    return () => {
+      document.removeEventListener('fullscreenchange', onNative);
+      document.removeEventListener('webkitfullscreenchange', onNative);
+      document.removeEventListener('simulatedfullscreenenter', onSimEnter);
+      document.removeEventListener('simulatedfullscreenexit', onSimExit);
+    };
+  }, []);
+
+  // ── Room event notifications (shown in fullscreen overlay) ───────────────
+  const [roomNotifs, setRoomNotifs] = useState<RoomEventNotif[]>([]);
+
+  const addRoomNotif = React.useCallback((n: RoomEventNotif) => {
+    setRoomNotifs(prev => [...prev, n]);
+    setTimeout(() => setRoomNotifs(prev => prev.filter(x => x.id !== n.id)), 4000);
+  }, []);
+
+  useEffect(() => {
+    if (!socket) return;
+    const onJoined = (data: { user: { username: string }; users: unknown[] }) => {
+      if (!isFullscreen) return;
+      if (data.user.username === username) return;
+      addRoomNotif({ id: `join-${Date.now()}`, username: data.user.username, type: 'join' });
+    };
+    const onLeft = (data: { username: string }) => {
+      if (!isFullscreen) return;
+      if (data.username === username) return;
+      addRoomNotif({ id: `leave-${Date.now()}`, username: data.username, type: 'leave' });
+    };
+    socket.on('user-joined', onJoined);
+    socket.on('user-left', onLeft);
+    return () => {
+      socket.off('user-joined', onJoined);
+      socket.off('user-left', onLeft);
+    };
+  }, [socket, isFullscreen, username, addRoomNotif]);
 
   const hasVideo = !!syncState.currentVideo;
   const bgMediaInfo = React.useMemo(() => ({
@@ -500,6 +547,7 @@ export default function RoomPage() {
                   onSubtitleApplied={emitSubtitleSync}
                   externalSubtitle={subtitleSync}
                   sponsorSkipEnabled={sponsorSkipEnabled}
+                  roomNotifications={roomNotifs}
                 />
                 </div>
 
