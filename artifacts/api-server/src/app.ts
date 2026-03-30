@@ -70,18 +70,31 @@ app.use(helmet({
 app.use(securityHeaders);
 
 // ── CORS ───────────────────────────────────────────────────────────────────────
+// Build the allowed-origins list from env vars + known dev origins.
+// In production on Railway set: CORS_ORIGIN=https://lrmtv.sbs
 const allowedOrigins = [
+  // Production domains
+  "https://lrmtv.sbs",
+  "https://www.lrmtv.sbs",
+  // Override / extra domain from env (Railway variable: CORS_ORIGIN=https://...)
+  process.env.CORS_ORIGIN,
+  process.env.CORS_ORIGIN ? `https://www.${(process.env.CORS_ORIGIN || "").replace(/^https?:\/\//, "")}` : null,
+  // Replit preview
   process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : null,
+  // Local dev
+  "http://localhost:5000",
   "http://localhost:22333",
   "http://localhost:5173",
 ].filter(Boolean) as string[];
 
 app.use(cors({
   origin: (origin, cb) => {
-    if (!origin || allowedOrigins.some(o => origin.startsWith(o))) {
+    // Allow requests with no origin (mobile apps, curl in dev, server-to-server)
+    if (!origin) { cb(null, true); return; }
+    if (allowedOrigins.some(o => origin === o || origin.startsWith(o))) {
       cb(null, true);
     } else {
-      cb(null, true);
+      cb(new Error("CORS: origin not allowed"));
     }
   },
   credentials: true,

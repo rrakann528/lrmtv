@@ -3,6 +3,7 @@ import { Server, Socket } from "socket.io";
 import jwt from "jsonwebtoken";
 import { db, chatMessagesTable, roomsTable, playlistItemsTable, roomInvitesTable, usersTable, siteSettingsTable } from "@workspace/db";
 import { eq, and, notInArray, inArray } from "drizzle-orm";
+import { makeSocketThrottle } from "../middlewares/security";
 
 // ── In-memory settings cache (shared across the process) ─────────────────────
 let _settingsMap = new Map<string, string>();
@@ -363,13 +364,41 @@ function canControl(user: RoomUser, roomState: RoomState): boolean {
   return false;
 }
 
+// ── Per-socket event throttles ────────────────────────────────────────────────
+const chatThrottle    = makeSocketThrottle(5,  3_000);   // 5 chat messages per 3 s
+const syncThrottle    = makeSocketThrottle(20, 10_000);  // 20 video-sync events per 10 s
+const joinThrottle    = makeSocketThrottle(5,  30_000);  // 5 join-room per 30 s per socket
+
+// ── Per-IP concurrent connection limit ────────────────────────────────────────
+const connectionsByIp = new Map<string, number>();
+const MAX_CONNECTIONS_PER_IP = 15;
+
 export function initSocketServer(httpServer: HttpServer): Server {
   const io = new Server(httpServer, {
     cors: {
-      origin: "*",
+      origin: (origin, cb) => {
+        // Reuse the same allowed-origins logic as Express CORS
+        if (!origin) { cb(null, true); return; }
+        const allowed = [
+          process.env.CORS_ORIGIN,
+          process.env.CORS_ORIGIN ? `https://www.${(process.env.CORS_ORIGIN || "").replace(/^https?:\/\//, "")}` : null,
+          process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : null,
+          "http://localhost:5000",
+          "http://localhost:22333",
+          "http://localhost:5173",
+        ].filter(Boolean) as string[];
+        if (allowed.some(o => origin === o || origin.startsWith(o))) {
+          cb(null, true);
+        } else {
+          cb(new Error("Socket CORS: origin not allowed"));
+        }
+      },
       methods: ["GET", "POST"],
+      credentials: true,
     },
     path: "/api/socket.io",
+    // Protect against large single-event payloads
+    maxHttpBufferSize: 64 * 1024, // 64 KB per event
   });
   _io = io;
 
@@ -379,6 +408,16 @@ export function initSocketServer(httpServer: HttpServer): Server {
   setInterval(cleanupOrphanedRooms, EMPTY_ROOM_TTL_MS);
 
   io.on("connection", (socket: Socket) => {
+    // ── Per-IP connection limit ──────────────────────────────────────────────
+    const clientIp = socket.handshake.address || "unknown";
+    const connCount = (connectionsByIp.get(clientIp) || 0) + 1;
+    if (connCount > MAX_CONNECTIONS_PER_IP) {
+      socket.emit("error", { message: "too_many_connections" });
+      socket.disconnect(true);
+      return;
+    }
+    connectionsByIp.set(clientIp, connCount);
+
     let currentRoomSlug: string | null = null;
     let socketUserId: number | null = null;
 
@@ -436,6 +475,10 @@ export function initSocketServer(httpServer: HttpServer): Server {
     });
 
     socket.on("join-room", async (data: { slug: string; username: string; displayName?: string; userId?: number }) => {
+      if (!joinThrottle.allow(socket.id)) {
+        socket.emit("error", { message: "too_many_join_attempts" });
+        return;
+      }
       const { slug, username, displayName: rawDisplayName } = data;
       const displayName = rawDisplayName || username;
       // If client didn't send userId, try to get it from the socket auth token
@@ -648,6 +691,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
 
     // ── Video sync (play / pause / seek / change-video) ─────────────────────
     socket.on("video-sync", (data: { action: string; currentTime: number; url?: string }) => {
+      if (!syncThrottle.allow(socket.id)) return; // silently drop — too fast
       if (!currentRoomSlug) return;
       const roomState = getRoomState(currentRoomSlug);
       if (!roomState) return;
@@ -717,6 +761,10 @@ export function initSocketServer(httpServer: HttpServer): Server {
 
     // ── Chat ─────────────────────────────────────────────────────────────────
     socket.on("chat-message", async (data: { content: string; type?: string; replyTo?: { id: number; username: string; content: string } }) => {
+      if (!chatThrottle.allow(socket.id)) {
+        socket.emit("chat-blocked", { reason: "rate_limited" });
+        return;
+      }
       if (!currentRoomSlug) return;
       const roomState = getRoomState(currentRoomSlug);
       if (!roomState) return;
@@ -1210,7 +1258,19 @@ export function initSocketServer(httpServer: HttpServer): Server {
     };
 
     socket.on("leave-room", handleLeaveRoom);
-    socket.on("disconnect", handleLeaveRoom);
+    socket.on("disconnect", () => {
+      // ── Clean up per-socket throttle state ──────────────────────────────
+      chatThrottle.cleanup(socket.id);
+      syncThrottle.cleanup(socket.id);
+      joinThrottle.cleanup(socket.id);
+
+      // ── Decrement per-IP connection counter ─────────────────────────────
+      const c = connectionsByIp.get(clientIp) || 0;
+      if (c <= 1) connectionsByIp.delete(clientIp);
+      else connectionsByIp.set(clientIp, c - 1);
+
+      handleLeaveRoom();
+    });
   });
 
   return io;
