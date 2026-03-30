@@ -11,6 +11,7 @@ import storageRouter from "./storage";
 import subtitlesRouter from "./subtitles";
 import adminRouter from "./admin";
 import groupsRouter from "./groups";
+import streamProxyRouter from "./stream-proxy";
 
 const router: IRouter = Router();
 
@@ -26,5 +27,6 @@ router.use(storageRouter);
 router.use(subtitlesRouter);
 router.use(adminRouter);
 router.use(groupsRouter);
+router.use(streamProxyRouter);
 
 export default router;

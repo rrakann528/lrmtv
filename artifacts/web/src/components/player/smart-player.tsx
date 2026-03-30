@@ -169,6 +169,11 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
     const videoType = detectVideoType(normalizedUrl);
     const isHls = videoType === 'hls';
 
+    const needsProxy = videoType === 'hls' || videoType === 'dash' || videoType === 'html5';
+    const playableUrl = needsProxy
+      ? `/api/proxy/stream?url=${encodeURIComponent(normalizedUrl)}`
+      : normalizedUrl;
+
     useEffect(() => {
       setError(null);
       setReady(false);
@@ -401,7 +406,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
         <div ref={containerRef} className="absolute inset-0 bg-black">
           <HlsPlayer
             ref={hlsPlayerRef}
-            src={normalizedUrl}
+            src={playableUrl}
             playing={playing}
             canControl={canControl}
             initialTime={initialTime}
@@ -481,7 +486,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
         <ReactPlayer
           key={normalizedUrl}
           ref={reactPlayerRef}
-          url={normalizedUrl}
+          url={playableUrl}
           width="100%"
           height="100%"
           playing={autoplayBlocked ? false : playing}
