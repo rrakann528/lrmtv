@@ -15,7 +15,7 @@ import { useWebRTC } from '@/hooks/use-webrtc';
 import { useAuth, apiFetch } from '@/hooks/use-auth';
 import { useBackgroundAlive } from '@/hooks/use-background-alive';
 import { useGetRoom, useAddPlaylistItem, getGetRoomPlaylistQueryKey } from '@workspace/api-client-react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -107,6 +107,23 @@ export default function RoomPage() {
   const isGuest    = !you?.userId && !authUser?.id;
   const canControl = isDJ || allowGuestControl;
   const watcherReady = watcherReadyState;
+
+  // ── Friends tab badge (unread DMs + groups) ──────────────────────────────
+  const { data: dmBadge }    = useQuery<{ count: number }>({
+    queryKey: ['friends-badge'],
+    queryFn: () => apiFetch('/friends/badge').then(r => r.json()),
+    enabled: !!authUser,
+    refetchInterval: 15_000,
+    refetchIntervalInBackground: false,
+  });
+  const { data: groupBadge } = useQuery<{ count: number }>({
+    queryKey: ['groups-badge'],
+    queryFn: () => apiFetch('/groups/badge').then(r => r.json()),
+    enabled: !!authUser,
+    refetchInterval: 15_000,
+    refetchIntervalInBackground: false,
+  });
+  const friendsUnread = ((dmBadge?.count ?? 0) + (groupBadge?.count ?? 0)) > 0;
 
   const hasVideo = !!syncState.currentVideo;
   const bgMediaInfo = React.useMemo(() => ({
@@ -559,8 +576,9 @@ export default function RoomPage() {
           {/* Tabs */}
           <div className="flex border-b border-white/10 shrink-0">
             {TABS.map(({ id, Icon, label }) => {
-              const hasChatAlert  = id === 'chat'  && chatDisabled;
-              const hasMediaAlert = id === 'users' && micDisabled;
+              const hasChatAlert    = id === 'chat'    && chatDisabled;
+              const hasMediaAlert   = id === 'users'   && micDisabled;
+              const hasFriendsAlert = id === 'friends' && friendsUnread && activeTab !== 'friends';
               const hasAlert = hasChatAlert || hasMediaAlert;
               return (
                 <button
@@ -577,6 +595,9 @@ export default function RoomPage() {
                     <Icon className="w-4 h-4" />
                     {hasAlert && (
                       <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full border border-black/80" />
+                    )}
+                    {hasFriendsAlert && (
+                      <span className="absolute -top-1 -right-1 w-2 h-2 bg-green-400 rounded-full border border-black/80 animate-pulse" />
                     )}
                   </span>
                   {t(label as Parameters<typeof t>[0])}

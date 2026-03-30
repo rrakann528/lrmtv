@@ -268,6 +268,26 @@ router.get("/friends/conversations", requireAuth, async (req: AuthRequest, res):
   res.json(conversations);
 });
 
+// ── Friends badge — total unread DM count (lightweight) ───────────────────────
+router.get("/friends/badge", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  const uid = req.userId!;
+  try {
+    const { rows } = await pool.query(
+      `SELECT CAST(COUNT(*) AS int) AS count
+       FROM direct_messages dm
+       WHERE dm.receiver_id = $1
+         AND dm.created_at > COALESCE(
+           (SELECT last_read_at FROM dm_read_receipts WHERE user_id = $1 AND friend_id = dm.sender_id),
+           '1970-01-01'::timestamptz
+         )`,
+      [uid]
+    );
+    res.json({ count: rows[0]?.count ?? 0 });
+  } catch {
+    res.json({ count: 0 });
+  }
+});
+
 // ── Send friend request (+ push notification) ─────────────────────────────────
 router.post("/friends/request", requireAuth, async (req: AuthRequest, res): Promise<void> => {
   console.log("[friend-request] body:", JSON.stringify(req.body), "uid:", req.userId);
