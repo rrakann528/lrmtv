@@ -1,16 +1,16 @@
-/* Service Worker v8 — LrmTV PWA
+/* Service Worker v9 — LrmTV PWA
  *
  * Caching strategy:
- *  • JS / CSS (content-hashed)  → cache-first  (safe forever — hash changes on update)
- *  • Google Fonts               → cache-first  (stale-ok, font files rarely change)
- *  • Images / icons / SVG       → cache-first  (7 days max)
- *  • HTML pages (navigation)    → stale-while-revalidate (instant load, update in bg)
- *  • API requests               → network-only (never cache dynamic data)
+ *  • JS / CSS (content-hashed)  → cache-first   (safe forever — hash changes on update)
+ *  • Google Fonts               → cache-first   (stale-ok, font files rarely change)
+ *  • Images / icons / SVG       → cache-first   (7 days max)
+ *  • HTML pages (navigation)    → network-first (always fresh index.html → correct chunk hashes)
+ *  • API requests               → network-only  (never cache dynamic data)
  *  • Stream segments (.m3u8/.ts) → network-only (live data, huge, never cache)
  */
 
-const CACHE_STATIC  = 'lrmtv-static-v8';
-const CACHE_PAGES   = 'lrmtv-pages-v8';
+const CACHE_STATIC  = 'lrmtv-static-v9';
+const CACHE_PAGES   = 'lrmtv-pages-v9';
 
 const PRECACHE = [
   '/',
@@ -123,21 +123,20 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // ── Stale-while-revalidate: HTML navigation requests ─────────────────────
+  // ── Network-first: HTML navigation requests ───────────────────────────────
+  // Always fetch fresh index.html so the browser gets the latest JS chunk hashes.
+  // Only fall back to cache when the network is truly unavailable (offline).
   if (req.mode === 'navigate' || req.headers.get('accept')?.includes('text/html')) {
     e.respondWith(
       caches.open(CACHE_PAGES).then(async cache => {
-        const cached = await cache.match(req);
-        const fetchPromise = fetch(req)
-          .then(res => { if (res.ok) cache.put(req, res.clone()); return res; })
-          .catch(() => null);
-
-        if (cached) {
-          // Serve cached immediately; update in background
-          fetchPromise.catch(() => {});
-          return cached;
+        try {
+          const res = await fetch(req);
+          if (res.ok) cache.put(req, res.clone());
+          return res;
+        } catch {
+          // Offline fallback
+          return (await cache.match(req)) ?? await cache.match('/') ?? offlinePage();
         }
-        return (await fetchPromise) ?? await cache.match('/') ?? offlinePage();
       })
     );
     return;
