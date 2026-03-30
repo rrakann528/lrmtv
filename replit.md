@@ -78,6 +78,7 @@ artifacts-monorepo/
 │   │       ├── lib/socket.ts          ← Socket.io events (sync, chat, heartbeat 1.5s)
 │   │       ├── routes/admin.ts        ← 26 admin API endpoints
 │   │       ├── routes/rooms.ts        ← Room CRUD
+│   │       ├── routes/stream-proxy.ts  ← HLS/DASH proxy with m3u8 rewrite (relative URLs)
 │   │       ├── routes/hls-proxy.ts    ← detect + check فقط (البروكسي انتقل لـ CF Worker)
 │   │       └── middlewares/security.ts ← rate limiter (proxy paths exempt)
 │   └── web/
@@ -88,7 +89,8 @@ artifacts-monorepo/
 │           │   ├── smart-player.tsx   ← Player switcher (YouTube/HLS/HTML5) — no autoplay
 │           │   └── player-controls.tsx
 │           ├── hooks/
-│           │   └── use-socket.ts      ← Socket state + heartbeat handler
+│           │   ├── use-socket.ts      ← Socket state + heartbeat handler
+│           │   └── use-background-alive.ts ← PWA keep-alive (Web Audio + Wake Lock + Media Session)
 │           └── lib/
 │               └── i18n.tsx           ← 6 languages, 200+ keys
 ├── lib/
@@ -277,7 +279,11 @@ cd cf-worker && npx wrangler deploy
 - **rooms**: id, slug, name, type (public/private), background, dj_socket_id
 - **users**: id, email, username, role (admin/user), google_id, password_hash, is_muted, admin_note, last_seen_at, last_ip
 - **playlist_items**: id, room_id, url, source_type, title, position, added_by
-- **chat_messages**: id, room_id, username, content, type, created_at
+- **chat_messages**: id, room_id, username, content, type, reply_to_id, reply_to_username, reply_to_content, created_at
+- **direct_messages**: id, sender_id, receiver_id, content, reply_to_id, reply_to_content, reply_to_sender_name, is_edited, edited_at, created_at
+- **group_messages**: id, group_id, sender_id, content, reply_to_id, reply_to_content, reply_to_sender_name, is_edited, edited_at, created_at
+- **message_reactions**: id, message_type (dm/group), message_id, user_id, emoji, created_at — UNIQUE(message_type, message_id, user_id, emoji)
+- **dm_read_receipts**: user_id, friend_id, last_read_at
 - **room_members**: room_id, user_id, role (dj/viewer)
 - **site_settings**: `key` (PRIMARY KEY — لا يوجد عمود `id`)
 
@@ -364,6 +370,18 @@ cd cf-worker && npx wrangler deploy
 6. **Room Username Fix**: المستخدمون المسجلون يدخلون الغرف تلقائياً بأسماء حساباتهم (لا prompt).
 7. **"Press to Watch" button**: زر اضغط للمشاهدة يظهر لكل مستخدم عند كل فيديو جديد — يحل مشكلة autoplay ويحسن التزامن.
 8. **Ads removed**: كود الإعلانات (ad-banner, pre-roll-ad, vast-proxy) أُزيل بالكامل.
+9. **Telegram-like Chat Features (مكتملة)**:
+   - **Typing indicator**: `dm:typing` + `group:typing` socket events — يظهر "يكتب..." في header الدردشة
+   - **Read receipts ✓✓**: علامة واحدة (✓ مُرسلة) + علامتين (✓✓ مقروءة) في الرسائل الخاصة — جدول `dm_read_receipts`
+   - **Unread count badges**: عدّاد الرسائل غير المقروءة في تبويبات الأصدقاء والمجموعات
+   - **Emoji reactions**: ردود فعل على الرسائل — جدول `message_reactions` — `dm:reaction` + `group:reaction` events
+   - **Edit messages**: تعديل الرسائل — أعمدة `is_edited` + `edited_at` — `dm:edited` + `group:message-edited` events
+   - **@mention notifications**: تمييز `@username` بلون سماوي + نافذة اقتراحات + إشعار banner للمنشن
+10. **iOS Safari HLS Fix**: كشف iOS Safari (`!Hls.isSupported()`) → تشغيل native `<video>` مباشرة مع timeout 25 ثانية + `webkit-playsinline` + `preload="auto"`
+11. **PWA Background Keep-Alive**: hook `use-background-alive.ts` — مذبذب Web Audio صامت (يمنع iOS من تعليق التطبيق) + Wake Lock API (يمنع نوم الشاشة) + Media Session API (أزرار التحكم في شاشة القفل)
+12. **Guest Black Screen Fix**: جميع أخطاء `play()` الآن تعرض "اضغط للتشغيل" بدل شاشة سوداء صامتة — يشمل أخطاء native fallback
+13. **Proxy Relative URLs**: `buildProxyBase` في `stream-proxy.ts` يستخدم مسار نسبي `/api/proxy/stream` بدل رابط مطلق يعتمد على headers (أكثر أماناً مع Railway)
+14. **Fullscreen Chat Overflow Fix**: `break-all` + `whitespace-pre-wrap` + `overflow-hidden` على فقاعات الرسائل — النصوص الطويلة تنكسر داخل الفقاعة
 
 ---
 
