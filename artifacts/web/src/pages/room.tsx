@@ -154,9 +154,12 @@ export default function RoomPage() {
     const onVisibility = () => { document.hidden ? onHide() : onShow(); };
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('pagehide', onHide);
+    // Also catch window blur (e.g. switching apps on desktop) as extra safety
+    window.addEventListener('blur', onHide);
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pagehide', onHide);
+      window.removeEventListener('blur', onHide);
     };
   }, [isDJ, socket]);
 
@@ -304,7 +307,11 @@ export default function RoomPage() {
   // ref is null (tab close) — also guarded by suppressPauseRef so the browser's
   // auto-pause on tab-hide / pagehide is never forwarded to the server.
   const handlePause = () => {
-    if (!canControl || suppressPauseRef.current) return;
+    // Suppress the pause if:
+    // 1. DJ is backgrounding (suppressed by our own code), OR
+    // 2. The document is hidden — the browser auto-paused when the tab was hidden.
+    //    We never want to forward that to the server.
+    if (!canControl || suppressPauseRef.current || document.hidden) return;
     emitSync(playerRef.current?.getCurrentTime() || syncState.time, false, syncState.url);
   };
   const handleSeek  = (s: number) => {

@@ -157,6 +157,24 @@ function applyWordFilter(content: string): string {
 
 const rooms = new Map<string, RoomState>();
 
+// ── Grace-period leave tracking ───────────────────────────────────────────────
+// When a socket disconnects we start a 30-second timer before broadcasting
+// "user left". If the user reconnects within that window (e.g. PWA background)
+// we silently restore them without showing any leave/rejoin messages.
+const LEAVE_GRACE_MS = 30_000;
+
+interface PendingLeave {
+  timer: ReturnType<typeof setTimeout>;
+  user: RoomUser;
+  oldSocketId: string;
+  roomSlug: string;
+}
+const pendingLeaves = new Map<string, PendingLeave>();
+
+function pendingLeaveKey(roomSlug: string, userId?: number, username?: string): string {
+  return userId != null ? `${roomSlug}:u:${userId}` : `${roomSlug}:g:${username ?? ''}`;
+}
+
 let _io: Server | null = null;
 export function getIO(): Server | null { return _io; }
 export function getRoomCount(slug: string): number {
@@ -447,6 +465,57 @@ export function initSocketServer(httpServer: HttpServer): Server {
         roomState.isFrozen = room.isFrozen || false;
         // Restore permanent admin from DB
         if (room.creatorUserId) roomState.creatorUserId = room.creatorUserId;
+      }
+
+      // ── Silent reconnect: user returning within grace-period ─────────────
+      const reconnectKey = pendingLeaveKey(slug, userId, username);
+      const pending = pendingLeaves.get(reconnectKey);
+      if (pending && pending.roomSlug === slug) {
+        clearTimeout(pending.timer);
+        pendingLeaves.delete(reconnectKey);
+
+        // Remove the stale socketId entry and re-register with new socketId
+        roomState.users.delete(pending.oldSocketId);
+        const restoredUser: RoomUser = {
+          ...pending.user,
+          socketId: socket.id,
+          userId: userId ?? pending.user.userId,
+        };
+        roomState.users.set(socket.id, restoredUser);
+        currentRoomSlug = slug;
+        socket.join(slug);
+
+        if (restoredUser.isAdmin) {
+          db.update(roomsTable)
+            .set({ adminSocketId: socket.id })
+            .where(eq(roomsTable.slug, slug))
+            .then(() => {});
+        }
+
+        // Send full room state to the reconnected user only
+        socket.emit("room-state", {
+          currentVideo: roomState.currentVideo,
+          isPlaying: roomState.isPlaying,
+          currentTime: computedTime(roomState),
+          isLocked: roomState.isLocked,
+          allowGuestControl: roomState.allowGuestControl,
+          allowGuestEntry: roomState.allowGuestEntry,
+          background: roomState.background,
+          roomName: roomState.roomName,
+          users: Array.from(roomState.users.values()),
+          you: restoredUser,
+          isPrivate: roomState.isPrivate,
+          chatDisabled: roomState.chatDisabled,
+          micDisabled: roomState.micDisabled,
+          sponsorSkipEnabled: roomState.sponsorSkipEnabled,
+          isLive: roomState.isLive,
+          subtitle: roomState.subtitle,
+          serverTs: Date.now(),
+        });
+
+        // Broadcast updated user list (no join/leave messages)
+        io.to(slug).emit("users-updated", { users: Array.from(roomState.users.values()) });
+        return;
       }
 
       // Cancel pending auto-delete if someone is joining an empty room
@@ -1032,65 +1101,37 @@ export function initSocketServer(httpServer: HttpServer): Server {
     });
 
     // ── Disconnect / leave ────────────────────────────────────────────────────
-    const handleLeaveRoom = async () => {
+    const handleLeaveRoom = () => {
       if (!currentRoomSlug) return;
-      const roomState = getRoomState(currentRoomSlug);
+      const slug = currentRoomSlug;
+      currentRoomSlug = '';
+
+      const roomState = getRoomState(slug);
       if (!roomState) return;
 
       const user = roomState.users.get(socket.id);
-      roomState.users.delete(socket.id);
-      socket.leave(currentRoomSlug);
+      if (!user) return;
 
-      if (user) {
-        const systemMsg = {
-          username: "system",
-          content: `${user.username} left the room / ${user.username} غادر الغرفة`,
-          type: "system" as const,
-          roomId: roomState.roomId,
-        };
-        // Fire-and-forget — emit immediately without waiting for DB
-        db.insert(chatMessagesTable).values(systemMsg).catch(() => {});
-        io.to(currentRoomSlug).emit("user-left", {
-          socketId: socket.id,
-          username: user.username,
-          users: Array.from(roomState.users.values()),
-          systemMessage: systemMsg,
-        });
-      }
+      socket.leave(slug);
 
-      if (roomState.users.size === 0) {
-        stopHeartbeat(roomState);
-        scheduleRoomDeletion(currentRoomSlug);
-      } else if (user?.isAdmin && !roomState.creatorUserId) {
-        // Only auto-promote when there's no permanent creator tracked
-        const firstUser = roomState.users.values().next().value;
-        if (firstUser) {
-          firstUser.isAdmin = true;
-          firstUser.isDJ = true;
-          db.update(roomsTable).set({ adminSocketId: firstUser.socketId }).where(eq(roomsTable.id, roomState.roomId)).then(() => {});
-          io.to(currentRoomSlug).emit("users-updated", { users: Array.from(roomState.users.values()) });
-        }
-      } else if (user?.isAdmin && roomState.creatorUserId) {
-        // Creator left — keep the room running but no active admin until they return
-        io.to(currentRoomSlug).emit("users-updated", { users: Array.from(roomState.users.values()) });
-      }
-
-      // Keep the room playing when a DJ/admin disconnects.
+      // ── Immediately restore video for remaining viewers ───────────────────
+      // This must happen before the grace-period delay so other watchers
+      // don't sit on a paused video for 30 seconds.
+      const isAdminOrDj = user.isAdmin || user.isDJ;
       const wasDjBackgrounding = roomState.djBackgrounding?.socketId === socket.id;
-      const isAdminOrDj = user?.isAdmin || user?.isDJ;
-
-      // Give the browser 8 s to send its auto-pause before disconnect arrives.
-      // Only admins/DJs can trigger a play-restore — prevents guests from
-      // accidentally resetting the video when they leave.
-      const AUTO_PAUSE_WINDOW = 8_000;
+      // Use a 15-second window — matches djBackgrounding's 15s window and gives
+      // more margin for slow mobile connections.
+      const AUTO_PAUSE_WINDOW = 15_000;
       const wasAutoPaused =
         !roomState.isPlaying &&
         roomState.lastPauseBy === socket.id &&
         roomState.lastPauseAt != null &&
         (Date.now() - roomState.lastPauseAt) < AUTO_PAUSE_WINDOW;
 
+      // roomState.users still contains the leaving user at this point
+      // (they're removed after grace period), so we check size > 1.
       const shouldRestorePlay =
-        roomState.users.size > 0 &&
+        roomState.users.size > 1 &&
         roomState.currentVideo &&
         isAdminOrDj &&
         (wasDjBackgrounding || wasAutoPaused);
@@ -1100,7 +1141,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
         roomState.lastSyncTimestamp = Date.now();
         roomState.djBackgrounding = undefined;
         startHeartbeat(io, roomState);
-        io.to(currentRoomSlug).emit("video-sync", {
+        io.to(slug).emit("video-sync", {
           action: "play",
           currentTime: computedTime(roomState),
           url: roomState.currentVideo,
@@ -1111,7 +1152,61 @@ export function initSocketServer(httpServer: HttpServer): Server {
         });
       }
 
-      currentRoomSlug = '';
+      // ── Grace period: delay broadcasting "user left" ─────────────────────
+      // If the user reconnects within LEAVE_GRACE_MS (e.g. PWA background/restore)
+      // we silently update their socket ID and skip the leave/rejoin messages.
+      const leaveKey = pendingLeaveKey(slug, user.userId, user.username);
+
+      // Cancel any existing pending leave for this user (e.g. double-disconnect)
+      const existing = pendingLeaves.get(leaveKey);
+      if (existing) {
+        clearTimeout(existing.timer);
+      }
+
+      const timer = setTimeout(() => {
+        pendingLeaves.delete(leaveKey);
+        const state = rooms.get(slug);
+        if (!state) return;
+
+        // Actually remove the user from the room
+        state.users.delete(socket.id);
+
+        const systemMsg = {
+          username: "system",
+          content: `${user.username} left the room / ${user.username} غادر الغرفة`,
+          type: "system" as const,
+          roomId: state.roomId,
+        };
+        db.insert(chatMessagesTable).values(systemMsg).catch(() => {});
+        io.to(slug).emit("user-left", {
+          socketId: socket.id,
+          username: user.username,
+          users: Array.from(state.users.values()),
+          systemMessage: systemMsg,
+        });
+
+        if (state.users.size === 0) {
+          stopHeartbeat(state);
+          scheduleRoomDeletion(slug);
+        } else if (user.isAdmin && !state.creatorUserId) {
+          const firstUser = state.users.values().next().value;
+          if (firstUser) {
+            firstUser.isAdmin = true;
+            firstUser.isDJ = true;
+            db.update(roomsTable).set({ adminSocketId: firstUser.socketId }).where(eq(roomsTable.id, state.roomId)).then(() => {});
+            io.to(slug).emit("users-updated", { users: Array.from(state.users.values()) });
+          }
+        } else if (user.isAdmin && state.creatorUserId) {
+          io.to(slug).emit("users-updated", { users: Array.from(state.users.values()) });
+        }
+      }, LEAVE_GRACE_MS);
+
+      pendingLeaves.set(leaveKey, {
+        timer,
+        user,
+        oldSocketId: socket.id,
+        roomSlug: slug,
+      });
     };
 
     socket.on("leave-room", handleLeaveRoom);
