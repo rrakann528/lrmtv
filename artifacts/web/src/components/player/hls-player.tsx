@@ -7,7 +7,7 @@ import React, {
   useCallback,
 } from 'react';
 import Hls from 'hls.js';
-import { Play, AlertTriangle, RotateCcw, Loader2, VolumeX } from 'lucide-react';
+import { Play, AlertTriangle, RotateCcw, Loader2 } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 import { onFullscreenChange } from '@/lib/fullscreen';
 import PlayerControls, { type SubtitleTrack, type ToastMessage } from './player-controls';
@@ -978,21 +978,6 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           </div>
         )}
 
-        {mutedForAutoplay && !autoplayBlocked && !error && (
-          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30">
-            <button
-              onClick={() => {
-                const v = videoRef.current;
-                if (v) { v.muted = false; }
-                setMutedForAutoplay(false);
-              }}
-              className="flex items-center gap-2 bg-black/80 backdrop-blur-sm text-white px-4 py-2 rounded-full text-sm border border-white/20 hover:bg-white/20 transition-colors shadow-lg"
-            >
-              <VolumeX className="w-4 h-4" />
-              {t('mutedTapUnmute')}
-            </button>
-          </div>
-        )}
 
         {/* eslint-disable-next-line */}
         <video
@@ -1063,6 +1048,12 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           isChatOpen={isChatOpen}
           toastMessages={toastQueue}
           lang={lang}
+          mutedForAutoplay={mutedForAutoplay}
+          onUnmuteAutoplay={() => {
+            const v = videoRef.current;
+            if (v) { v.muted = false; }
+            setMutedForAutoplay(false);
+          }}
         />
 
         <FullscreenChat

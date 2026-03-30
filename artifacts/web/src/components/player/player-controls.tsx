@@ -40,6 +40,10 @@ interface PlayerControlsProps {
   isChatOpen: boolean;
   toastMessages: ToastMessage[];
   lang?: 'en' | 'ar';
+  /** True when video started muted due to browser autoplay policy */
+  mutedForAutoplay?: boolean;
+  /** Called when user clicks unmute from the volume icon */
+  onUnmuteAutoplay?: () => void;
 }
 
 function formatTime(s: number): string {
@@ -69,6 +73,8 @@ export default function PlayerControls({
   isChatOpen,
   toastMessages,
   lang = 'en',
+  mutedForAutoplay = false,
+  onUnmuteAutoplay,
 }: PlayerControlsProps) {
   const { t } = useI18n();
   const [currentTime, setCurrentTime] = useState(0);
@@ -279,19 +285,35 @@ export default function PlayerControls({
 
                   {/* Volume */}
                   <div className="flex items-center gap-1">
-                    <button
-                      className="p-2.5 rounded-full hover:bg-white/10 transition text-white"
-                      onClick={() => setIsMuted((m) => !m)}
-                    >
-                      {isMuted || volume === 0
-                        ? <VolumeX className="w-5 h-5" />
-                        : <Volume2 className="w-5 h-5" />}
-                    </button>
+                    <div className="relative">
+                      <button
+                        className="p-2.5 rounded-full hover:bg-white/10 transition"
+                        onClick={() => {
+                          if (mutedForAutoplay) {
+                            onUnmuteAutoplay?.();
+                            setIsMuted(false);
+                          } else {
+                            setIsMuted((m) => !m);
+                          }
+                        }}
+                      >
+                        {(isMuted || volume === 0 || mutedForAutoplay)
+                          ? <VolumeX className={cn('w-5 h-5', mutedForAutoplay ? 'text-amber-400' : 'text-white')} />
+                          : <Volume2 className="w-5 h-5 text-white" />}
+                      </button>
+                      {mutedForAutoplay && (
+                        <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-400 animate-pulse pointer-events-none" />
+                      )}
+                    </div>
                     <input
                       type="range"
                       min={0} max={1} step={0.05}
-                      value={isMuted ? 0 : volume}
-                      onChange={(e) => { setVolume(+e.target.value); setIsMuted(false); }}
+                      value={(isMuted || mutedForAutoplay) ? 0 : volume}
+                      onChange={(e) => {
+                        if (mutedForAutoplay) onUnmuteAutoplay?.();
+                        setVolume(+e.target.value);
+                        setIsMuted(false);
+                      }}
                       className="hidden md:block w-16 lg:w-20 accent-primary cursor-pointer"
                     />
                   </div>
