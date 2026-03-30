@@ -638,41 +638,41 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
             if (cancelled) return;
             video.removeAttribute('crossorigin');
             video.setAttribute('referrerpolicy', 'no-referrer');
-            video.removeAttribute('src');
-            video.load();
             video.src = src;
-            video.load();
             let nativeDone = false;
-            const onSuccess = () => {
-              if (nativeDone || cancelled) return;
-              nativeDone = true;
-              clearTimeout(fallbackTimer);
+            const cleanup = () => {
               video.removeEventListener('loadedmetadata', onSuccess);
               video.removeEventListener('canplay', onSuccess);
               video.removeEventListener('playing', onSuccess);
               video.removeEventListener('error', onErrWrapped);
+            };
+            const onSuccess = () => {
+              if (nativeDone || cancelled) return;
+              nativeDone = true;
+              clearTimeout(fallbackTimer);
+              cleanup();
               const live = !isFinite(video.duration) || video.duration === Infinity;
               isLiveRef.current = live; setIsLive(live);
               onDurationChange(); setStatusMsg(null); setError(null); startStallWatchdog(); signalReady();
+              if (playing) {
+                video.play().catch(() => {
+                  video.muted = true;
+                  video.play().catch(() => {});
+                });
+              }
             };
             const onErrWrapped = () => {
               if (nativeDone || cancelled) return;
               nativeDone = true;
               clearTimeout(fallbackTimer);
-              video.removeEventListener('loadedmetadata', onSuccess);
-              video.removeEventListener('canplay', onSuccess);
-              video.removeEventListener('playing', onSuccess);
-              video.removeEventListener('error', onErrWrapped);
+              cleanup();
               if (onFail) { onFail(); }
               else { setError('unsupported'); setStatusMsg(null); }
             };
             const fallbackTimer = setTimeout(() => {
               if (nativeDone) return;
               nativeDone = true;
-              video.removeEventListener('loadedmetadata', onSuccess);
-              video.removeEventListener('canplay', onSuccess);
-              video.removeEventListener('playing', onSuccess);
-              video.removeEventListener('error', onErrWrapped);
+              cleanup();
               if (!cancelled) {
                 if (onFail) { onFail(); }
                 else { setError('unsupported'); setStatusMsg(null); }
@@ -698,10 +698,13 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         setStatusMsg('hls-direct');
         const canNativeHls = video.canPlayType('application/vnd.apple.mpegurl') !== '';
         const isProxied = src.includes('/api/proxy/stream');
+        const isIosSafari = /iPad|iPhone|iPod/.test(navigator.userAgent) && !Hls.isSupported();
 
-        if (isProxied && Hls.isSupported()) {
+        if (isIosSafari && canNativeHls) {
+          s2_native(undefined, 25_000);
+        } else if (isProxied && Hls.isSupported()) {
           const hls = makeHls(() => {
-            s2_native(undefined, 15_000);
+            s2_native(undefined, 20_000);
           });
           hlsRef.current = hls;
           hls.loadSource(src);
@@ -719,10 +722,10 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
             } else {
               setStatusMsg(null); setError('unsupported');
             }
-          }, 8_000);
+          }, 15_000);
         } else if (Hls.isSupported()) {
           const hls = makeHls(() => {
-            s2_native(undefined, 15_000);
+            s2_native(undefined, 20_000);
           });
           hlsRef.current = hls;
           hls.loadSource(src);
@@ -945,10 +948,14 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           </div>
         )}
 
+        {/* eslint-disable-next-line */}
         <video
           ref={videoRef}
-          style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
+          style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain' }}
           playsInline
+          // @ts-ignore — webkit prefix for older iOS
+          webkit-playsinline="true"
+          preload="auto"
           onPlay={() => { setAutoplayBlocked(false); setError(null); onPlay?.(); }}
           onPause={onPause}
           onSeeked={() => {
