@@ -117,10 +117,8 @@ async function fetchWithRetry(
   throw lastError!;
 }
 
-function buildProxyBase(req: Request): string {
-  const proto = req.headers["x-forwarded-proto"] || req.protocol;
-  const host = req.headers["x-forwarded-host"] || req.headers.host;
-  return `${proto}://${host}/api/proxy/stream`;
+function buildProxyBase(_req: Request): string {
+  return `/api/proxy/stream`;
 }
 
 function setCorsHeaders(res: Response) {

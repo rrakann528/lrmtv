@@ -657,7 +657,11 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
               if (playing) {
                 video.play().catch(() => {
                   video.muted = true;
-                  video.play().catch(() => {});
+                  video.play().then(() => {
+                    setMutedForAutoplay(true);
+                  }).catch(() => {
+                    setAutoplayBlocked(true);
+                  });
                 });
               }
             };
@@ -795,16 +799,14 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
       const v = videoRef.current;
       if (!v) return;
       if (playing) {
-        v.play().catch((err: Error) => {
-          if (err.name === 'NotAllowedError') {
-            v.muted = true;
-            v.play().then(() => {
-              setMutedForAutoplay(true);
-              setAutoplayBlocked(false);
-            }).catch(() => {
-              setAutoplayBlocked(true);
-            });
-          }
+        v.play().catch(() => {
+          v.muted = true;
+          v.play().then(() => {
+            setMutedForAutoplay(true);
+            setAutoplayBlocked(false);
+          }).catch(() => {
+            setAutoplayBlocked(true);
+          });
         });
       } else {
         v.pause();
