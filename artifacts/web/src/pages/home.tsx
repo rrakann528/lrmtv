@@ -248,6 +248,7 @@ export default function HomePage() {
 
 function GuestProfilePrompt({ onLogin }: { onLogin: () => void }) {
   const { t } = useI18n();
+  const [, setLocation] = useLocation();
   return (
     <div className="flex flex-col items-center justify-center h-full gap-4 px-6 text-center">
       <div className="w-20 h-20 rounded-full bg-muted flex items-center justify-center">
@@ -260,6 +261,19 @@ function GuestProfilePrompt({ onLogin }: { onLogin: () => void }) {
       <button onClick={onLogin} className="px-8 py-3 bg-primary text-primary-foreground rounded-2xl font-bold">
         {t('loginBtn')}
       </button>
+      <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground/60">
+        <button onClick={() => setLocation('/terms')} className="hover:text-muted-foreground transition">
+          {t('terms')}
+        </button>
+        <span className="text-white/20">·</span>
+        <button onClick={() => setLocation('/privacy')} className="hover:text-muted-foreground transition">
+          {t('privacy')}
+        </button>
+        <span className="text-white/20">·</span>
+        <button onClick={() => setLocation('/about')} className="hover:text-muted-foreground transition">
+          {t('about') || 'عن الموقع'}
+        </button>
+      </div>
     </div>
   );
 }
