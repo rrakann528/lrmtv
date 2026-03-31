@@ -779,30 +779,31 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
           lang={lang}
         />
 
-        {/* Room event notifications (join/leave) — bottom-right toast, fullscreen only */}
-        <div className="absolute bottom-20 end-4 z-50 flex flex-col gap-2 pointer-events-none">
+        {/* Room event notifications (join/leave) — bottom-right, styled as chat bubble */}
+        <div className="absolute bottom-20 right-4 z-50 flex flex-col items-end gap-2 pointer-events-none">
           <AnimatePresence>
             {roomNotifications.map((n) => (
               <motion.div
                 key={n.id}
-                initial={{ opacity: 0, x: 40, scale: 0.9 }}
+                initial={{ opacity: 0, x: 30, scale: 0.92 }}
                 animate={{ opacity: 1, x: 0, scale: 1 }}
-                exit={{ opacity: 0, x: 40, scale: 0.9 }}
-                transition={{ type: 'spring', stiffness: 300, damping: 25 }}
-                className="max-w-[260px] bg-black/85 backdrop-blur-md rounded-xl p-3 flex items-center gap-3 border border-white/10 shadow-2xl"
+                exit={{ opacity: 0, x: 30, scale: 0.92 }}
+                transition={{ type: 'spring', stiffness: 320, damping: 26 }}
+                className="flex items-center gap-2 bg-black/70 backdrop-blur-md rounded-2xl rounded-br-sm px-3 py-2 shadow-xl border border-white/10 max-w-[220px]"
+                dir="rtl"
               >
                 <div
-                  className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-xs font-bold text-white"
+                  className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-[10px] font-bold text-white"
                   style={{ backgroundColor: generateColorFromString(n.username) }}
                 >
                   {n.username.substring(0, 2).toUpperCase()}
                 </div>
-                <div className="min-w-0">
-                  <p className="text-[11px] font-semibold text-white/60 mb-0.5">{n.username}</p>
-                  <p className={`text-xs font-medium ${n.type === 'join' ? 'text-green-400' : 'text-red-400'}`}>
+                <div className="min-w-0 text-right">
+                  <p className="text-[11px] font-semibold text-white/80 leading-none">{n.username}</p>
+                  <p className={`text-[10px] mt-0.5 leading-none ${n.type === 'join' ? 'text-emerald-400' : 'text-rose-400'}`}>
                     {n.type === 'join'
-                      ? (lang === 'ar' ? 'دخل الغرفة' : 'joined the room')
-                      : (lang === 'ar' ? 'غادر الغرفة' : 'left the room')}
+                      ? (lang === 'ar' ? 'دخل الغرفة' : 'joined')
+                      : (lang === 'ar' ? 'غادر الغرفة' : 'left')}
                   </p>
                 </div>
               </motion.div>
