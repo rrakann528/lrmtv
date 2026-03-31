@@ -389,19 +389,24 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
       const startPos = isLiveHint ? -1 : (initialTimeRef.current > 2 ? initialTimeRef.current : -1);
 
       const isProxiedStream = src.includes('/api/proxy/stream');
+      // iOS devices have limited RAM — use smaller buffers to avoid decoder pressure
+      const isIosDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+                          (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
       const HLS_CONFIG: Partial<Hls['config']> = {
-        enableWorker: true,
+        // On iOS, SharedArrayBuffer is unavailable — workers cause silent failures
+        enableWorker: !isIosDevice,
         lowLatencyMode: false,
         startPosition: startPos,
-        startFragPrefetch: true,
+        startFragPrefetch: !isIosDevice, // avoid CPU spike on iOS cold-start
 
         liveSyncDurationCount:       2,
         liveMaxLatencyDurationCount: 4,
         maxLiveSyncPlaybackRate:     1.2,
 
-        backBufferLength:   isProxiedStream ? 10 : 20,
-        maxBufferLength:    isProxiedStream ? 90 : 60,
-        maxMaxBufferLength: isProxiedStream ? 180 : 120,
+        // iOS: keep buffers small — large buffers exhaust mobile RAM and cause stuttering
+        backBufferLength:   isIosDevice ? 5  : (isProxiedStream ? 10 : 20),
+        maxBufferLength:    isIosDevice ? 20 : (isProxiedStream ? 90 : 60),
+        maxMaxBufferLength: isIosDevice ? 40 : (isProxiedStream ? 180 : 120),
 
         manifestLoadingMaxRetry:   isProxiedStream ? 3 : 1,
         manifestLoadingTimeOut:    isProxiedStream ? 15_000 : 6_000,
@@ -413,10 +418,11 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         fragLoadingTimeOut:        isProxiedStream ? 25_000 : 12_000,
         fragLoadingRetryDelay:     isProxiedStream ? 500 : 300,
 
-        startLevel:             isProxiedStream ? 1 : -1,
-        abrEwmaDefaultEstimate: isProxiedStream ? 1_000_000 : 2_000_000,
-        abrBandWidthFactor:     0.9,
-        abrBandWidthUpFactor:   0.7,
+        // iOS: start at lowest quality then ramp up (avoids initial decode failure)
+        startLevel:             isIosDevice ? 0 : (isProxiedStream ? 1 : -1),
+        abrEwmaDefaultEstimate: isIosDevice ? 500_000 : (isProxiedStream ? 1_000_000 : 2_000_000),
+        abrBandWidthFactor:     isIosDevice ? 0.8 : 0.9,
+        abrBandWidthUpFactor:   isIosDevice ? 0.5 : 0.7,
         testBandwidth:          true,
 
         progressive:   true,
