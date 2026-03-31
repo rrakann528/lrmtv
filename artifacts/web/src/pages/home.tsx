@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useLocation, useSearch } from 'wouter';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Tv, Users, User, Users2 } from 'lucide-react';
+import { Tv, Users, User, Users2, UserPlus, MessageCircle, Lock, Globe, Check } from 'lucide-react';
 import { useAuth, apiFetch } from '@/hooks/use-auth';
 import { Avatar } from '@/components/avatar';
 import { RoomsTab } from './home/rooms-tab';
@@ -11,7 +11,7 @@ import { ProfileTab } from './home/profile-tab';
 import { NotifBanner } from '@/components/notif-banner';
 import { useQuery } from '@tanstack/react-query';
 import { useUserSocket } from '@/hooks/use-user-socket';
-import { useI18n } from '@/lib/i18n';
+import { useI18n, LANGUAGES } from '@/lib/i18n';
 
 type Tab = 'rooms' | 'friends' | 'groups' | 'profile';
 
@@ -246,34 +246,135 @@ export default function HomePage() {
   );
 }
 
+const GUEST_CAN = [
+  { icon: Tv,             ar: 'شاهد الفيديوهات في غرف عامة',      en: 'Watch videos in public rooms' },
+  { icon: MessageCircle,  ar: 'تحدث في الدردشة داخل الغرفة',       en: 'Chat inside any room' },
+  { icon: Globe,          ar: 'اختر لغة الواجهة من 6 لغات',         en: 'Choose from 6 interface languages' },
+];
+
+const MEMBER_GETS = [
+  { ar: 'أنشئ غرفك الخاصة وادعُ من تريد',        en: 'Create private rooms & invite friends' },
+  { ar: 'أضف أصدقاء وأرسل رسائل خاصة',          en: 'Add friends & send private messages' },
+  { ar: 'انشئ مجموعات ومجتمعات',                  en: 'Create groups & communities' },
+  { ar: 'احفظ سجل مشاهداتك وتفضيلاتك',           en: 'Save watch history & preferences' },
+  { ar: 'صلاحيات DJ للتحكم الكامل بالغرفة',       en: 'DJ controls for full room management' },
+];
+
 function GuestProfilePrompt({ onLogin }: { onLogin: () => void }) {
-  const { t } = useI18n();
+  const { t, lang, setLang } = useI18n();
   const [, setLocation] = useLocation();
+  const isAr = lang === 'ar';
+
   return (
-    <div className="flex flex-col items-center justify-center h-full gap-4 px-6 text-center">
-      <div className="w-20 h-20 rounded-full bg-muted flex items-center justify-center">
-        <User className="w-10 h-10 text-muted-foreground" />
-      </div>
-      <div>
-        <h3 className="font-bold text-foreground text-lg mb-1">{t('youAreGuest')}</h3>
-        <p className="text-muted-foreground text-sm">{t('loginToManageProfile')}</p>
-      </div>
-      <button onClick={onLogin} className="px-8 py-3 bg-primary text-primary-foreground rounded-2xl font-bold">
-        {t('loginBtn')}
-      </button>
-      <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground/60">
-        <button onClick={() => setLocation('/terms')} className="hover:text-muted-foreground transition">
-          {t('terms')}
-        </button>
-        <span className="text-white/20">·</span>
-        <button onClick={() => setLocation('/privacy')} className="hover:text-muted-foreground transition">
-          {t('privacy')}
-        </button>
-        <span className="text-white/20">·</span>
-        <button onClick={() => setLocation('/about')} className="hover:text-muted-foreground transition">
-          {t('about') || 'عن الموقع'}
-        </button>
+    <div className="absolute inset-0 overflow-y-auto">
+      <div className="flex flex-col gap-4 px-4 py-6 pb-10">
+
+        {/* Header */}
+        <div className="flex flex-col items-center text-center gap-2 pt-2">
+          <div className="w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mb-1">
+            <Tv className="w-8 h-8 text-primary" />
+          </div>
+          <h2 className="text-lg font-bold text-foreground">LrmTV</h2>
+          <p className="text-muted-foreground text-xs leading-relaxed max-w-xs">
+            {isAr ? 'منصة مشاهدة جماعية مجانية — شاهد مع أصدقائك بتزامن تلقائي من أي مكان في العالم'
+                  : 'Free group watching platform — watch with friends in real-time sync from anywhere'}
+          </p>
+        </div>
+
+        {/* As guest you can */}
+        <div className="bg-card border border-border rounded-2xl p-4" dir={isAr ? 'rtl' : 'ltr'}>
+          <p className="text-xs font-semibold text-muted-foreground mb-3">
+            {isAr ? '✅ كزائر يمكنك' : '✅ As a guest you can'}
+          </p>
+          <div className="flex flex-col gap-2.5">
+            {GUEST_CAN.map(({ icon: Icon, ar, en }) => (
+              <div key={ar} className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+                  <Icon className="w-3.5 h-3.5 text-primary" />
+                </div>
+                <span className="text-sm text-foreground/80">{isAr ? ar : en}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Member benefits */}
+        <div className="bg-primary/5 border border-primary/15 rounded-2xl p-4" dir={isAr ? 'rtl' : 'ltr'}>
+          <p className="text-xs font-semibold text-primary mb-3">
+            {isAr ? '🚀 بالتسجيل تحصل على' : '🚀 With an account you get'}
+          </p>
+          <div className="flex flex-col gap-2">
+            {MEMBER_GETS.map(({ ar, en }) => (
+              <div key={ar} className="flex items-start gap-2">
+                <Check className="w-3.5 h-3.5 text-primary flex-shrink-0 mt-0.5" />
+                <span className="text-xs text-foreground/70">{isAr ? ar : en}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Buttons */}
+        <div className="flex flex-col gap-2.5">
+          <motion.button
+            whileTap={{ scale: 0.97 }}
+            onClick={onLogin}
+            className="w-full py-3.5 bg-primary text-primary-foreground rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-primary/25"
+          >
+            <User className="w-4 h-4" />
+            {t('loginBtn')}
+          </motion.button>
+          <motion.button
+            whileTap={{ scale: 0.97 }}
+            onClick={() => setLocation('/auth?mode=register')}
+            className="w-full py-3.5 bg-card border border-border text-foreground rounded-2xl font-semibold text-sm flex items-center justify-center gap-2"
+          >
+            <UserPlus className="w-4 h-4" />
+            {isAr ? 'إنشاء حساب جديد' : 'Create new account'}
+          </motion.button>
+        </div>
+
+        {/* Language selector */}
+        <div className="bg-card border border-border rounded-2xl overflow-hidden">
+          <p className="text-xs text-muted-foreground px-4 pt-3 pb-2">{t('interfaceLanguage')}</p>
+          <div className="grid grid-cols-3 gap-1.5 px-3 pb-3">
+            {LANGUAGES.map(l => (
+              <button
+                key={l.code}
+                onClick={() => setLang(l.code)}
+                className={`flex flex-col items-center gap-1 py-2.5 rounded-xl text-xs font-medium transition-all active:scale-95 ${
+                  lang === l.code
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'bg-muted/50 text-muted-foreground hover:bg-muted'
+                }`}
+              >
+                <span className="text-xl leading-none">{l.flag}</span>
+                <span>{l.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Links */}
+        <div className="flex items-center justify-center flex-wrap gap-3 text-xs text-muted-foreground/50 pb-2">
+          <button onClick={() => setLocation('/about')} className="hover:text-muted-foreground transition">
+            {isAr ? 'عن الموقع' : 'About'}
+          </button>
+          <span className="text-white/20">·</span>
+          <button onClick={() => setLocation('/faq')} className="hover:text-muted-foreground transition">
+            {isAr ? 'أسئلة شائعة' : 'FAQ'}
+          </button>
+          <span className="text-white/20">·</span>
+          <button onClick={() => setLocation('/terms')} className="hover:text-muted-foreground transition">
+            {t('terms')}
+          </button>
+          <span className="text-white/20">·</span>
+          <button onClick={() => setLocation('/privacy')} className="hover:text-muted-foreground transition">
+            {t('privacy')}
+          </button>
+        </div>
+        <p className="text-center text-white/20 text-xs">© 2026 LrmTV</p>
       </div>
     </div>
   );
 }
+
