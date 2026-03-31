@@ -50,7 +50,8 @@ const ALLOWED_SCAN_PATHS = new Set(["/.well-known/security.txt"]);
 
 // ── Bot / Scanner Detection ────────────────────────────────────────────────────
 export function botDetection(req: Request, res: Response, next: NextFunction) {
-  if (req.path.endsWith("/healthz")) {
+  // Always allow healthcheck + socket.io (WebSocket handshake must not be blocked)
+  if (req.path.endsWith("/healthz") || req.path.includes("/socket.io")) {
     return next();
   }
 
