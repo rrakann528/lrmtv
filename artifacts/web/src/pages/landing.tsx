@@ -21,25 +21,12 @@ export default function LandingPage() {
   const [, setLocation] = useLocation();
   const { user, loading } = useAuth();
 
-  // If user is already known (from cache or API), redirect immediately
-  if (user) {
-    setLocation('/home');
-    return null;
-  }
-
   useEffect(() => {
-    if (!loading && user) setLocation('/home');
-  }, [user, loading]);
+    if (user) setLocation('/home');
+  }, [user]);
 
-  // While checking auth (and no cached user), show a neutral splash
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-background gap-4">
-        <img src="/icon-512.png" alt="LrmTV" className="w-16 h-16 rounded-2xl shadow-lg shadow-primary/20" />
-        <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-      </div>
-    );
-  }
+  // If user is confirmed logged in, redirect silently (useEffect handles it)
+  if (user) return null;
 
   return (
     <div className="min-h-screen flex flex-col items-center bg-background relative overflow-x-hidden px-6 py-16">
