@@ -1,4 +1,8 @@
 import { Router } from 'express';
+import { gunzip } from 'zlib';
+import { promisify } from 'util';
+
+const gunzipAsync = promisify(gunzip);
 
 const router = Router();
 
@@ -13,13 +17,21 @@ const USER_AGENT  = 'LrmTV v1.0';
 let _token     = '';
 let _tokenExp  = 0;
 
+/**
+ * Login to OpenSubtitles XML-RPC.
+ * Uses OPENSUBTITLES_USER + OPENSUBTITLES_PASS if set (free account → actual downloads).
+ * Falls back to anonymous (search works, but downloads return VIP placeholder).
+ */
 async function getToken(): Promise<string> {
   if (_token && Date.now() < _tokenExp) return _token;
 
+  const user = process.env.OPENSUBTITLES_USER ?? '';
+  const pass = process.env.OPENSUBTITLES_PASS ?? '';
+
   const body = `<?xml version="1.0"?>
 <methodCall><methodName>LogIn</methodName><params>
-  <param><value><string></string></value></param>
-  <param><value><string></string></value></param>
+  <param><value><string>${escapeXmlEarly(user)}</string></value></param>
+  <param><value><string>${escapeXmlEarly(pass)}</string></value></param>
   <param><value><string>en</string></value></param>
   <param><value><string>${USER_AGENT}</string></value></param>
 </params></methodCall>`;
@@ -35,6 +47,10 @@ async function getToken(): Promise<string> {
   _token    = m[1];
   _tokenExp = Date.now() + 14 * 60 * 1000;
   return _token;
+}
+
+function escapeXmlEarly(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 // Map 2-letter → 3-letter ISO language codes used by OpenSubtitles
@@ -344,12 +360,37 @@ router.get('/proxy/subtitle', async (req, res): Promise<void> => {
 
   try {
     const r = await fetch(targetUrl, {
-      headers: { 'User-Agent': USER_AGENT },
+      headers: {
+        'User-Agent': USER_AGENT,
+        // Don't let fetch auto-decompress — we handle it ourselves
+        'Accept-Encoding': 'identity',
+      },
       redirect: 'follow',
     });
     if (!r.ok) { res.status(r.status).json({ error: 'Upstream error' }); return; }
 
-    const text = await r.text();
+    const buf = Buffer.from(await r.arrayBuffer());
+
+    // Detect gzip by magic bytes (1f 8b) or .gz URL suffix
+    const isGzip =
+      (buf[0] === 0x1f && buf[1] === 0x8b) ||
+      targetUrl.toLowerCase().includes('.gz');
+
+    let text: string;
+    if (isGzip) {
+      try {
+        const decompressed = await gunzipAsync(buf);
+        text = decompressed.toString('utf-8');
+      } catch {
+        // Fallback: maybe it wasn't actually gzipped
+        text = buf.toString('utf-8');
+      }
+    } else {
+      text = buf.toString('utf-8');
+    }
+
+    if (!text.trim()) { res.status(502).json({ error: 'Empty subtitle file' }); return; }
+
     res.set({
       'Content-Type': 'text/plain; charset=utf-8',
       'Access-Control-Allow-Origin': '*',
