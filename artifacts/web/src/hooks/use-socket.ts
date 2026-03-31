@@ -96,7 +96,7 @@ export function useSocket(slug: string | null) {
     const token = localStorage.getItem('lrmtv_auth_token') || '';
     const socket = io('/', {
       path: '/api/socket.io',
-      transports: ['websocket', 'polling'],
+      transports: ['polling', 'websocket'],
       auth: { token },
     });
 
