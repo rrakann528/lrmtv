@@ -144,6 +144,19 @@ export default function RoomPage() {
     };
   }, []);
 
+  // ── Fast leave on PWA/tab close ──────────────────────────────────────────
+  // `pagehide` fires when the page is truly being unloaded (PWA swipe-close,
+  // tab close, navigation away). Emit leave-room immediately so the server
+  // doesn't wait for the grace-period timer.
+  useEffect(() => {
+    if (!socket || !slug) return;
+    const onPageHide = () => {
+      socket.emit('leave-room', { slug });
+    };
+    window.addEventListener('pagehide', onPageHide);
+    return () => window.removeEventListener('pagehide', onPageHide);
+  }, [socket, slug]);
+
   // ── Room event notifications (shown in fullscreen overlay) ───────────────
   const [roomNotifs, setRoomNotifs] = useState<RoomEventNotif[]>([]);
 

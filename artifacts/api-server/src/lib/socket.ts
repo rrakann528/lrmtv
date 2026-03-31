@@ -182,7 +182,7 @@ export function isUserViewingDm(userId: number, withFriendId: number): boolean {
 // When a socket disconnects we start a 30-second timer before broadcasting
 // "user left". If the user reconnects within that window (e.g. PWA background)
 // we silently restore them without showing any leave/rejoin messages.
-const LEAVE_GRACE_MS = 30_000;
+const LEAVE_GRACE_MS = 8_000;
 
 interface PendingLeave {
   timer: ReturnType<typeof setTimeout>;
@@ -1190,7 +1190,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
     });
 
     // ── Disconnect / leave ────────────────────────────────────────────────────
-    const handleLeaveRoom = () => {
+    const handleLeaveRoom = (immediate = false) => {
       if (!currentRoomSlug) return;
       const slug = currentRoomSlug;
       currentRoomSlug = '';
@@ -1241,19 +1241,17 @@ export function initSocketServer(httpServer: HttpServer): Server {
         });
       }
 
-      // ── Grace period: delay broadcasting "user left" ─────────────────────
-      // If the user reconnects within LEAVE_GRACE_MS (e.g. PWA background/restore)
-      // we silently update their socket ID and skip the leave/rejoin messages.
+      // ── Broadcast user-left (immediately or after grace period) ─────────────
       const leaveKey = pendingLeaveKey(slug, user.userId, user.username);
 
       // Cancel any existing pending leave for this user (e.g. double-disconnect)
       const existing = pendingLeaves.get(leaveKey);
       if (existing) {
         clearTimeout(existing.timer);
+        pendingLeaves.delete(leaveKey);
       }
 
-      const timer = setTimeout(() => {
-        pendingLeaves.delete(leaveKey);
+      const broadcastLeave = () => {
         const state = rooms.get(slug);
         if (!state) return;
 
@@ -1288,17 +1286,27 @@ export function initSocketServer(httpServer: HttpServer): Server {
         } else if (user.isAdmin && state.creatorUserId) {
           io.to(slug).emit("users-updated", { users: Array.from(state.users.values()) });
         }
-      }, LEAVE_GRACE_MS);
+      };
 
-      pendingLeaves.set(leaveKey, {
-        timer,
-        user,
-        oldSocketId: socket.id,
-        roomSlug: slug,
-      });
+      if (immediate) {
+        // Explicit leave-room event: broadcast right away, no grace period
+        broadcastLeave();
+      } else {
+        // Socket disconnect: wait LEAVE_GRACE_MS in case the user reconnects
+        const timer = setTimeout(() => {
+          pendingLeaves.delete(leaveKey);
+          broadcastLeave();
+        }, LEAVE_GRACE_MS);
+        pendingLeaves.set(leaveKey, {
+          timer,
+          user,
+          oldSocketId: socket.id,
+          roomSlug: slug,
+        });
+      }
     };
 
-    socket.on("leave-room", handleLeaveRoom);
+    socket.on("leave-room", () => handleLeaveRoom(true));
     socket.on("disconnect", () => {
       // ── Clean up per-socket throttle state ──────────────────────────────
       chatThrottle.cleanup(socket.id);
