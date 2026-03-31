@@ -87,6 +87,8 @@ export default function PlayerControls({
   const [isDragging, setIsDragging] = useState(false);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rafRef = useRef<number>(0);
+  // Track last touch time so click handler knows whether event came from a touch
+  const lastTouchTimeRef = useRef(0);
 
   useEffect(() => {
     const tick = () => {
@@ -136,6 +138,28 @@ export default function PlayerControls({
     if (isPlaying) onPause(); else onPlay();
   }, [isPlaying, onPlay, onPause]);
 
+  /**
+   * Handles a tap/click on the video area.
+   * - Touch devices: first tap shows controls only; controls bar play button handles play/pause.
+   *   This matches YouTube/Netflix mobile UX — touching the video never accidentally pauses.
+   * - Mouse (desktop): click toggles play/pause as before.
+   */
+  const handleVideoAreaTap = useCallback(() => {
+    const isTouchEvent = Date.now() - lastTouchTimeRef.current < 500;
+    if (isTouchEvent) {
+      // Mobile tap: just toggle controls visibility, do NOT toggle play/pause
+      if (showControls) {
+        setShowControls(false);
+        if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+      } else {
+        resetTimer();
+      }
+    } else {
+      // Desktop click: toggle play/pause (classic behavior)
+      togglePlay();
+    }
+  }, [showControls, resetTimer, togglePlay]);
+
   const seekRelative = useCallback((delta: number) => {
     const v = videoRef.current;
     if (!v) return;
@@ -167,8 +191,8 @@ export default function PlayerControls({
     <div
       className="absolute inset-0 z-10 flex flex-col justify-between select-none"
       onMouseMove={resetTimer}
-      onTouchStart={resetTimer}
-      onClick={togglePlay}
+      onTouchStart={() => { lastTouchTimeRef.current = Date.now(); resetTimer(); }}
+      onClick={handleVideoAreaTap}
     >
       {/* Toast notifications */}
       <div className="absolute bottom-20 right-4 z-40 flex flex-col gap-2 pointer-events-none">
