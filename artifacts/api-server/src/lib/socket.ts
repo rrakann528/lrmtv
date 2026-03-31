@@ -400,6 +400,9 @@ export function initSocketServer(httpServer: HttpServer): Server {
         // Reuse the same allowed-origins logic as Express CORS
         if (!origin) { cb(null, true); return; }
         const allowed = [
+          // Production domains (hardcoded — work even without CORS_ORIGIN env var)
+          "https://lrmtv.sbs",
+          "https://www.lrmtv.sbs",
           process.env.CORS_ORIGIN,
           process.env.CORS_ORIGIN ? `https://www.${(process.env.CORS_ORIGIN || "").replace(/^https?:\/\//, "")}` : null,
           process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : null,
