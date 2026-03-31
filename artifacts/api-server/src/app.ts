@@ -124,6 +124,13 @@ app.use("/api/auth/google", oauthLimiter);
 // ── Serve uploaded avatars ───────────────────────────────────────────────────
 app.use("/api/uploads", express.static(path.join(process.cwd(), "uploads"), { maxAge: "7d", etag: true }));
 
+// ── ads.txt — must be served at root for AdSense verification ─────────────────
+app.get("/ads.txt", (_req, res) => {
+  res.setHeader("Content-Type", "text/plain");
+  res.setHeader("Cache-Control", "public, max-age=86400");
+  res.send("google.com, ca-pub-2762098441736931, DIRECT, f08c47fec0942fa0\n");
+});
+
 // ── Routes ─────────────────────────────────────────────────────────────────────
 app.use("/api", router);
 
