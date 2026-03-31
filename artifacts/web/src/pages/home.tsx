@@ -256,8 +256,8 @@ const MEMBER_GETS = [
   { ar: 'أنشئ غرفك الخاصة وادعُ من تريد',        en: 'Create private rooms & invite friends' },
   { ar: 'أضف أصدقاء وأرسل رسائل خاصة',          en: 'Add friends & send private messages' },
   { ar: 'انشئ مجموعات ومجتمعات',                  en: 'Create groups & communities' },
-  { ar: 'احفظ سجل مشاهداتك وتفضيلاتك',           en: 'Save watch history & preferences' },
   { ar: 'صلاحيات DJ للتحكم الكامل بالغرفة',       en: 'DJ controls for full room management' },
+  { ar: 'شخصّ حسابك بصورة واسم مستخدم فريد',     en: 'Personalize your profile with avatar & username' },
 ];
 
 function GuestProfilePrompt({ onLogin }: { onLogin: () => void }) {
