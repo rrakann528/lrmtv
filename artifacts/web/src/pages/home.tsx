@@ -248,12 +248,13 @@ export default function HomePage() {
 
 const GUEST_CAN = [
   { icon: Tv,             ar: 'شاهد الفيديوهات في غرف عامة',      en: 'Watch videos in public rooms' },
-  { icon: MessageCircle,  ar: 'تحدث في الدردشة داخل الغرفة',       en: 'Chat inside any room' },
   { icon: Globe,          ar: 'اختر لغة الواجهة من 6 لغات',         en: 'Choose from 6 interface languages' },
 ];
 
 const MEMBER_GETS = [
   { ar: 'أنشئ غرفك الخاصة وادعُ من تريد',        en: 'Create private rooms & invite friends' },
+  { ar: 'تحدث في الدردشة داخل الغرفة',            en: 'Chat inside any room' },
+  { ar: 'شغّل المايك والتحدث صوتياً مع الآخرين',  en: 'Use your mic for voice chat with others' },
   { ar: 'أضف أصدقاء وأرسل رسائل خاصة',          en: 'Add friends & send private messages' },
   { ar: 'انشئ مجموعات ومجتمعات',                  en: 'Create groups & communities' },
   { ar: 'صلاحيات DJ للتحكم الكامل بالغرفة',       en: 'DJ controls for full room management' },
