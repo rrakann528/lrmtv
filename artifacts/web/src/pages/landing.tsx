@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { motion } from 'framer-motion';
-import { UserCircle, LogIn, UserPlus } from 'lucide-react';
+import { UserCircle, LogIn, UserPlus, Tv2, MessageCircle, Music2, Globe, Lock, Zap } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -42,13 +42,13 @@ export default function LandingPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-background relative overflow-hidden px-6">
+    <div className="min-h-screen flex flex-col items-center bg-background relative overflow-x-hidden px-6 py-16">
       <div className="absolute inset-0 z-0 pointer-events-none">
         <div className="absolute top-[-20%] left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-primary/20 rounded-full blur-[120px]" />
         <div className="absolute bottom-[-10%] right-[-10%] w-[400px] h-[400px] bg-violet-500/15 rounded-full blur-[100px]" />
       </div>
 
-      <div className="relative z-10 flex flex-col items-center text-center max-w-sm w-full">
+      <div className="relative z-10 flex flex-col items-center text-center max-w-sm w-full mx-auto">
         <img src="/icon-512.png" alt="LrmTV" className="w-20 h-20 rounded-2xl mb-6 shadow-lg shadow-primary/20" />
 
         <h1 className="text-4xl font-bold tracking-tight text-foreground mb-1">LrmTV</h1>
@@ -111,6 +111,63 @@ export default function LandingPage() {
           <p className="text-xs text-muted-foreground/30">© 2026 LrmTV · جميع الحقوق محفوظة</p>
         </div>
       </div>
+
+      {/* ── Features Section (SEO + AdSense content) ─────────── */}
+      <div className="relative z-10 w-full max-w-2xl mx-auto px-6 pb-16 mt-8">
+        <div className="border-t border-white/5 pt-10">
+          <h2 className="text-center text-white/60 text-xs font-semibold uppercase tracking-widest mb-8">
+            لماذا LrmTV؟
+          </h2>
+          <div className="grid grid-cols-2 gap-4 text-right" dir="rtl">
+            {FEATURES.map(({ icon: Icon, title, desc }) => (
+              <div key={title} className="flex flex-col gap-1.5 bg-white/[0.03] rounded-2xl p-4 border border-white/5">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <Icon className="w-4 h-4 text-primary flex-shrink-0" />
+                  <span className="text-white/80 text-xs font-bold">{title}</span>
+                </div>
+                <p className="text-white/40 text-[11px] leading-relaxed">{desc}</p>
+              </div>
+            ))}
+          </div>
+          <p className="text-center text-white/25 text-[11px] mt-8 leading-relaxed max-w-md mx-auto">
+            LrmTV منصة مشاهدة جماعية تتيح لك مشاهدة الفيديوهات مع أصدقائك في نفس الوقت،
+            مع دردشة فورية وتزامن تلقائي. تدعم مقاطع YouTube وتدفقات HLS المباشرة.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
+
+const FEATURES = [
+  {
+    icon: Tv2,
+    title: 'مشاهدة جماعية',
+    desc: 'شاهد YouTube وبث HLS مع أصدقائك بتزامن تلقائي لحظي.',
+  },
+  {
+    icon: MessageCircle,
+    title: 'دردشة فورية',
+    desc: 'تحدث مع أصدقائك أثناء المشاهدة عبر الدردشة داخل الغرفة.',
+  },
+  {
+    icon: Music2,
+    title: 'قائمة تشغيل',
+    desc: 'أضف مقاطع متعددة وأدر قائمة التشغيل بسهولة.',
+  },
+  {
+    icon: Lock,
+    title: 'غرف خاصة',
+    desc: 'أنشئ غرفاً خاصة بدعوات حصرية لأصدقائك فقط.',
+  },
+  {
+    icon: Globe,
+    title: '6 لغات',
+    desc: 'واجهة كاملة بالعربية والإنجليزية والفرنسية والتركية والإسبانية والصينية.',
+  },
+  {
+    icon: Zap,
+    title: 'سريع وموثوق',
+    desc: 'اتصال فوري بدون تأخير مع دعم الاتصال الصوتي بين المستخدمين.',
+  },
+];
