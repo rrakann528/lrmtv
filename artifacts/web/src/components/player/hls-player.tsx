@@ -702,7 +702,11 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         setStatusMsg('hls-direct');
         const canNativeHls = video.canPlayType('application/vnd.apple.mpegurl') !== '';
         const isProxied = src.includes('/api/proxy/stream');
-        const isIosSafari = /iPad|iPhone|iPod/.test(navigator.userAgent) && !Hls.isSupported();
+        // Force native HLS on any iOS device — even iOS 17+ supports MSE but native is far
+        // more stable: lower CPU, no stutter, better battery, and it's the OS-level player.
+        const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+                      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        const isIosSafari = isIos && canNativeHls;
 
         // Extract original URL if the src is our proxy wrapper
         let originalUrl: string | undefined;

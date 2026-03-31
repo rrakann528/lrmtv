@@ -184,7 +184,13 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
     const videoType = detectVideoType(normalizedUrl);
     const isHls = videoType === 'hls';
 
-    const needsProxy = videoType === 'hls' || videoType === 'dash' || videoType === 'html5';
+    // On iOS Safari, direct mp4/html5 video works natively without proxy.
+    // Bypassing the proxy removes round-trip latency and buffering stutter on mobile.
+    const isIosBrowser = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+                         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const needsProxy = isIosBrowser
+      ? (videoType === 'hls' || videoType === 'dash') // iOS: only HLS/DASH need proxy (CORS), not direct mp4
+      : (videoType === 'hls' || videoType === 'dash' || videoType === 'html5');
     const playableUrl = needsProxy
       ? `/api/proxy/stream?url=${encodeURIComponent(normalizedUrl)}`
       : normalizedUrl;
