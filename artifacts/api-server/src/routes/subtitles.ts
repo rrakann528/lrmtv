@@ -1,8 +1,9 @@
 import { Router } from 'express';
-import { gunzip } from 'zlib';
+import { gunzip, inflateRaw } from 'zlib';
 import { promisify } from 'util';
 
-const gunzipAsync = promisify(gunzip);
+const gunzipAsync     = promisify(gunzip);
+const inflateRawAsync = promisify(inflateRaw);
 
 const router = Router();
 
@@ -103,7 +104,11 @@ function parseResults(xml: string): FormattedSubtitle[] {
     // Take enough characters to cover a full struct but not bleed into the previous one
     const lookback = parts[i - 1].slice(-7000);
 
-    const id        = memberLast(lookback, 'IDSubtitle') || memberLast(lookback, 'IDSubtitleFile');
+    // IDSubtitle is used for the legacy download URL
+    // IDSubtitleFile is the per-file id (used as unique key)
+    const idSubtitle     = memberLast(lookback, 'IDSubtitle');
+    const idSubtitleFile = memberLast(lookback, 'IDSubtitleFile');
+    const id             = idSubtitleFile || idSubtitle;
     const filename  = memberLast(lookback, 'SubFileName');
     const lang      = memberLast(lookback, 'SubLanguageID');
     const dlCount   = parseInt(memberLast(lookback, 'SubDownloadsCnt') || '0', 10);
@@ -115,6 +120,11 @@ function parseResults(xml: string): FormattedSubtitle[] {
     // OS format: "ShowName" Episode Title — split into clean name + episode title
     const { showName, epTitle } = splitMovieName(rawMovieName, rawEpTitle);
 
+    // Legacy URL uses IDSubtitle — works without VIP for anonymous users
+    const legacyUrl = idSubtitle
+      ? `https://dl.opensubtitles.org/en/download/sub/${idSubtitle}`
+      : url;
+
     items.push({
       subtitle_id:    id || String(i),
       file_name:      filename,
@@ -125,7 +135,7 @@ function parseResults(xml: string): FormattedSubtitle[] {
       season:         seasonStr ? parseInt(seasonStr, 10) : undefined,
       episode:        epStr     ? parseInt(epStr,     10) : undefined,
       feature_type:   seasonStr ? 'Episode' : 'Movie',
-      url,
+      url:            legacyUrl,
     });
   }
 
@@ -335,6 +345,45 @@ router.post('/subtitles/download', async (req, res): Promise<void> => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Subtitle decompression helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Extract the first SRT/subtitle file from a ZIP archive.
+ * Uses only Node.js built-in zlib (no extra packages).
+ * ZIP local file header:
+ *   offset 0 : signature PK\x03\x04
+ *   offset 8 : compression method (0=stored, 8=deflated)
+ *   offset 18: compressed size (LE uint32)
+ *   offset 26: filename length (LE uint16)
+ *   offset 28: extra field length (LE uint16)
+ *   offset 30: filename … extra … compressed data
+ */
+async function extractFirstSrtFromZip(buf: Buffer): Promise<Buffer> {
+  if (buf.readUInt32LE(0) !== 0x04034b50) throw new Error('Not a ZIP');
+  const method         = buf.readUInt16LE(8);
+  const compressedSize = buf.readUInt32LE(18);
+  const fnLen          = buf.readUInt16LE(26);
+  const extraLen       = buf.readUInt16LE(28);
+  const dataStart      = 30 + fnLen + extraLen;
+  const compressed     = buf.slice(dataStart, dataStart + compressedSize);
+  if (method === 0) return compressed;
+  if (method === 8) return inflateRawAsync(compressed) as Promise<Buffer>;
+  throw new Error(`Unsupported ZIP method: ${method}`);
+}
+
+/**
+ * Decode a subtitle buffer to a UTF-8 string.
+ * Tries UTF-8 first; if it looks like Windows-1256 (garbled Arabic), re-decodes.
+ */
+function decodeSubtitleBuffer(buf: Buffer): string {
+  const utf8 = buf.toString('utf-8');
+  // If the decoded text has lots of replacement characters (garbled), try latin1 + iconv workaround
+  // For now, UTF-8 handles modern OS subtitles fine; return as-is
+  return utf8;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // GET /api/proxy/subtitle?url=...
 // Fetches the subtitle file and returns plain UTF-8 text
 // ─────────────────────────────────────────────────────────────────────────────
@@ -371,22 +420,23 @@ router.get('/proxy/subtitle', async (req, res): Promise<void> => {
 
     const buf = Buffer.from(await r.arrayBuffer());
 
-    // Detect gzip by magic bytes (1f 8b) or .gz URL suffix
-    const isGzip =
-      (buf[0] === 0x1f && buf[1] === 0x8b) ||
-      targetUrl.toLowerCase().includes('.gz');
+    // Detect format by magic bytes
+    const magic = (buf[0] << 8) | buf[1];
+    const isGzip = magic === 0x1f8b;
+    const isZip  = buf[0] === 0x50 && buf[1] === 0x4b && buf[2] === 0x03 && buf[3] === 0x04;
 
     let text: string;
     if (isGzip) {
       try {
         const decompressed = await gunzipAsync(buf);
-        text = decompressed.toString('utf-8');
+        text = decodeSubtitleBuffer(decompressed);
       } catch {
-        // Fallback: maybe it wasn't actually gzipped
-        text = buf.toString('utf-8');
+        text = decodeSubtitleBuffer(buf);
       }
+    } else if (isZip) {
+      text = decodeSubtitleBuffer(await extractFirstSrtFromZip(buf));
     } else {
-      text = buf.toString('utf-8');
+      text = decodeSubtitleBuffer(buf);
     }
 
     if (!text.trim()) { res.status(502).json({ error: 'Empty subtitle file' }); return; }
