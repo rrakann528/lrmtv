@@ -99,7 +99,15 @@ export default function LandingPage() {
         </div>
 
         <div className="mt-10 flex flex-col items-center gap-2">
-          <div className="flex items-center gap-3 text-xs text-muted-foreground/50">
+          <div className="flex items-center flex-wrap justify-center gap-3 text-xs text-muted-foreground/50">
+            <button onClick={() => setLocation('/about')} className="hover:text-muted-foreground transition-colors">
+              عن الموقع
+            </button>
+            <span>·</span>
+            <button onClick={() => setLocation('/faq')} className="hover:text-muted-foreground transition-colors">
+              أسئلة شائعة
+            </button>
+            <span>·</span>
             <button onClick={() => setLocation('/terms')} className="hover:text-muted-foreground transition-colors">
               شروط الاستخدام
             </button>

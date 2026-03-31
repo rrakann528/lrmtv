@@ -14,6 +14,8 @@ const RoomPage    = lazy(() => import("@/pages/room"));
 const AuthPage    = lazy(() => import("@/pages/auth"));
 const TermsPage   = lazy(() => import("@/pages/terms"));
 const PrivacyPage = lazy(() => import("@/pages/privacy"));
+const AboutPage   = lazy(() => import("@/pages/about"));
+const FAQPage     = lazy(() => import("@/pages/faq"));
 const AdminPage   = lazy(() => import("@/pages/admin"));
 const NotFound    = lazy(() => import("@/pages/not-found"));
 
@@ -148,6 +150,8 @@ function Router() {
         <Route path="/room/:slug" component={() => <VerifiedRoute component={RoomPage} />} />
         <Route path="/terms"      component={TermsPage} />
         <Route path="/privacy"    component={PrivacyPage} />
+        <Route path="/about"      component={AboutPage} />
+        <Route path="/faq"        component={FAQPage} />
         <Route path="/admin"      component={() => <VerifiedRoute component={AdminPage} />} />
         <Route component={NotFound} />
       </Switch>
