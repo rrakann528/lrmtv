@@ -91,17 +91,20 @@ function parseResults(xml: string): FormattedSubtitle[] {
     const filename  = memberLast(lookback, 'SubFileName');
     const lang      = memberLast(lookback, 'SubLanguageID');
     const dlCount   = parseInt(memberLast(lookback, 'SubDownloadsCnt') || '0', 10);
-    const movieName = decodeEntities(memberLast(lookback, 'MovieName'));
-    const seasonStr = memberLast(lookback, 'SeriesSeason');
-    const epStr     = memberLast(lookback, 'SeriesEpisode');
-    const epTitle   = decodeEntities(memberLast(lookback, 'SeriesEpisodeName'));
+    const rawMovieName = decodeEntities(memberLast(lookback, 'MovieName'));
+    const seasonStr    = memberLast(lookback, 'SeriesSeason');
+    const epStr        = memberLast(lookback, 'SeriesEpisode');
+    const rawEpTitle   = decodeEntities(memberLast(lookback, 'SeriesEpisodeName'));
+
+    // OS format: "ShowName" Episode Title — split into clean name + episode title
+    const { showName, epTitle } = splitMovieName(rawMovieName, rawEpTitle);
 
     items.push({
       subtitle_id:    id || String(i),
       file_name:      filename,
       language:       lang,
       download_count: isNaN(dlCount) ? 0 : dlCount,
-      movie_name:     movieName,
+      movie_name:     showName,
       episode_title:  epTitle,
       season:         seasonStr ? parseInt(seasonStr, 10) : undefined,
       episode:        epStr     ? parseInt(epStr,     10) : undefined,
@@ -217,9 +220,27 @@ function decodeEntities(s: string): string {
     .replace(/&lt;/gi, '<')
     .replace(/&gt;/gi, '>')
     .replace(/&apos;/gi, "'")
-    // Strip wrapping quotes that OS adds: "Show Name" → Show Name
-    .replace(/^"(.*)"$/, '$1')
     .trim();
+}
+
+/**
+ * OpenSubtitles XML-RPC returns MovieName in the format:
+ *   "ShowName" Episode Title     ← TV show
+ *   Movie Title                  ← movie
+ *
+ * This function splits them into a clean show name + episode title.
+ * If episodeTitle is already known (from SeriesEpisodeName), it's used as-is.
+ */
+function splitMovieName(raw: string, existingEpTitle: string): { showName: string; epTitle: string } {
+  // Pattern: "Show Name" Episode Title
+  const tvMatch = raw.match(/^"([^"]+)"\s*(.*)$/);
+  if (tvMatch) {
+    return {
+      showName: tvMatch[1].trim(),
+      epTitle:  existingEpTitle || tvMatch[2].trim(),
+    };
+  }
+  return { showName: raw, epTitle: existingEpTitle };
 }
 
 /**
