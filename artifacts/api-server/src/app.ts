@@ -100,15 +100,18 @@ app.use(cors({
   credentials: true,
 }));
 
-// ── Global guards ──────────────────────────────────────────────────────────────
+// ── Global guards (static files + API) ────────────────────────────────────────
 app.use(pathGuard);
 app.use(payloadGuard);
-app.use(botDetection);
 app.use(express.json({ limit: "100kb" }));
 app.use(express.urlencoded({ extended: true, limit: "100kb" }));
 app.use(cookieParser());
 
-// ── Security: banned IPs + maintenance mode ────────────────────────────────────
+// ── API-only guards (bot detection, bans, maintenance, rate limits) ───────────
+// botDetection is intentionally scoped to /api only — applying it globally
+// would block legitimate users whose proxy (Railway/Cloudflare) injects headers
+// like x-forwarded-host on navigation requests for HTML pages.
+app.use("/api", botDetection);
 app.use("/api", ipBanMiddleware);
 app.use("/api", maintenanceMiddleware);
 

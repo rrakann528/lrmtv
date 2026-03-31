@@ -25,7 +25,8 @@ const SUSPICIOUS_HEADERS = [
   "x-originating-ip",
   "x-remote-ip",
   "x-remote-addr",
-  "x-forwarded-host",  // often injected by SSRF tools
+  // "x-forwarded-host" removed — this is a standard header injected by Railway/Cloudflare
+  // and would block all legitimate users going through the proxy.
   "x-custom-ip-authorization",
 ];
 
