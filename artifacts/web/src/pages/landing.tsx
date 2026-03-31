@@ -19,28 +19,31 @@ function GoogleIcon() {
 
 export default function LandingPage() {
   const [, setLocation] = useLocation();
-  const { user, loading } = useAuth();
+  const { user } = useAuth();
 
   useEffect(() => {
     if (user) setLocation('/home');
   }, [user]);
 
-  // If user is confirmed logged in, redirect silently (useEffect handles it)
   if (user) return null;
 
   return (
-    <div className="min-h-screen flex flex-col items-center bg-background relative overflow-x-hidden px-6 py-16">
+    <div className="min-h-screen flex flex-col items-center bg-background relative overflow-x-hidden">
+      {/* Background glows */}
       <div className="absolute inset-0 z-0 pointer-events-none">
         <div className="absolute top-[-20%] left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-primary/20 rounded-full blur-[120px]" />
         <div className="absolute bottom-[-10%] right-[-10%] w-[400px] h-[400px] bg-violet-500/15 rounded-full blur-[100px]" />
       </div>
 
-      <div className="relative z-10 flex flex-col items-center text-center max-w-sm w-full mx-auto">
-        <img src="/icon-512.png" alt="LrmTV" className="w-20 h-20 rounded-2xl mb-6 shadow-lg shadow-primary/20" />
+      <div className="relative z-10 w-full max-w-sm mx-auto px-6 flex flex-col items-center">
+        {/* ── Hero ── */}
+        <div className="flex flex-col items-center text-center pt-16 pb-8">
+          <img src="/icon-512.png" alt="LrmTV" className="w-20 h-20 rounded-2xl mb-5 shadow-lg shadow-primary/20" />
+          <h1 className="text-4xl font-bold tracking-tight text-foreground mb-1">LrmTV</h1>
+          <p className="text-muted-foreground text-sm">شاهد مع أصدقائك في وقت واحد</p>
+        </div>
 
-        <h1 className="text-4xl font-bold tracking-tight text-foreground mb-1">LrmTV</h1>
-        <p className="text-muted-foreground text-sm mb-10">شاهد مع أصدقائك في وقت واحد</p>
-
+        {/* ── Auth Buttons ── */}
         <div className="w-full flex flex-col gap-3">
           <motion.button
             whileTap={{ scale: 0.97 }}
@@ -85,7 +88,41 @@ export default function LandingPage() {
           </motion.button>
         </div>
 
-        <div className="mt-10 flex flex-col items-center gap-2">
+        {/* ── About LrmTV (inline, always visible) ── */}
+        <div className="w-full mt-10 border-t border-white/8 pt-8" dir="rtl">
+          <h2 className="text-center text-white/70 text-sm font-bold mb-1">ما هو LrmTV؟</h2>
+          <p className="text-center text-white/45 text-xs leading-relaxed mb-6">
+            منصة مشاهدة جماعية مجانية تتيح لك ولأصدقائك مشاهدة الفيديوهات والبث المباشر معاً
+            في نفس الوقت — مع دردشة فورية وتزامن تلقائي مثالي، من أي مكان في العالم.
+          </p>
+
+          {/* Features grid */}
+          <div className="grid grid-cols-2 gap-3">
+            {FEATURES.map(({ icon: Icon, title, desc }) => (
+              <div key={title} className="flex flex-col gap-1.5 bg-white/[0.04] rounded-2xl p-3.5 border border-white/8">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <Icon className="w-4 h-4 text-primary flex-shrink-0" />
+                  <span className="text-white/85 text-xs font-bold">{title}</span>
+                </div>
+                <p className="text-white/45 text-[11px] leading-relaxed">{desc}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* How it works */}
+          <div className="mt-6 bg-white/[0.03] rounded-2xl p-4 border border-white/8">
+            <h3 className="text-white/70 text-xs font-bold mb-3">كيف يعمل؟</h3>
+            <ol className="space-y-1.5 text-white/45 text-xs">
+              <li className="flex gap-2"><span className="text-primary font-bold">١</span> أنشئ حساباً أو ادخل كزائر</li>
+              <li className="flex gap-2"><span className="text-primary font-bold">٢</span> أنشئ غرفة مشاهدة أو انضم لغرفة موجودة</li>
+              <li className="flex gap-2"><span className="text-primary font-bold">٣</span> أضف رابط الفيديو (YouTube أو بث مباشر)</li>
+              <li className="flex gap-2"><span className="text-primary font-bold">٤</span> شارك الرابط واستمتع بالمشاهدة الجماعية</li>
+            </ol>
+          </div>
+        </div>
+
+        {/* ── Footer links ── */}
+        <div className="mt-8 pb-12 flex flex-col items-center gap-2">
           <div className="flex items-center flex-wrap justify-center gap-3 text-xs text-muted-foreground/50">
             <button onClick={() => setLocation('/about')} className="hover:text-muted-foreground transition-colors">
               عن الموقع
@@ -104,30 +141,6 @@ export default function LandingPage() {
             </button>
           </div>
           <p className="text-xs text-muted-foreground/30">© 2026 LrmTV · جميع الحقوق محفوظة</p>
-        </div>
-      </div>
-
-      {/* ── Features Section (SEO + AdSense content) ─────────── */}
-      <div className="relative z-10 w-full max-w-2xl mx-auto px-6 pb-16 mt-8">
-        <div className="border-t border-white/5 pt-10">
-          <h2 className="text-center text-white/60 text-xs font-semibold uppercase tracking-widest mb-8">
-            لماذا LrmTV؟
-          </h2>
-          <div className="grid grid-cols-2 gap-4 text-right" dir="rtl">
-            {FEATURES.map(({ icon: Icon, title, desc }) => (
-              <div key={title} className="flex flex-col gap-1.5 bg-white/[0.03] rounded-2xl p-4 border border-white/5">
-                <div className="flex items-center gap-2 mb-0.5">
-                  <Icon className="w-4 h-4 text-primary flex-shrink-0" />
-                  <span className="text-white/80 text-xs font-bold">{title}</span>
-                </div>
-                <p className="text-white/40 text-[11px] leading-relaxed">{desc}</p>
-              </div>
-            ))}
-          </div>
-          <p className="text-center text-white/25 text-[11px] mt-8 leading-relaxed max-w-md mx-auto">
-            LrmTV منصة مشاهدة جماعية تتيح لك مشاهدة الفيديوهات مع أصدقائك في نفس الوقت،
-            مع دردشة فورية وتزامن تلقائي. تدعم مقاطع YouTube وتدفقات HLS المباشرة.
-          </p>
         </div>
       </div>
     </div>
@@ -158,7 +171,7 @@ const FEATURES = [
   {
     icon: Globe,
     title: '6 لغات',
-    desc: 'واجهة كاملة بالعربية والإنجليزية والفرنسية والتركية والإسبانية والصينية.',
+    desc: 'واجهة كاملة بالعربية والإنجليزية والفرنسية والتركية والإسبانية والإندونيسية.',
   },
   {
     icon: Zap,

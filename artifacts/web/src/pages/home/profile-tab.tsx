@@ -298,7 +298,15 @@ export function ProfileTab() {
           {t('logout')}
         </motion.button>
 
-        <div className="flex items-center justify-center gap-4 mt-6 text-xs text-muted-foreground">
+        <div className="flex items-center justify-center flex-wrap gap-3 mt-6 text-xs text-muted-foreground">
+          <button onClick={() => setLocation('/about')} className="hover:text-foreground transition">
+            {t('about') || 'عن الموقع'}
+          </button>
+          <span className="text-white/20">·</span>
+          <button onClick={() => setLocation('/faq')} className="hover:text-foreground transition">
+            {t('faq') || 'أسئلة شائعة'}
+          </button>
+          <span className="text-white/20">·</span>
           <button onClick={() => setLocation('/terms')} className="hover:text-foreground transition">
             {t('terms')}
           </button>
