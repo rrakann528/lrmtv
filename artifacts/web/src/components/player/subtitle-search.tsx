@@ -12,7 +12,7 @@ interface SubtitleSearchProps {
 
 interface SubtitleResult {
   subtitle_id: string;
-  file_id: number;
+  file_id: number | string;
   file_name: string;
   language: string;
   download_count: number;
@@ -22,6 +22,7 @@ interface SubtitleResult {
   season?: number;
   episode?: number;
   feature_type: string;
+  url?: string;
 }
 
 type Tab = 'search' | 'upload' | 'url';
@@ -71,22 +72,28 @@ export default function SubtitleSearch({ isOpen, onClose, onApply, lang = 'en' }
   }, [query, season, episode, searchLang, isAr]);
 
   const doDownload = useCallback(async (item: SubtitleResult) => {
-    if (!item.file_id) return;
+    if (!item.url && !item.file_id) return;
     setDownloading(String(item.subtitle_id));
     try {
-      const r = await fetch('/api/subtitles/download', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ file_id: item.file_id }),
-      });
-      const json = await r.json() as { link?: string; error?: string };
-      if (!r.ok || !json.link) throw new Error(json.error ?? 'Download failed');
+      // Use the direct URL from opensubtitles-api (no API key needed)
+      // or fall back to legacy download endpoint
+      let downloadUrl = item.url ?? '';
+      if (!downloadUrl) {
+        const r = await fetch('/api/subtitles/download', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ file_id: item.file_id }),
+        });
+        const json = await r.json() as { link?: string; error?: string };
+        if (!r.ok || !json.link) throw new Error(json.error ?? 'Download failed');
+        downloadUrl = json.link;
+      }
 
-      const proxy = await fetch(`/api/proxy/subtitle?url=${encodeURIComponent(json.link)}`);
+      const proxy = await fetch(`/api/proxy/subtitle?url=${encodeURIComponent(downloadUrl)}`);
       if (!proxy.ok) throw new Error('Proxy error');
       const text = await proxy.text();
       const label = item.movie_name || item.file_name.replace(/\.[^.]+$/, '') || 'subtitle';
-      onApply(text, label, json.link);
+      onApply(text, label, downloadUrl);
       onClose();
     } catch (e) {
       setSearchError(e instanceof Error ? e.message : String(e));
