@@ -184,7 +184,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
     const [rpSettingsView, setRpSettingsView] = useState<RpSettingsView>(null);
     const [rpSubtitleFontSize, setRpSubtitleFontSize] = useState(100);
     const [rpSubtitleHasBg, setRpSubtitleHasBg] = useState(true);
-    const [rpVideoFit, setRpVideoFit] = useState<'contain' | 'cover' | 'fill'>('contain');
+    const [rpVideoFit, setRpVideoFit] = useState<'contain' | 'cover' | 'fill'>('cover');
     const rpLastTouchTimeRef = useRef(0);
 
     const { t } = useI18n();
