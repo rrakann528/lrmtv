@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Play, Pause, SkipBack, SkipForward,
   Volume2, VolumeX, Maximize, Minimize,
-  MessageSquare, Subtitles, Lock,
+  MessageSquare, Lock,
   MoreVertical, ChevronRight, ChevronLeft, Check,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -22,13 +22,19 @@ export interface QualityLevel {
   label: string;
 }
 
+export interface AudioTrack {
+  id: number;
+  label: string;
+  lang?: string;
+}
+
 export interface ToastMessage {
   id: string;
   username: string;
   content: string;
 }
 
-type SettingsView = null | 'main' | 'quality' | 'fit' | 'subtitle';
+type SettingsView = null | 'main' | 'quality' | 'fit' | 'subtitle' | 'audio';
 
 export type VideoFit = 'contain' | 'cover' | 'fill';
 
@@ -64,6 +70,10 @@ interface PlayerControlsProps {
   onSubtitleFontSizeChange?: (size: number) => void;
   subtitleHasBg?: boolean;
   onSubtitleHasBgChange?: (bg: boolean) => void;
+  // Audio tracks / dubbing
+  audioTracks?: AudioTrack[];
+  activeAudioTrack?: number;
+  onAudioTrackChange?: (id: number) => void;
 }
 
 function formatTime(s: number): string {
@@ -117,6 +127,9 @@ export default function PlayerControls({
   onSubtitleFontSizeChange,
   subtitleHasBg = true,
   onSubtitleHasBgChange,
+  audioTracks = [],
+  activeAudioTrack = 0,
+  onAudioTrackChange,
 }: PlayerControlsProps) {
   const { t } = useI18n();
   const [currentTime, setCurrentTime] = useState(0);
@@ -125,7 +138,6 @@ export default function PlayerControls({
   const [isMuted, setIsMuted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showControls, setShowControls] = useState(true);
-  const [showSubMenu, setShowSubMenu] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [settingsView, setSettingsView] = useState<SettingsView>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -190,7 +202,6 @@ export default function PlayerControls({
     const isTouchEvent = Date.now() - lastTouchTimeRef.current < 500;
     if (isTouchEvent) {
       if (settingsView !== null) { setSettingsView(null); return; }
-      if (showSubMenu) { setShowSubMenu(false); return; }
       if (showControls) {
         setShowControls(false);
         if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
@@ -200,7 +211,7 @@ export default function PlayerControls({
     } else {
       togglePlay();
     }
-  }, [showControls, resetTimer, togglePlay, settingsView, showSubMenu]);
+  }, [showControls, resetTimer, togglePlay, settingsView]);
 
   const seekRelative = useCallback((delta: number) => {
     const v = videoRef.current;
@@ -281,6 +292,35 @@ export default function PlayerControls({
                   {FIT_LABELS[f][lang === 'ar' ? 'ar' : 'en']}
                 </span>
                 {f === videoFit && <Check className="w-4 h-4 text-primary" />}
+              </button>
+            ))}
+          </div>
+        </>
+      );
+    }
+
+    if (settingsView === 'audio') {
+      return (
+        <>
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10">
+            <button className="p-1 rounded hover:bg-white/10 transition" onClick={() => setSettingsView('main')}>
+              <ChevronLeft className="w-4 h-4 text-white" />
+            </button>
+            <span className="text-sm font-semibold text-white">{lang === 'ar' ? 'الصوت / الدبلجة' : 'Audio / Dubbing'}</span>
+          </div>
+          <div className="py-1 max-h-48 overflow-y-auto">
+            {audioTracks.length === 0 ? (
+              <p className="text-center text-white/40 text-sm py-3">{lang === 'ar' ? 'لا توجد مسارات صوتية' : 'No audio tracks'}</p>
+            ) : audioTracks.map(at => (
+              <button
+                key={at.id}
+                className="w-full flex items-center justify-between px-4 py-2 text-sm hover:bg-white/10 transition"
+                onClick={() => { onAudioTrackChange?.(at.id); setSettingsView(null); }}
+              >
+                <span className={cn(at.id === activeAudioTrack ? 'text-primary font-medium' : 'text-white/80')}>
+                  {at.label}{at.lang ? ` (${at.lang})` : ''}
+                </span>
+                {at.id === activeAudioTrack && <Check className="w-4 h-4 text-primary" />}
               </button>
             ))}
           </div>
@@ -390,6 +430,25 @@ export default function PlayerControls({
               <span className="text-white/90">{lang === 'ar' ? 'إعدادات الترجمة' : 'Subtitle Style'}</span>
             </div>
             <ChevronRight className="w-4 h-4 text-white/30" />
+          </button>
+
+          {/* Audio / dubbing */}
+          <button
+            className="w-full flex items-center justify-between px-4 py-2.5 text-sm hover:bg-white/10 transition"
+            onClick={() => setSettingsView('audio')}
+          >
+            <div className="flex items-center gap-2.5">
+              <span className="text-base">🎧</span>
+              <span className="text-white/90">{lang === 'ar' ? 'الصوت / الدبلجة' : 'Audio / Dubbing'}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              {audioTracks.length > 0 && (
+                <span className="text-xs text-white/40">
+                  {audioTracks.find(a => a.id === activeAudioTrack)?.label ?? ''}
+                </span>
+              )}
+              <ChevronRight className="w-4 h-4 text-white/30" />
+            </div>
           </button>
 
           <div className="border-t border-white/10 mt-1 pt-1">
@@ -643,55 +702,6 @@ export default function PlayerControls({
 
                 {/* RIGHT: Subtitle · Chat · Fullscreen */}
                 <div className="flex items-center">
-                  {/* Subtitle quick-toggle in bottom bar (kept for HLS tracks) */}
-                  {(subtitleTracks.length > 0 || customSubtitleLabel) && (
-                    <div className="relative">
-                      <button
-                        className={cn(
-                          'p-2.5 rounded-full hover:bg-white/10 transition text-white',
-                          (activeSubtitleId >= 0 || activeSubtitleId === -2) && 'text-primary',
-                        )}
-                        onClick={() => setShowSubMenu((s) => !s)}
-                      >
-                        <Subtitles className="w-5 h-5" />
-                      </button>
-                      <AnimatePresence>
-                        {showSubMenu && (
-                          <motion.div
-                            initial={{ opacity: 0, y: 6 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: 6 }}
-                            className="absolute bottom-full right-0 mb-2 bg-zinc-900/95 backdrop-blur rounded-xl border border-white/10 p-1 min-w-[170px] shadow-2xl z-20"
-                          >
-                            <button
-                              className={cn('w-full text-right px-3 py-1.5 rounded-lg text-sm hover:bg-white/10', activeSubtitleId === -1 ? 'text-primary' : 'text-white/70')}
-                              onClick={() => { onSubtitleChange?.(-1); setShowSubMenu(false); }}
-                            >
-                              {t('off')}
-                            </button>
-                            {customSubtitleLabel && (
-                              <button
-                                className={cn('w-full text-right px-3 py-1.5 rounded-lg text-sm hover:bg-white/10 truncate', activeSubtitleId === -2 ? 'text-primary' : 'text-white/70')}
-                                onClick={() => { onSubtitleChange?.(-2); setShowSubMenu(false); }}
-                              >
-                                {customSubtitleLabel}
-                              </button>
-                            )}
-                            {subtitleTracks.map((tk) => (
-                              <button
-                                key={tk.id}
-                                className={cn('w-full text-right px-3 py-1.5 rounded-lg text-sm hover:bg-white/10', activeSubtitleId === tk.id ? 'text-primary' : 'text-white/70')}
-                                onClick={() => { onSubtitleChange?.(tk.id); setShowSubMenu(false); }}
-                              >
-                                {tk.name || tk.lang || `Track ${tk.id + 1}`}
-                              </button>
-                            ))}
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
-                  )}
-
                   <button
                     className={cn('p-2.5 rounded-full hover:bg-white/10 transition text-white', isChatOpen && 'text-primary bg-white/10')}
                     onClick={onToggleChat}

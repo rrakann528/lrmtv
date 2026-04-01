@@ -11,7 +11,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { normalizeUrl, detectVideoType } from '@/lib/detect-video-type';
 import {
   AlertTriangle, Play, Pause, Maximize, Minimize,
-  MessageSquare, SkipBack, SkipForward, Volume2, VolumeX, Lock, Subtitles,
+  MessageSquare, SkipBack, SkipForward, Volume2, VolumeX, Lock,
+  MoreVertical, ChevronRight, ChevronLeft, Check,
 } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 import { enterFullscreen, exitFullscreen, isFullscreenActive, isSimulatedFullscreen, onFullscreenChange } from '@/lib/fullscreen';
@@ -178,6 +179,14 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
     const lastSkippedRef = useRef<string | null>(null);
     const [sponsorSkipNotice, setSponsorSkipNotice] = useState(false);
 
+    // ReactPlayer settings menu state
+    type RpSettingsView = null | 'main' | 'fit' | 'subtitle';
+    const [rpSettingsView, setRpSettingsView] = useState<RpSettingsView>(null);
+    const [rpSubtitleFontSize, setRpSubtitleFontSize] = useState(100);
+    const [rpSubtitleHasBg, setRpSubtitleHasBg] = useState(true);
+    const [rpVideoFit, setRpVideoFit] = useState<'contain' | 'cover' | 'fill'>('contain');
+    const rpLastTouchTimeRef = useRef(0);
+
     const { t } = useI18n();
 
     const normalizedUrl = normalizeUrl(url);
@@ -225,11 +234,11 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
     const resetOverlayTimer = useCallback(() => {
       setShowOverlay(true);
       if (overlayTimerRef.current) clearTimeout(overlayTimerRef.current);
-      // Only auto-hide when playing; keep visible when paused
-      if (playing) {
+      // Only auto-hide when playing and settings not open; keep visible when paused
+      if (playing && rpSettingsView === null) {
         overlayTimerRef.current = setTimeout(() => setShowOverlay(false), 4000);
       }
-    }, [playing]);
+    }, [playing, rpSettingsView]);
 
     // Show overlay whenever paused
     useEffect(() => {
@@ -614,13 +623,167 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
               exit={{ opacity: 0 }}
               transition={{ duration: 0.15 }}
               className="absolute inset-0 z-10 flex flex-col justify-end select-none"
+              onTouchStart={() => { rpLastTouchTimeRef.current = Date.now(); }}
               onClick={(e) => {
-                // tap center of overlay only resets the hide-timer, no playback change
                 if (e.target === e.currentTarget) {
                   resetOverlayTimer();
                 }
               }}
             >
+              {/* ── Three-dots settings button — top-left ── */}
+              <div
+                className="absolute top-2 left-2 z-30"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <button
+                  className={cn(
+                    'p-2 rounded-full transition bg-black/30 hover:bg-black/50 text-white backdrop-blur-sm',
+                    rpSettingsView !== null && 'bg-black/60',
+                  )}
+                  onClick={() => setRpSettingsView(v => v === null ? 'main' : null)}
+                >
+                  <MoreVertical className="w-5 h-5" />
+                </button>
+                <AnimatePresence>
+                  {rpSettingsView !== null && (() => {
+                    const rpFitLabels = {
+                      contain: { ar: 'عادي', en: 'Normal' },
+                      cover:   { ar: 'تملأ الشاشة', en: 'Fill' },
+                      fill:    { ar: 'ممتد', en: 'Stretch' },
+                    } as const;
+                    const rpFontSizes = [
+                      { value: 75,  label: { ar: 'صغير', en: 'Small' } },
+                      { value: 100, label: { ar: 'متوسط', en: 'Medium' } },
+                      { value: 130, label: { ar: 'كبير', en: 'Large' } },
+                      { value: 170, label: { ar: 'كبير جداً', en: 'X-Large' } },
+                    ];
+                    const renderRpSettings = () => {
+                      if (rpSettingsView === 'fit') {
+                        return (
+                          <>
+                            <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10">
+                              <button className="p-1 rounded hover:bg-white/10 transition" onClick={() => setRpSettingsView('main')}>
+                                <ChevronLeft className="w-4 h-4 text-white" />
+                              </button>
+                              <span className="text-sm font-semibold text-white">{lang === 'ar' ? 'نسبة الصورة' : 'Aspect Ratio'}</span>
+                            </div>
+                            <div className="py-1">
+                              {(['contain', 'cover', 'fill'] as const).map(f => (
+                                <button
+                                  key={f}
+                                  className="w-full flex items-center justify-between px-4 py-2 text-sm hover:bg-white/10 transition"
+                                  onClick={() => { setRpVideoFit(f); setRpSettingsView(null); }}
+                                >
+                                  <span className={cn(f === rpVideoFit ? 'text-primary font-medium' : 'text-white/80')}>
+                                    {rpFitLabels[f][lang === 'ar' ? 'ar' : 'en']}
+                                  </span>
+                                  {f === rpVideoFit && <Check className="w-4 h-4 text-primary" />}
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        );
+                      }
+                      if (rpSettingsView === 'subtitle') {
+                        return (
+                          <>
+                            <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10">
+                              <button className="p-1 rounded hover:bg-white/10 transition" onClick={() => setRpSettingsView('main')}>
+                                <ChevronLeft className="w-4 h-4 text-white" />
+                              </button>
+                              <span className="text-sm font-semibold text-white">{lang === 'ar' ? 'إعدادات الترجمة' : 'Subtitle Style'}</span>
+                            </div>
+                            <div className="p-3 space-y-4">
+                              <div>
+                                <p className="text-xs text-white/50 mb-2">{lang === 'ar' ? 'حجم الخط' : 'Font Size'}</p>
+                                <div className="flex gap-1.5">
+                                  {rpFontSizes.map(fs => (
+                                    <button
+                                      key={fs.value}
+                                      className={cn(
+                                        'flex-1 py-1.5 rounded-lg text-xs font-medium transition border',
+                                        rpSubtitleFontSize === fs.value
+                                          ? 'bg-primary/20 border-primary text-primary'
+                                          : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10',
+                                      )}
+                                      onClick={() => setRpSubtitleFontSize(fs.value)}
+                                    >
+                                      {fs.label[lang === 'ar' ? 'ar' : 'en']}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <span className="text-sm text-white/80">{lang === 'ar' ? 'خلفية الترجمة' : 'Background'}</span>
+                                <button
+                                  className={cn('relative w-11 h-6 rounded-full transition-colors', rpSubtitleHasBg ? 'bg-primary' : 'bg-white/20')}
+                                  onClick={() => setRpSubtitleHasBg(b => !b)}
+                                >
+                                  <span className={cn('absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-all', rpSubtitleHasBg ? 'left-6' : 'left-1')} />
+                                </button>
+                              </div>
+                            </div>
+                          </>
+                        );
+                      }
+                      // Main menu
+                      return (
+                        <>
+                          <div className="px-3 py-2 border-b border-white/10">
+                            <span className="text-sm font-semibold text-white">{lang === 'ar' ? 'الإعدادات' : 'Settings'}</span>
+                          </div>
+                          <div className="py-1">
+                            <button
+                              className="w-full flex items-center justify-between px-4 py-2.5 text-sm hover:bg-white/10 transition"
+                              onClick={() => setRpSettingsView('fit')}
+                            >
+                              <div className="flex items-center gap-2.5">
+                                <span>▢</span>
+                                <span className="text-white/90">{lang === 'ar' ? 'نسبة الصورة' : 'Aspect Ratio'}</span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs text-white/40">{rpFitLabels[rpVideoFit][lang === 'ar' ? 'ar' : 'en']}</span>
+                                <ChevronRight className="w-4 h-4 text-white/30" />
+                              </div>
+                            </button>
+                            <button
+                              className="w-full flex items-center justify-between px-4 py-2.5 text-sm hover:bg-white/10 transition"
+                              onClick={() => setRpSettingsView('subtitle')}
+                            >
+                              <div className="flex items-center gap-2.5">
+                                <span>CC</span>
+                                <span className="text-white/90">{lang === 'ar' ? 'إعدادات الترجمة' : 'Subtitle Style'}</span>
+                              </div>
+                              <ChevronRight className="w-4 h-4 text-white/30" />
+                            </button>
+                            <div className="border-t border-white/10 mt-1 pt-1">
+                              <button
+                                className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm hover:bg-white/10 transition"
+                                onClick={() => { setShowSubtitleSearch(true); setRpSettingsView(null); }}
+                              >
+                                <span>🔍</span>
+                                <span className="text-white/70">{lang === 'ar' ? 'البحث عن ترجمة' : 'Search Subtitle'}</span>
+                              </button>
+                            </div>
+                          </div>
+                        </>
+                      );
+                    };
+                    return (
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.92, y: -6 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.92, y: -6 }}
+                        transition={{ duration: 0.15 }}
+                        className="absolute top-10 left-0 w-64 bg-zinc-900/97 backdrop-blur-xl rounded-xl border border-white/10 shadow-2xl overflow-hidden"
+                      >
+                        {renderRpSettings()}
+                      </motion.div>
+                    );
+                  })()}
+                </AnimatePresence>
+              </div>
+
               {/* Center play/pause indicator */}
               {!playing && (
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -715,18 +878,8 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
                     )}
                   </div>
 
-                  {/* ── RIGHT: Subtitles · Volume · Chat · Fullscreen — always interactive for ALL users ── */}
+                  {/* ── RIGHT: Volume · Chat · Fullscreen — always interactive for ALL users ── */}
                   <div className="flex items-center">
-                    {/* Subtitles */}
-                    <button
-                      className={cn(
-                        'p-2.5 rounded-full hover:bg-white/10 transition text-white',
-                        customSubtitleCues.length > 0 && 'text-primary',
-                      )}
-                      onClick={() => setShowSubtitleSearch(true)}
-                    >
-                      <Subtitles className="w-5 h-5" />
-                    </button>
                     <button
                       className="p-2.5 text-white hover:bg-white/10 rounded-full transition"
                       onClick={() => setRpMuted((m) => !m)}
@@ -764,9 +917,9 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
             <div
               className="text-white text-center font-medium leading-snug px-3 py-1.5 rounded-lg max-w-[90%]"
               style={{
-                fontSize: 'clamp(13px, 2.2vw, 20px)',
+                fontSize: `clamp(${Math.round(13 * rpSubtitleFontSize / 100)}px, ${(2.2 * rpSubtitleFontSize / 100).toFixed(2)}vw, ${Math.round(20 * rpSubtitleFontSize / 100)}px)`,
                 textShadow: '0 1px 4px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.7)',
-                background: 'rgba(0,0,0,0.45)',
+                background: rpSubtitleHasBg ? 'rgba(0,0,0,0.45)' : 'transparent',
                 whiteSpace: 'pre-line',
               }}
             >

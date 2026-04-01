@@ -10,7 +10,7 @@ import Hls from 'hls.js';
 import { Play, AlertTriangle, RotateCcw, Loader2 } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 import { onFullscreenChange } from '@/lib/fullscreen';
-import PlayerControls, { type SubtitleTrack, type ToastMessage, type QualityLevel, type VideoFit } from './player-controls';
+import PlayerControls, { type SubtitleTrack, type ToastMessage, type QualityLevel, type VideoFit, type AudioTrack } from './player-controls';
 import FullscreenChat from './fullscreen-chat';
 import SubtitleSearch from './subtitle-search';
 import { type ChatMessage } from './smart-player';
@@ -199,6 +199,10 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
       if (v) v.style.objectFit = videoFit;
     }, [videoFit]);
 
+    // Audio tracks
+    const [audioTracks, setAudioTracks] = useState<AudioTrack[]>([]);
+    const [activeAudioTrack, setActiveAudioTrack] = useState(0);
+
     // Quality change handler
     const handleQualityChange = useCallback((id: number) => {
       const hls = hlsRef.current;
@@ -210,6 +214,14 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         hls.loadLevel = id;
       }
       setActiveQuality(id);
+    }, []);
+
+    // Audio track change handler
+    const handleAudioTrackChange = useCallback((id: number) => {
+      const hls = hlsRef.current;
+      if (!hls) return;
+      hls.audioTrack = id;
+      setActiveAudioTrack(id);
     }, []);
 
     // Poll video.currentTime to find the active subtitle cue
@@ -656,6 +668,18 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           });
           setQualityLevels(levels);
           setActiveQuality(-1);
+          // Build audio track list from HLS manifest
+          if (hls.audioTracks.length > 1) {
+            const aTracks: AudioTrack[] = hls.audioTracks.map((at, i) => ({
+              id: i,
+              label: at.name || at.lang || `Track ${i + 1}`,
+              lang: at.lang,
+            }));
+            setAudioTracks(aTracks);
+            setActiveAudioTrack(hls.audioTrack >= 0 ? hls.audioTrack : 0);
+          } else {
+            setAudioTracks([]);
+          }
           startStallWatchdog();
           // signalReady() is intentionally NOT called here.
           // It fires from the 'canplay' event once the buffer at startPosition is truly
@@ -1114,6 +1138,9 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           onSubtitleFontSizeChange={setSubtitleFontSize}
           subtitleHasBg={subtitleHasBg}
           onSubtitleHasBgChange={setSubtitleHasBg}
+          audioTracks={audioTracks}
+          activeAudioTrack={activeAudioTrack}
+          onAudioTrackChange={handleAudioTrackChange}
         />
 
         <FullscreenChat
