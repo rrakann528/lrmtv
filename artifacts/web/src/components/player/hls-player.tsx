@@ -105,6 +105,11 @@ interface HlsPlayerProps {
   isLiveHint?: boolean;
   /** Fired after the manifest loads and live/VOD status is determined */
   onIsLive?: (isLive: boolean) => void;
+  /**
+   * Called when the CF Worker proxy is CORS-blocked by the upstream CDN.
+   * The parent should switch playableUrl to the Railway fallback proxy.
+   */
+  onProxyFallback?: () => void;
 }
 
 export interface HlsPlayerHandle {
@@ -136,6 +141,7 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
       externalSubtitle,
       isLiveHint = false,
       onIsLive,
+      onProxyFallback,
     },
     ref,
   ) => {
@@ -721,7 +727,12 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
                 hls.destroy();
                 if (stallWatchdog) { clearInterval(stallWatchdog); stallWatchdog = null; }
                 setStatusMsg(null);
-                onFatal();
+                // CF Worker blocked by upstream CDN → fall back to Railway proxy silently
+                if (src.includes('workers.dev') && onProxyFallback) {
+                  onProxyFallback();
+                } else {
+                  onFatal();
+                }
                 return;
               }
               netErrCount++;
