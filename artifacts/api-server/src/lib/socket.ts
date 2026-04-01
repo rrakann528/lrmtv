@@ -19,7 +19,52 @@ export function getCachedSetting(key: string, fallback = ""): string {
   return _settingsMap.get(key) ?? fallback;
 }
 
-refreshSettingsCache();
+// ── Default word-filter seed (runs once at startup) ──────────────────────────
+const DEFAULT_WORD_FILTER = [
+  // English
+  "fuck","fucking","fucker","fucked","motherfucker",
+  "shit","bullshit",
+  "bitch","bitches",
+  "asshole","ass",
+  "bastard",
+  "dick","cock","pussy","cunt",
+  "nigger","nigga",
+  "faggot","fag",
+  "whore","slut",
+  "retard","idiot","stupid",
+  // Arabic
+  "كس","كسمك","كسم",
+  "زب","أير","اير",
+  "طيز",
+  "خرا","خره",
+  "عرص","عرصة",
+  "شرموط","شرموطة","شراميط",
+  "نيك","ينيك","ينيكك",
+  "قحبة","قحاب",
+  "منيوك","مكنوك",
+  "يلعن","العن",
+];
+
+async function seedDefaultWordFilter(): Promise<void> {
+  try {
+    const [row] = await db.select().from(siteSettingsTable)
+      .where(eq(siteSettingsTable.key, "word_filter")).limit(1);
+    const existing: string[] = row ? JSON.parse(row.value || "[]") : [];
+    if (existing.length === 0) {
+      await db.insert(siteSettingsTable)
+        .values({ key: "word_filter", value: JSON.stringify(DEFAULT_WORD_FILTER) })
+        .onConflictDoUpdate({ target: siteSettingsTable.key, set: { value: JSON.stringify(DEFAULT_WORD_FILTER) } });
+    }
+  } catch { /* DB not ready yet — will be seeded on next server start */ }
+}
+
+async function bootInit(): Promise<void> {
+  await refreshSettingsCache();
+  await seedDefaultWordFilter();
+  await refreshSettingsCache();
+}
+
+bootInit();
 setInterval(refreshSettingsCache, 60_000);
 
 interface RoomUser {
