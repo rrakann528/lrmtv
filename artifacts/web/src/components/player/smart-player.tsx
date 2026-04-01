@@ -237,20 +237,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       ? (videoType === 'hls' || videoType === 'dash')
       : (videoType === 'hls' || videoType === 'dash' || videoType === 'html5'));
 
-    // ── Dual-proxy setup: CF Worker (primary) → Railway (fallback) ───────────
-    const cfProxyUrl  = `https://lrmtv-proxy.rrakann528.workers.dev/?url=${encodeURIComponent(normalizedUrl)}`;
-    const apiProxyUrl = `/api/proxy/stream?url=${encodeURIComponent(normalizedUrl)}`;
-    const proxyUrl    = cfProxyUrl; // alias used in CORS check below
-
-    // Stable ref so handleProxyFallback never captures a stale apiProxyUrl
-    const apiProxyUrlRef = useRef(apiProxyUrl);
-    apiProxyUrlRef.current = apiProxyUrl;
-
-    // Called by HlsPlayer when CF Worker is CORS-blocked by the upstream CDN.
-    // Switches to Railway proxy without showing an error to the user.
-    const handleProxyFallback = useCallback(() => {
-      setPlayableUrl(apiProxyUrlRef.current);
-    }, []);
+    const proxyUrl = `https://lrmtv-proxy.rrakann528.workers.dev/?url=${encodeURIComponent(normalizedUrl)}`;
 
     // ── Smart proxy resolution ────────────────────────────────────────────────
     // Player is hidden (corsChecking=true) until the CORS HEAD check resolves.
@@ -660,7 +647,6 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
                 externalSubtitle={externalSubtitle}
                 isLiveHint={isLiveHint}
                 onIsLive={onIsLive}
-                onProxyFallback={handleProxyFallback}
               />
               {/* Join/leave toast notifications — bottom-right, fullscreen only */}
               <div className="absolute bottom-20 right-4 z-50 flex flex-col items-end gap-2 pointer-events-none">
