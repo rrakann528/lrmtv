@@ -13,6 +13,7 @@ import {
   kickUserFromAllRooms, getUserActiveRooms, forceRoomVideoState, sendRoomAnnouncement,
   updateRoomCreator, siteMuteUser, refreshSettingsCache,
 } from "../lib/socket";
+import { refreshBannedIps as refreshIpCache } from "../lib/ipCache";
 
 const router = Router();
 
@@ -355,6 +356,7 @@ router.post("/admin/banned-ips", requireSiteAdmin, async (req, res): Promise<voi
   if (!ip?.trim()) { res.status(400).json({ error: "عنوان IP مطلوب" }); return; }
   try {
     const [row] = await db.insert(bannedIpsTable).values({ ip: ip.trim(), reason: reason || "" }).returning();
+    refreshIpCache();
     res.json(row);
   } catch (err: any) {
     if (err?.code === "23505") { res.status(409).json({ error: "هذا الـ IP محظور مسبقاً" }); return; }
@@ -367,6 +369,7 @@ router.delete("/admin/banned-ips/:id", requireSiteAdmin, async (req, res): Promi
   if (isNaN(id)) { res.status(400).json({ error: "معرف غير صالح" }); return; }
   try {
     await db.delete(bannedIpsTable).where(eq(bannedIpsTable.id, id));
+    refreshIpCache();
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: "خطأ داخلي" }); }
 });
@@ -730,6 +733,7 @@ router.post("/admin/users/:id/ban-ip", requireSiteAdmin, async (req, res): Promi
     if (!user?.lastIp) { res.status(404).json({ error: "لا يوجد IP محفوظ لهذا المستخدم" }); return; }
     await db.insert(bannedIpsTable).values({ ip: user.lastIp, reason: `حظر تلقائي: @${user.username}` })
       .onConflictDoNothing();
+    refreshIpCache();
     res.json({ ok: true, ip: user.lastIp });
   } catch (err) { res.status(500).json({ error: "خطأ داخلي" }); }
 });
