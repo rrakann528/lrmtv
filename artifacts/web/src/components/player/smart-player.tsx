@@ -237,7 +237,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       ? (videoType === 'hls' || videoType === 'dash')
       : (videoType === 'hls' || videoType === 'dash' || videoType === 'html5'));
 
-    const proxyUrl = `/api/proxy/stream?url=${encodeURIComponent(normalizedUrl)}`;
+    const proxyUrl = `https://lrmtv-proxy.rrakann528.workers.dev/?url=${encodeURIComponent(normalizedUrl)}`;
 
     // ── Smart proxy resolution ────────────────────────────────────────────────
     // Player is hidden (corsChecking=true) until the CORS HEAD check resolves.
