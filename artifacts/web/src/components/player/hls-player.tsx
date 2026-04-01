@@ -216,13 +216,22 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
       setActiveQuality(id);
     }, []);
 
-    // Audio track change handler
+    // Audio track change handler — works for both HLS.js (hls.audioTrack) and native video (AudioTrackList)
     const handleAudioTrackChange = useCallback((id: number) => {
       const hls = hlsRef.current;
-      if (!hls) return;
-      hls.audioTrack = id;
+      if (hls) {
+        hls.audioTrack = id;
+      } else {
+        // Native Safari AudioTrackList: enable selected, disable others
+        const nativeTracks = (videoRef.current as unknown as { audioTracks?: AudioTrackList & { [i: number]: { label: string; language: string; enabled: boolean } } })?.audioTracks;
+        if (nativeTracks) {
+          for (let i = 0; i < nativeTracks.length; i++) {
+            nativeTracks[i].enabled = i === id;
+          }
+        }
+      }
       setActiveAudioTrack(id);
-    }, []);
+    }, [videoRef]);
 
     // Poll video.currentTime to find the active subtitle cue
     useEffect(() => {
@@ -335,6 +344,8 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
       setMutedForAutoplay(false);
       setSubtitleTracks([]);
       setActiveSubtitleId(-1);
+      setAudioTracks([]);
+      setActiveAudioTrack(0);
 
       if (reconnTimerRef.current) { clearTimeout(reconnTimerRef.current); reconnTimerRef.current = null; }
 
@@ -727,6 +738,28 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
               const live = !isFinite(video.duration) || video.duration === Infinity;
               isLiveRef.current = live; setIsLive(live);
               onDurationChange(); setStatusMsg(null); setError(null); startStallWatchdog(); signalReady();
+              // Read native audio tracks from Safari's AudioTrackList API.
+              // We delay slightly so the browser has time to expose all tracks after loadedmetadata.
+              setTimeout(() => {
+                if (cancelled) return;
+                const nativeTracks = (video as unknown as { audioTracks?: AudioTrackList & { [i: number]: { label: string; language: string; enabled: boolean } } }).audioTracks;
+                if (nativeTracks && nativeTracks.length > 1) {
+                  const aTracks: AudioTrack[] = [];
+                  for (let i = 0; i < nativeTracks.length; i++) {
+                    aTracks.push({
+                      id: i,
+                      label: nativeTracks[i].label || nativeTracks[i].language || `Track ${i + 1}`,
+                      lang: nativeTracks[i].language || undefined,
+                    });
+                  }
+                  setAudioTracks(aTracks);
+                  let activeIdx = 0;
+                  for (let i = 0; i < nativeTracks.length; i++) {
+                    if (nativeTracks[i].enabled) { activeIdx = i; break; }
+                  }
+                  setActiveAudioTrack(activeIdx);
+                }
+              }, 600);
               if (playing) {
                 video.play().catch(() => {
                   video.muted = true;
