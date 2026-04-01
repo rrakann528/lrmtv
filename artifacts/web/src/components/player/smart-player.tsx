@@ -616,6 +616,26 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
 
     // ── HLS: custom player with built-in controls ────────────────────────────
     if (isHls) {
+      // workers.dev URLs only work via native iOS video — no free cloud proxy
+      // can access them. Show a clear error on Android/desktop immediately.
+      const isWorkersDevUrl = normalizedUrl.includes('.workers.dev');
+      if (isWorkersDevUrl && !isIosBrowser) {
+        return (
+          <div ref={containerRef} className="absolute inset-0 bg-black flex items-center justify-center">
+            <div className="text-center space-y-3 px-8">
+              <div className="w-14 h-14 rounded-full bg-amber-500/15 flex items-center justify-center mx-auto">
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-7 h-7 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                  <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                </svg>
+              </div>
+              <p className="text-white font-semibold text-base">{t('workersDevError')}</p>
+              <p className="text-white/50 text-sm max-w-xs mx-auto leading-relaxed">{t('workersDevErrorDesc')}</p>
+            </div>
+          </div>
+        );
+      }
+
       return (
         <div ref={containerRef} className="absolute inset-0 bg-black">
           {/* While the CORS check is running, hide the player entirely so
