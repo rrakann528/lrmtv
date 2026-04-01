@@ -5,7 +5,6 @@ import helmet from "helmet";
 import path from "path";
 import { existsSync } from "fs";
 import router from "./routes";
-import { db, bannedIpsTable } from "@workspace/db";
 import {
   botDetection,
   generalLimiter,
@@ -16,25 +15,13 @@ import {
   securityHeaders,
 } from "./middlewares/security";
 import { getCachedSetting, refreshSettingsCache } from "./lib/socket";
-
-// ── Cache banned IPs in memory (refresh every 30s) ───────────────────────────
-let _bannedIps = new Set<string>();
-
-async function refreshBannedIps() {
-  try {
-    const ips = await db.select({ ip: bannedIpsTable.ip }).from(bannedIpsTable);
-    _bannedIps = new Set(ips.map(r => r.ip));
-  } catch { /* DB not ready yet */ }
-}
-refreshBannedIps();
-setInterval(refreshBannedIps, 30_000);
+import { isBannedIp, refreshBannedIps } from "./lib/ipCache";
 
 export function isRegistrationEnabled() { return true; }
 
 // ── IP ban middleware ─────────────────────────────────────────────────────────
 function ipBanMiddleware(req: Request, res: Response, next: NextFunction): void {
-  const ip = req.ip || "";
-  if (_bannedIps.has(ip)) { res.status(403).json({ error: "محظور" }); return; }
+  if (isBannedIp(req.ip || "")) { res.status(403).json({ error: "محظور" }); return; }
   next();
 }
 
@@ -48,7 +35,7 @@ function maintenanceMiddleware(req: Request, res: Response, next: NextFunction):
   res.status(503).json({ error: "الموقع في وضع الصيانة. يرجى المحاولة لاحقاً." });
 }
 
-// Expose for admin routes to call after ban-ip changes
+// Expose for admin routes to call after ban-ip changes (instant effect)
 export function refreshIpCache() { refreshBannedIps(); }
 export function refreshAllCaches() { refreshBannedIps(); refreshSettingsCache(); }
 
