@@ -529,6 +529,37 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
             isLiveHint={isLiveHint}
             onIsLive={onIsLive}
           />
+          {/* Join/leave toast notifications — bottom-right, fullscreen only */}
+          <div className="absolute bottom-20 right-4 z-50 flex flex-col items-end gap-2 pointer-events-none">
+            <AnimatePresence>
+              {roomNotifications.map((n) => (
+                <motion.div
+                  key={n.id}
+                  initial={{ opacity: 0, x: 30, scale: 0.92 }}
+                  animate={{ opacity: 1, x: 0, scale: 1 }}
+                  exit={{ opacity: 0, x: 30, scale: 0.92 }}
+                  transition={{ type: 'spring', stiffness: 320, damping: 26 }}
+                  className="flex items-center gap-2 bg-black/70 backdrop-blur-md rounded-2xl rounded-br-sm px-3 py-2 shadow-xl border border-white/10 max-w-[220px]"
+                  dir="rtl"
+                >
+                  <div
+                    className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-[10px] font-bold text-white"
+                    style={{ backgroundColor: generateColorFromString(n.username) }}
+                  >
+                    {n.username.substring(0, 2).toUpperCase()}
+                  </div>
+                  <div className="min-w-0 text-right">
+                    <p className="text-[11px] font-semibold text-white/80 leading-none">{n.username}</p>
+                    <p className={`text-[10px] mt-0.5 leading-none ${n.type === 'join' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {n.type === 'join'
+                        ? (lang === 'ar' ? 'دخل الغرفة' : 'joined')
+                        : (lang === 'ar' ? 'غادر الغرفة' : 'left')}
+                    </p>
+                  </div>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          </div>
         </div>
       );
     }
