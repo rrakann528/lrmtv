@@ -191,7 +191,11 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
         } catch {}
       }, 80);
       return () => clearTimeout(timer);
-    }, [rpMuted, isHls]);
+    // isHls is intentionally omitted from deps — it's declared later in the
+    // function body and would cause a TDZ error in the dep array.
+    // The callback closure always captures the correct value at call time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [rpMuted]);
 
     // ── Subtitle state (ReactPlayer branch only) ─────────────────────────────
     const [showSubtitleSearch, setShowSubtitleSearch] = useState(false);
