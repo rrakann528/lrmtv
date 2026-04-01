@@ -326,6 +326,15 @@ export default function RoomPage() {
       isRemoteSeekRef.current = true;
       playerRef.current.seekTo(syncState.time, 'seconds');
       setTimeout(() => { isRemoteSeekRef.current = false; }, 400);
+      // After a seek the browser may leave the video in a paused/waiting state even
+      // though playing=true — especially for proxied streams that need time to buffer
+      // the new position.  Force play() once the seek flag clears so the video
+      // resumes as soon as data is available.
+      if (syncState.playing) {
+        setTimeout(() => {
+          if (syncPlayingRef.current) playerRef.current?.play();
+        }, 500);
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [syncState.time, syncState.playing, syncState.source, syncState.isLive, isSeeking, playerReady, watcherReady]);
@@ -571,14 +580,15 @@ export default function RoomPage() {
                       setWatcherReadyState(true);
                       // Call play() synchronously within the user gesture —
                       // iOS Safari ONLY allows autoplay when play() is triggered
-                      // directly from a user interaction (not from useEffect/setTimeout)
+                      // directly from a user interaction (not from useEffect/setTimeout).
                       playerRef.current?.play();
-                      // Request a fresh timestamp from the server so the sync effect
-                      // can seek this player to the current position.
-                      // Do NOT call emitSync here — that would push our stale
-                      // syncState.time (set at join time) to all other clients,
-                      // causing everyone to seek to our outdated position.
-                      requestSync();
+                      // Do NOT emit video-sync or requestSync here.
+                      // Calling requestSync() would trigger TWO rapid seeks:
+                      //   1st seek: from the watcherReady change in the sync effect
+                      //   2nd seek: from the requestSync() response arriving moments later
+                      // Each seek flushes HLS.js buffers and restarts from the proxy,
+                      // causing a permanent buffering loop.
+                      // The heartbeat (already running) will correct any drift naturally.
                     }}
                   >
                     <div className="text-center space-y-3 animate-pulse">
