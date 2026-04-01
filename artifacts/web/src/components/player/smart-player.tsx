@@ -271,16 +271,19 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       setCorsChecking(true);
 
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 2500); // 2.5 s max wait
+      const timer = setTimeout(() => controller.abort(), 3000); // 3 s max wait
 
       let resolvedUrl = proxyUrl;
+      // Use GET+Range instead of HEAD: some CDNs respond with CORS headers
+      // to GET but block HEAD entirely, causing false "proxy needed" results.
       fetch(normalizedUrl, {
-        method: 'HEAD',
+        method: 'GET',
         mode: 'cors',
+        headers: { Range: 'bytes=0-1' },
         signal: controller.signal,
       })
         .then((res) => {
-          // Any response (even 4xx) means CORS headers were present → direct OK
+          // Any response (even 4xx/206) means CORS headers were present → direct OK
           if (res.status < 500) {
             resolvedUrl = normalizedUrl;
             setPlayableUrl(normalizedUrl);
