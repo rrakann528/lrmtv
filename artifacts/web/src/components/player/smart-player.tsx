@@ -113,6 +113,8 @@ interface SmartPlayerProps {
   isLiveHint?: boolean;
   /** Fired when HLS manifest is parsed and live/VOD status is known */
   onIsLive?: (isLive: boolean) => void;
+  /** Fired once the playable URL is resolved — tells parent if stream uses proxy */
+  onUrlResolved?: (url: string, isProxy: boolean) => void;
   sponsorSkipEnabled?: boolean;
   /** User join/leave notifications to show as fullscreen overlays */
   roomNotifications?: RoomEventNotif[];
@@ -139,6 +141,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       externalSubtitle,
       isLiveHint = false,
       onIsLive,
+      onUrlResolved,
       sponsorSkipEnabled = true,
       roomNotifications = [],
     },
@@ -246,6 +249,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
         // YouTube / Twitch / non-proxied — set immediately, no check needed
         setPlayableUrl(normalizedUrl);
         setCorsChecking(false);
+        onUrlResolved?.(normalizedUrl, false);
         return;
       }
 
@@ -256,6 +260,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 2500); // 2.5 s max wait
 
+      let resolvedUrl = proxyUrl;
       fetch(normalizedUrl, {
         method: 'HEAD',
         mode: 'cors',
@@ -264,6 +269,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
         .then((res) => {
           // Any response (even 4xx) means CORS headers were present → direct OK
           if (res.status < 500) {
+            resolvedUrl = normalizedUrl;
             setPlayableUrl(normalizedUrl);
           }
           // 5xx or unreachable → keep proxy URL already set above
@@ -275,6 +281,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
           clearTimeout(timer);
           // Reveal the player now that we have a definitive URL
           setCorsChecking(false);
+          onUrlResolved?.(resolvedUrl, resolvedUrl === proxyUrl);
         });
 
       return () => {

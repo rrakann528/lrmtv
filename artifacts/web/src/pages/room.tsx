@@ -99,6 +99,7 @@ export default function RoomPage() {
   const [mediaConfirm, setMediaConfirm] = useState(false);
 
   const playerRef = useRef<SmartPlayerHandle>(null);
+  const [isCurrentUsingProxy, setIsCurrentUsingProxy] = useState<boolean | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
 
   const { remoteStreams, callAllPeers, hangUp } = useWebRTC(socket, localStream);
@@ -556,6 +557,7 @@ export default function RoomPage() {
                   initialTime={syncState.time}
                   isLiveHint={syncState.isLive}
                   onIsLive={emitStreamType}
+                  onUrlResolved={(_url, proxy) => setIsCurrentUsingProxy(proxy)}
                   onReady={() => { readyTimeRef.current = Date.now(); setPlayerReady(true); }}
                   onPlay={handlePlay}
                   onPause={handlePause}
@@ -674,6 +676,7 @@ export default function RoomPage() {
                   canControl={canControl}
                   currentUrl={syncState.url}
                   isPlaying={syncState.playing}
+                  isCurrentUsingProxy={isCurrentUsingProxy}
                   emitSync={emitSync}
                   emitPlaylistUpdate={emitPlaylistUpdate}
                 />
