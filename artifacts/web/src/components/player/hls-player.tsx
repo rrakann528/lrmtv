@@ -488,7 +488,7 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
       // because computedTime may overshoot the available segment window.
       const startPos = isLiveHint ? -1 : (initialTimeRef.current > 2 ? initialTimeRef.current : -1);
 
-      const isProxiedStream = src.includes('/api/proxy/stream') || src.includes('lrmtv-proxy.rrakann528.workers.dev');
+      const isProxiedStream = src.includes('/api/proxy/stream') || src.includes('lrmtv-proxy.rrakann528.workers.dev') || src.includes('quiet-rat-20.rrakann528.deno.net');
       // iOS devices have limited RAM — use smaller buffers to avoid decoder pressure
       const isIosDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
                           (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -914,7 +914,7 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
 
         setStatusMsg('hls-direct');
         const canNativeHls = video.canPlayType('application/vnd.apple.mpegurl') !== '';
-        const isProxied = src.includes('/api/proxy/stream') || src.includes('lrmtv-proxy.rrakann528.workers.dev');
+        const isProxied = src.includes('/api/proxy/stream') || src.includes('lrmtv-proxy.rrakann528.workers.dev') || src.includes('quiet-rat-20.rrakann528.deno.net');
         // isIosSafari: old iOS where MSE is unavailable — must use native <video>.
         // iOS 17+ supports MSE so Hls.isSupported() returns true there; we keep HLS.js for those.
         const isIosSafari = /iPad|iPhone|iPod/.test(navigator.userAgent) && !Hls.isSupported();
