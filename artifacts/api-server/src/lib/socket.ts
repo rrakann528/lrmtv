@@ -65,7 +65,8 @@ async function bootInit(): Promise<void> {
 }
 
 bootInit();
-setInterval(refreshSettingsCache, 60_000);
+// Refresh every 5 min — settings change rarely; no need to hammer the DB every 60s.
+setInterval(refreshSettingsCache, 5 * 60_000);
 
 interface RoomUser {
   socketId: string;
@@ -185,17 +186,35 @@ function cancelRoomDeletion(roomState: RoomState) {
   }
 }
 
+// ── Word-filter compiled regex cache ─────────────────────────────────────────
+// Compiling RegExp objects is expensive — we do it once per settings change,
+// not on every chat message. The cache is invalidated whenever the raw
+// "word_filter" setting value changes (detected on each applyWordFilter call).
+let _wordFilterRaw = "";
+let _wordFilterRegexes: RegExp[] = [];
+
+function _rebuildWordFilterCache(raw: string): void {
+  _wordFilterRaw = raw;
+  try {
+    const words: string[] = JSON.parse(raw);
+    _wordFilterRegexes = words
+      .filter(Boolean)
+      .map(w => new RegExp(w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"));
+  } catch {
+    _wordFilterRegexes = [];
+  }
+}
+
 /** Apply word filter to chat content — replaces banned words with *** */
 export function applyWordFilter(content: string): string {
   try {
     const raw = getCachedSetting("word_filter", "[]");
-    const words: string[] = JSON.parse(raw);
-    if (!words.length) return content;
+    if (raw !== _wordFilterRaw) _rebuildWordFilterCache(raw);
+    if (!_wordFilterRegexes.length) return content;
     let result = content;
-    for (const w of words) {
-      if (!w) continue;
-      const escaped = w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      result = result.replace(new RegExp(escaped, "gi"), "***");
+    for (const re of _wordFilterRegexes) {
+      re.lastIndex = 0;
+      result = result.replace(re, "***");
     }
     return result;
   } catch {
