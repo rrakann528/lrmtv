@@ -121,6 +121,115 @@ function buildProxyBase(_req: Request): string {
   return `/api/proxy/stream`;
 }
 
+// ── Segment cache ─────────────────────────────────────────────────────────────
+// When two users watch the same proxied stream at similar positions, they request
+// the same segment URLs within seconds of each other.  Without a cache, the proxy
+// fetches the same bytes from the upstream twice, doubling bandwidth and CPU.
+//
+// Strategy:
+//   1. In-flight deduplication: if a fetch is already running for a URL, the
+//      second requester waits for the same Promise and receives the cached result.
+//   2. Short-lived result cache (TTL = SEGMENT_CACHE_TTL_MS): completed segment
+//      buffers are kept briefly so a third or fourth viewer arriving slightly later
+//      can still be served without a new upstream fetch.
+//   3. Only small segments (≤ SEGMENT_CACHE_MAX_BYTES) are cached to bound memory.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SEGMENT_CACHE_TTL_MS    = 25_000; // keep 25 s after first fetch completes
+const SEGMENT_CACHE_MAX_BYTES = 3 * 1024 * 1024; // skip caching segments > 3 MB
+const SEGMENT_CACHE_MAX_ITEMS = 40;     // hard cap on cached entries
+
+interface SegmentCacheEntry {
+  buf:         Buffer;
+  contentType: string;
+  status:      number;
+  headers:     Record<string, string>;
+  expiresAt:   number;
+}
+
+/** Completed segment cache (URL → entry) */
+const segmentCache = new Map<string, SegmentCacheEntry>();
+
+/** In-flight fetches (URL → Promise<entry | null>) — null means the fetch failed */
+const segmentInflight = new Map<string, Promise<SegmentCacheEntry | null>>();
+
+/** Evict expired / excess entries so memory stays bounded. */
+function evictSegmentCache() {
+  const now = Date.now();
+  for (const [k, v] of segmentCache) {
+    if (v.expiresAt < now) segmentCache.delete(k);
+  }
+  if (segmentCache.size > SEGMENT_CACHE_MAX_ITEMS) {
+    const oldest = [...segmentCache.entries()]
+      .sort((a, b) => a[1].expiresAt - b[1].expiresAt)
+      .slice(0, segmentCache.size - SEGMENT_CACHE_MAX_ITEMS);
+    oldest.forEach(([k]) => segmentCache.delete(k));
+  }
+}
+
+/**
+ * Fetch a segment, deduplicating concurrent requests for the same URL.
+ * Returns a cache entry or null on failure.
+ */
+async function fetchSegmentCached(
+  url: string,
+  headers: Record<string, string>,
+  timeoutMs: number
+): Promise<SegmentCacheEntry | null> {
+  evictSegmentCache();
+
+  const cached = segmentCache.get(url);
+  if (cached && cached.expiresAt > Date.now()) return cached;
+
+  const inflight = segmentInflight.get(url);
+  if (inflight) return inflight;
+
+  const promise = (async (): Promise<SegmentCacheEntry | null> => {
+    try {
+      // 0 retries for segments — fail fast
+      const upstream = await fetchWithRetry(url, headers, 0, timeoutMs);
+      if (!upstream.ok) return null;
+
+      const buf = Buffer.from(await upstream.arrayBuffer());
+      if (buf.byteLength > SEGMENT_CACHE_MAX_BYTES) {
+        // Too large to cache; return a synthetic entry without storing
+        segmentInflight.delete(url);
+        return {
+          buf,
+          contentType: upstream.headers.get("content-type") || "video/mp2t",
+          status:      upstream.status,
+          headers:     {},
+          expiresAt:   0, // not stored in cache
+        };
+      }
+
+      const fwdHeaders: Record<string, string> = {};
+      for (const h of ["content-range", "accept-ranges", "etag", "last-modified"]) {
+        const v = upstream.headers.get(h);
+        if (v) fwdHeaders[h] = v;
+      }
+
+      const entry: SegmentCacheEntry = {
+        buf,
+        contentType: upstream.headers.get("content-type") || "video/mp2t",
+        status:      upstream.status,
+        headers:     fwdHeaders,
+        expiresAt:   Date.now() + SEGMENT_CACHE_TTL_MS,
+      };
+
+      segmentCache.set(url, entry);
+      return entry;
+    } catch {
+      return null;
+    } finally {
+      segmentInflight.delete(url);
+    }
+  })();
+
+  segmentInflight.set(url, promise);
+  return promise;
+}
+
 function setCorsHeaders(res: Response) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
@@ -178,6 +287,46 @@ router.get(
       headers["Range"] = clientRange;
     }
 
+    // ── Segment path: use shared cache + request deduplication ───────────────
+    // When multiple viewers watch the same stream at the same position, their
+    // HLS clients request identical segment URLs within seconds of each other.
+    // fetchSegmentCached() coalesces concurrent in-flight requests and keeps
+    // the result in a short-lived buffer so subsequent viewers are served
+    // immediately without a second upstream fetch.
+    if (isSegment && !clientRange) {
+      setCorsHeaders(res);
+      try {
+        const entry = await fetchSegmentCached(targetUrl, headers, proxyTimeout);
+        if (!entry) {
+          // Try once more without Referer/Origin (some CDNs reject them)
+          const entryNoRef = await fetchSegmentCached(
+            targetUrl,
+            { ...headers, Referer: "", Origin: "" },
+            proxyTimeout
+          );
+          if (!entryNoRef) {
+            res.status(502).json({ error: "Upstream segment fetch failed" });
+            return;
+          }
+          res.status(entryNoRef.status);
+          res.setHeader("Content-Type", entryNoRef.contentType);
+          res.setHeader("Content-Length", String(entryNoRef.buf.byteLength));
+          Object.entries(entryNoRef.headers).forEach(([k, v]) => res.setHeader(k, v));
+          res.end(entryNoRef.buf);
+          return;
+        }
+        res.status(entry.status);
+        res.setHeader("Content-Type", entry.contentType);
+        res.setHeader("Content-Length", String(entry.buf.byteLength));
+        Object.entries(entry.headers).forEach(([k, v]) => res.setHeader(k, v));
+        res.end(entry.buf);
+      } catch (err: any) {
+        if (!res.headersSent) res.status(502).json({ error: "Segment proxy error" });
+      }
+      return;
+    }
+
+    // ── Manifest / subtitle / other non-segment path ──────────────────────────
     try {
       const upstream = await fetchWithRetry(targetUrl, headers, proxyRetries, proxyTimeout);
 

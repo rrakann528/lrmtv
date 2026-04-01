@@ -573,10 +573,12 @@ export default function RoomPage() {
                       // iOS Safari ONLY allows autoplay when play() is triggered
                       // directly from a user interaction (not from useEffect/setTimeout)
                       playerRef.current?.play();
-                      if (canControl) {
-                        setLocalPlaying(true);
-                        emitSync(syncState.time > 1 ? syncState.time : 0, true, syncState.url);
-                      }
+                      // Request a fresh timestamp from the server so the sync effect
+                      // can seek this player to the current position.
+                      // Do NOT call emitSync here — that would push our stale
+                      // syncState.time (set at join time) to all other clients,
+                      // causing everyone to seek to our outdated position.
+                      requestSync();
                     }}
                   >
                     <div className="text-center space-y-3 animate-pulse">
