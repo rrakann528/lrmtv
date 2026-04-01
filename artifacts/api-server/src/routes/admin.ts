@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import webpush from "web-push";
 import {
   db, usersTable, roomsTable, playlistItemsTable, chatMessagesTable,
-  pushSubscriptionsTable, siteSettingsTable, bannedIpsTable,
+  pushSubscriptionsTable, siteSettingsTable,
   loginAttemptsTable,
 } from "@workspace/db";
 import { eq, desc, count, asc, sql, and, lt } from "drizzle-orm";
@@ -13,7 +13,6 @@ import {
   kickUserFromAllRooms, getUserActiveRooms, forceRoomVideoState, sendRoomAnnouncement,
   updateRoomCreator, siteMuteUser, refreshSettingsCache,
 } from "../lib/socket";
-import { refreshBannedIps as refreshIpCache } from "../lib/ipCache";
 
 const router = Router();
 
@@ -61,15 +60,14 @@ async function sendOnePush(sub: { id: number; endpoint: string; p256dh: string; 
 
 router.get("/admin/stats", requireSiteAdmin, async (_req, res): Promise<void> => {
   try {
-    const [[{ totalUsers }], [{ totalRooms }], [{ bannedUsers }], [{ totalBannedIps }]] = await Promise.all([
+    const [[{ totalUsers }], [{ totalRooms }], [{ bannedUsers }]] = await Promise.all([
       db.select({ totalUsers: count() }).from(usersTable),
       db.select({ totalRooms: count() }).from(roomsTable),
       db.select({ bannedUsers: count() }).from(usersTable).where(eq(usersTable.isBanned, true)),
-      db.select({ totalBannedIps: count() }).from(bannedIpsTable),
     ]);
     const activeRooms = getActiveRoomsDetailed();
     const activeUsers = getTotalActiveUsers();
-    res.json({ totalUsers, totalRooms, bannedUsers, totalBannedIps, activeRooms: activeRooms.length, activeUsers });
+    res.json({ totalUsers, totalRooms, bannedUsers, activeRooms: activeRooms.length, activeUsers });
   } catch (err) {
     console.error("[admin/stats]", err);
     res.status(500).json({ error: "خطأ داخلي" });
@@ -341,40 +339,6 @@ router.put("/admin/settings", requireSiteAdmin, async (req, res): Promise<void> 
 });
 
 // ══════════════════════════════════════════════════════════════════════════════
-// SECURITY — BANNED IPs
-// ══════════════════════════════════════════════════════════════════════════════
-
-router.get("/admin/banned-ips", requireSiteAdmin, async (_req, res): Promise<void> => {
-  try {
-    const ips = await db.select().from(bannedIpsTable).orderBy(desc(bannedIpsTable.createdAt));
-    res.json(ips);
-  } catch (err) { res.status(500).json({ error: "خطأ داخلي" }); }
-});
-
-router.post("/admin/banned-ips", requireSiteAdmin, async (req, res): Promise<void> => {
-  const { ip, reason } = req.body;
-  if (!ip?.trim()) { res.status(400).json({ error: "عنوان IP مطلوب" }); return; }
-  try {
-    const [row] = await db.insert(bannedIpsTable).values({ ip: ip.trim(), reason: reason || "" }).returning();
-    refreshIpCache();
-    res.json(row);
-  } catch (err: any) {
-    if (err?.code === "23505") { res.status(409).json({ error: "هذا الـ IP محظور مسبقاً" }); return; }
-    res.status(500).json({ error: "خطأ داخلي" });
-  }
-});
-
-router.delete("/admin/banned-ips/:id", requireSiteAdmin, async (req, res): Promise<void> => {
-  const id = parseInt(req.params.id, 10);
-  if (isNaN(id)) { res.status(400).json({ error: "معرف غير صالح" }); return; }
-  try {
-    await db.delete(bannedIpsTable).where(eq(bannedIpsTable.id, id));
-    refreshIpCache();
-    res.json({ ok: true });
-  } catch (err) { res.status(500).json({ error: "خطأ داخلي" }); }
-});
-
-// ══════════════════════════════════════════════════════════════════════════════
 // SECURITY — LOGIN ATTEMPTS
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -404,7 +368,7 @@ router.delete("/admin/login-attempts", requireSiteAdmin, async (_req, res): Prom
 
 router.get("/admin/backup", requireSiteAdmin, async (_req, res): Promise<void> => {
   try {
-    const [users, rooms, settings, bannedIps] = await Promise.all([
+    const [users, rooms, settings] = await Promise.all([
       db.select({
         id: usersTable.id, username: usersTable.username, displayName: usersTable.displayName,
         email: usersTable.email, provider: usersTable.provider, isSiteAdmin: usersTable.isSiteAdmin,
@@ -412,7 +376,6 @@ router.get("/admin/backup", requireSiteAdmin, async (_req, res): Promise<void> =
       }).from(usersTable),
       db.select().from(roomsTable),
       db.select().from(siteSettingsTable),
-      db.select().from(bannedIpsTable),
     ]);
 
     const backup = {
@@ -420,7 +383,6 @@ router.get("/admin/backup", requireSiteAdmin, async (_req, res): Promise<void> =
       users,
       rooms,
       settings,
-      bannedIps,
     };
 
     res.setHeader("Content-Type", "application/json");
@@ -721,25 +683,7 @@ router.post("/admin/rooms/pause-all", requireSiteAdmin, async (_req, res): Promi
 });
 
 // ══════════════════════════════════════════════════════════════════════════════
-// FEATURE 3: حظر IP الأخير من بيانات المستخدم
-// ══════════════════════════════════════════════════════════════════════════════
-
-router.post("/admin/users/:id/ban-ip", requireSiteAdmin, async (req, res): Promise<void> => {
-  const targetId = parseInt(req.params.id, 10);
-  if (isNaN(targetId)) { res.status(400).json({ error: "معرف غير صالح" }); return; }
-  try {
-    const [user] = await db.select({ lastIp: usersTable.lastIp, username: usersTable.username })
-      .from(usersTable).where(eq(usersTable.id, targetId)).limit(1);
-    if (!user?.lastIp) { res.status(404).json({ error: "لا يوجد IP محفوظ لهذا المستخدم" }); return; }
-    await db.insert(bannedIpsTable).values({ ip: user.lastIp, reason: `حظر تلقائي: @${user.username}` })
-      .onConflictDoNothing();
-    refreshIpCache();
-    res.json({ ok: true, ip: user.lastIp });
-  } catch (err) { res.status(500).json({ error: "خطأ داخلي" }); }
-});
-
-// ══════════════════════════════════════════════════════════════════════════════
-// FEATURE 4: نقل ملكية الغرفة
+// نقل ملكية الغرفة
 // ══════════════════════════════════════════════════════════════════════════════
 
 router.patch("/admin/rooms/:slug/transfer-owner", requireSiteAdmin, async (req, res): Promise<void> => {
