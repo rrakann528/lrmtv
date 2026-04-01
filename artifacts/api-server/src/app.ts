@@ -15,15 +15,8 @@ import {
   securityHeaders,
 } from "./middlewares/security";
 import { getCachedSetting, refreshSettingsCache } from "./lib/socket";
-import { isBannedIp, refreshBannedIps } from "./lib/ipCache";
 
 export function isRegistrationEnabled() { return true; }
-
-// ── IP ban middleware ─────────────────────────────────────────────────────────
-function ipBanMiddleware(req: Request, res: Response, next: NextFunction): void {
-  if (isBannedIp(req.ip || "")) { res.status(403).json({ error: "محظور" }); return; }
-  next();
-}
 
 // ── Maintenance mode middleware ────────────────────────────────────────────────
 // NOTE: mounted on /api — so req.path is relative, e.g. /auth/google not /api/auth/google
@@ -35,9 +28,7 @@ function maintenanceMiddleware(req: Request, res: Response, next: NextFunction):
   res.status(503).json({ error: "الموقع في وضع الصيانة. يرجى المحاولة لاحقاً." });
 }
 
-// Expose for admin routes to call after ban-ip changes (instant effect)
-export function refreshIpCache() { refreshBannedIps(); }
-export function refreshAllCaches() { refreshBannedIps(); refreshSettingsCache(); }
+export function refreshAllCaches() { refreshSettingsCache(); }
 
 const app: Express = express();
 
@@ -99,7 +90,6 @@ app.use(cookieParser());
 // would block legitimate users whose proxy (Railway/Cloudflare) injects headers
 // like x-forwarded-host on navigation requests for HTML pages.
 app.use("/api", botDetection);
-app.use("/api", ipBanMiddleware);
 app.use("/api", maintenanceMiddleware);
 
 // ── Rate limiting ──────────────────────────────────────────────────────────────
