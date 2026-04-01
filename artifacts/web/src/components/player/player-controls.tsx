@@ -551,7 +551,7 @@ export default function PlayerControls({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
             className="absolute left-2 z-30"
-            style={{ top: 'calc(8px + env(safe-area-inset-top, 0px))' }}
+            style={{ top: '8px' }}
             onClick={(e) => e.stopPropagation()}
             ref={settingsRef}
           >
