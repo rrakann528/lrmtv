@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Smile, MessageSquareOff } from 'lucide-react';
+import { Send, Smile, MessageSquareOff, Flag } from 'lucide-react';
 import { useGetRoomMessages } from '@workspace/api-client-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,7 @@ import { MessageContextMenu } from '@/components/chat/message-context-menu';
 import { ReplyPreview } from '@/components/chat/reply-preview';
 import { QuotedMessage } from '@/components/chat/quoted-message';
 import { LinkifiedText } from '@/components/chat/linkified-text';
+import { apiFetch } from '@/hooks/use-auth';
 
 const EmojiPicker = lazy(() => import('emoji-picker-react'));
 
@@ -122,6 +123,26 @@ export default function ChatPanel({
     setMessages(prev => prev.filter(m => m.id !== msgId));
   };
 
+  const [reportedMsgId, setReportedMsgId] = useState<number | null>(null);
+
+  const handleReport = async (msg: ChatMessage, reason: string) => {
+    try {
+      await apiFetch('/reports', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messageId: msg.id,
+          messageContent: msg.content,
+          reportedUsername: msg.username,
+          roomSlug: slug,
+          reason,
+        }),
+      });
+      setReportedMsgId(msg.id);
+      setTimeout(() => setReportedMsgId(null), 3000);
+    } catch {}
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, x: 20 }}
@@ -185,6 +206,7 @@ export default function ChatPanel({
               isOwnMessage={isMe || !!isAdmin}
               onReply={() => handleReply(msg)}
               onDelete={() => handleDelete(msg.id)}
+              onReport={!isMe ? (reason) => handleReport(msg, reason) : undefined}
             >
               <div
                 className={cn(
@@ -259,6 +281,18 @@ export default function ChatPanel({
           );
         })}
       </div>
+
+      <AnimatePresence>
+        {reportedMsgId && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}
+            className="mx-3 mb-1 flex items-center gap-2 px-3 py-2 bg-orange-500/15 border border-orange-500/20 rounded-xl text-xs text-orange-300"
+          >
+            <Flag className="w-3.5 h-3.5 shrink-0" />
+            تم إرسال البلاغ — سيراجعه الأدمن
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {chatDisabled && (
         <div className={`flex items-center gap-2 px-4 py-2 text-xs font-medium border-t ${

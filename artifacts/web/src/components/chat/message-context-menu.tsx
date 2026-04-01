@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, type ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Copy, Reply, Trash2, Pencil, SmilePlus } from 'lucide-react';
+import { Copy, Reply, Trash2, Pencil, SmilePlus, Flag } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 
 const QUICK_EMOJIS = ['❤️', '👍', '😂', '😮', '😢', '🙏'];
@@ -13,6 +13,14 @@ interface MenuItem {
   onClick: () => void;
 }
 
+const REPORT_REASONS: { id: string; label: string }[] = [
+  { id: 'abuse',         label: 'إساءة / شتم' },
+  { id: 'spam',          label: 'سبام' },
+  { id: 'inappropriate', label: 'محتوى غير لائق' },
+  { id: 'harassment',    label: 'تحرش / مضايقة' },
+  { id: 'other',         label: 'أخرى' },
+];
+
 interface Props {
   children: ReactNode;
   messageText: string;
@@ -21,12 +29,14 @@ interface Props {
   onDelete?: () => void;
   onEdit?: () => void;
   onReact?: (emoji: string) => void;
+  onReport?: (reason: string) => void;
 }
 
-export function MessageContextMenu({ children, messageText, isOwnMessage, onReply, onDelete, onEdit, onReact }: Props) {
+export function MessageContextMenu({ children, messageText, isOwnMessage, onReply, onDelete, onEdit, onReact, onReport }: Props) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [showEmojis, setShowEmojis] = useState(false);
+  const [showReasons, setShowReasons] = useState(false);
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -91,6 +101,16 @@ export function MessageContextMenu({ children, messageText, isOwnMessage, onRepl
     });
   }
 
+  if (!isOwnMessage && onReport) {
+    items.push({
+      id: 'report',
+      label: 'إبلاغ',
+      icon: <Flag className="w-4 h-4" />,
+      danger: true,
+      onClick: () => setShowReasons(v => !v),
+    });
+  }
+
   const showMenu = (clientX: number, clientY: number) => {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
@@ -100,6 +120,7 @@ export function MessageContextMenu({ children, messageText, isOwnMessage, onRepl
     const y = clientY + menuH > vh ? clientY - menuH : clientY;
     setPos({ x: Math.max(8, x), y: Math.max(8, y) });
     setShowEmojis(false);
+    setShowReasons(false);
     setOpen(true);
   };
 
@@ -171,6 +192,21 @@ export function MessageContextMenu({ children, messageText, isOwnMessage, onRepl
                     className="text-lg hover:scale-125 transition-transform active:scale-110"
                   >
                     {e}
+                  </button>
+                ))}
+              </div>
+            )}
+            {showReasons && onReport && (
+              <div className="border-b border-white/10 py-1">
+                <p className="text-[10px] text-white/30 px-4 pt-1 pb-0.5">سبب الإبلاغ</p>
+                {REPORT_REASONS.map(r => (
+                  <button
+                    key={r.id}
+                    onClick={() => { onReport(r.id); setOpen(false); setShowReasons(false); }}
+                    className="w-full flex items-center gap-2 px-4 py-2 text-xs text-orange-300 hover:bg-white/10 transition"
+                  >
+                    <Flag className="w-3 h-3 shrink-0" />
+                    {r.label}
                   </button>
                 ))}
               </div>

@@ -230,6 +230,22 @@ CREATE TABLE IF NOT EXISTS message_reactions (
   UNIQUE (message_type, message_id, user_id, emoji)
 );
 CREATE INDEX IF NOT EXISTS idx_message_reactions_msg ON message_reactions(message_type, message_id);
+
+CREATE TABLE IF NOT EXISTS reports (
+  id SERIAL PRIMARY KEY,
+  message_id INTEGER,
+  message_content TEXT NOT NULL DEFAULT '',
+  reported_username TEXT NOT NULL,
+  reporter_username TEXT NOT NULL,
+  room_slug VARCHAR(64),
+  reason VARCHAR(50) NOT NULL DEFAULT 'other',
+  status VARCHAR(20) NOT NULL DEFAULT 'pending',
+  reviewed_by TEXT,
+  reviewed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status);
+CREATE INDEX IF NOT EXISTS idx_reports_reported ON reports(reported_username);
 `;
 
 export async function runMigrations(): Promise<void> {

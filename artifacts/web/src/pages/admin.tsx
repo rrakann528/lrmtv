@@ -7,12 +7,12 @@ import {
   List, Download, Edit3, X, Check, Plus, MessageSquare,
   Volume2, VolumeX, Server, Activity, UserX, FileText,
   Copy, ExternalLink, StopCircle, Clock, Filter, Wifi,
-  ChevronDown, ChevronUp, AlertTriangle, Hash, Zap,
+  ChevronDown, ChevronUp, AlertTriangle, Hash, Zap, Flag,
 } from 'lucide-react';
 import { useAuth, apiFetch } from '@/hooks/use-auth';
 import { cn } from '@/lib/utils';
 
-type Tab = 'dashboard' | 'users' | 'rooms' | 'chat' | 'notifications' | 'settings' | 'security' | 'system';
+type Tab = 'dashboard' | 'users' | 'rooms' | 'chat' | 'notifications' | 'settings' | 'security' | 'system' | 'reports';
 type UserFilter = 'all' | 'admin' | 'banned' | 'muted';
 type RoomFilter = 'all' | 'active' | 'frozen' | 'public' | 'private';
 type UserSort = 'date' | 'name' | 'id';
@@ -34,6 +34,19 @@ interface LoginAttempt { id: number; identifier: string; ip: string; createdAt: 
 interface SiteSettings { maintenance_mode: string; announcement: string; welcome_message: string; max_rooms_per_user: string; max_room_members: string; }
 interface ChatMsg { id: number; username: string; content: string; type: string; created_at: string; room_slug?: string; room_name?: string; }
 interface PushSub { id: number; endpoint: string; created_at: string; username: string; user_id: number; }
+interface AdminReport {
+  id: number;
+  messageId: number | null;
+  messageContent: string;
+  reportedUsername: string;
+  reporterUsername: string;
+  roomSlug: string | null;
+  reason: string;
+  status: string;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+}
 
 function RegChart({ data }: { data: RegRow[] }) {
   if (!data.length) return <div className="text-white/30 text-center py-8 text-sm">لا توجد بيانات</div>;
@@ -105,6 +118,8 @@ export default function AdminPage() {
   const [editSettings, setEditSettings] = useState<Partial<SiteSettings>>({});
   const [wordFilter, setWordFilter] = useState<string[]>([]);
   const [pushSubs, setPushSubs] = useState<PushSub[]>([]);
+  const [reports, setReports] = useState<AdminReport[]>([]);
+  const [reportFilter, setReportFilter] = useState<'pending' | 'all'>('pending');
 
   const [search, setSearch] = useState('');
   const [userFilter, setUserFilter] = useState<UserFilter>('all');
@@ -198,6 +213,9 @@ export default function AdminPage() {
           apiFetch('/admin/activity-log').then(r => r.ok ? r.json() : []),
         ]);
         setSystemInfo(sys); setPushSubs(subs); setActivityLog(al);
+      } else if (what === 'reports') {
+        const r = await apiFetch('/admin/reports?status=all');
+        if (r.ok) setReports(await r.json());
       }
     } catch (e) { console.error('[Admin] load error:', e); }
     finally { setLoading(false); }
@@ -456,6 +474,22 @@ export default function AdminPage() {
     if (r.ok) { showFeedback('تم المسح'); load('security'); }
   };
 
+  // ── Reports ───────────────────────────────────────────────────────────────
+  const reviewReport = async (id: number, action: 'dismiss' | 'ban' | 'kick' | 'mute') => {
+    const label = action === 'ban' ? 'حظر المستخدم' : action === 'kick' ? 'طرده الآن' : action === 'mute' ? 'كتمه' : 'تجاهل البلاغ';
+    if (!confirm(`${label}؟`)) return;
+    const r = await apiFetch(`/admin/reports/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action }),
+    });
+    if (r.ok) { showFeedback(label + ' — تم'); load('reports'); }
+    else showFeedback('فشل الإجراء', false);
+  };
+  const deleteReport = async (id: number) => {
+    const r = await apiFetch(`/admin/reports/${id}`, { method: 'DELETE' });
+    if (r.ok) setReports(p => p.filter(x => x.id !== id));
+  };
+
   // ── System ────────────────────────────────────────────────────────────────
   const deletePushSub = async (id: number) => {
     const r = await apiFetch(`/admin/push-subscribers/${id}`, { method: 'DELETE' });
@@ -481,6 +515,7 @@ export default function AdminPage() {
     { id: 'settings',      label: 'الإعدادات',   icon: Settings },
     { id: 'security',      label: 'الأمان',       icon: Lock },
     { id: 'system',        label: 'النظام',       icon: Server },
+    { id: 'reports',       label: 'البلاغات',     icon: Flag },
   ];
 
   const inputCls = "w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-cyan-500/50";
@@ -1238,6 +1273,115 @@ export default function AdminPage() {
                 <Send className="w-4 h-4" />إرسال
               </button>
             </div>
+          </div>
+        )}
+
+        {/* ══════════════════ REPORTS ═══════════════════════════════════════ */}
+        {tab === 'reports' && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-semibold flex items-center gap-2">
+                <Flag className="w-4 h-4 text-orange-400" />
+                البلاغات
+                {reports.filter(r => r.status === 'pending').length > 0 && (
+                  <span className="bg-orange-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none">
+                    {reports.filter(r => r.status === 'pending').length}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setReportFilter('pending')}
+                  className={cn("text-xs px-3 py-1 rounded-lg transition-colors", reportFilter === 'pending' ? "bg-orange-500/20 text-orange-400" : "bg-white/5 text-white/40 hover:text-white/70")}>
+                  قيد الانتظار
+                </button>
+                <button onClick={() => setReportFilter('all')}
+                  className={cn("text-xs px-3 py-1 rounded-lg transition-colors", reportFilter === 'all' ? "bg-white/20 text-white" : "bg-white/5 text-white/40 hover:text-white/70")}>
+                  الكل
+                </button>
+                <button onClick={() => load('reports')} className="p-1.5 text-white/40 hover:text-white/70 rounded-lg hover:bg-white/5">
+                  <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin")} />
+                </button>
+              </div>
+            </div>
+
+            {reports.filter(r => reportFilter === 'all' || r.status === 'pending').length === 0 ? (
+              <div className="text-center py-16 text-white/30 text-sm">
+                <Flag className="w-8 h-8 mx-auto mb-3 opacity-30" />
+                لا توجد بلاغات {reportFilter === 'pending' ? 'قيد الانتظار' : ''}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {reports
+                  .filter(r => reportFilter === 'all' || r.status === 'pending')
+                  .map(report => (
+                    <div key={report.id} className={cn(
+                      "bg-white/5 rounded-xl p-4 border space-y-3",
+                      report.status === 'pending' ? "border-orange-500/20" : "border-white/8 opacity-60"
+                    )}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-semibold text-orange-400">{report.reportedUsername}</span>
+                            <span className="text-[10px] text-white/30">←</span>
+                            <span className="text-[10px] text-white/40">بلاغ من: {report.reporterUsername}</span>
+                            {report.roomSlug && (
+                              <span className="text-[10px] bg-white/5 text-white/30 rounded px-1.5 py-0.5">#{report.roomSlug}</span>
+                            )}
+                            <span className={cn("text-[10px] rounded px-1.5 py-0.5",
+                              report.status === 'pending' ? "bg-orange-500/15 text-orange-400" :
+                              report.status === 'resolved' ? "bg-green-500/15 text-green-400" :
+                              "bg-white/10 text-white/30"
+                            )}>
+                              {report.status === 'pending' ? 'قيد الانتظار' : report.status === 'resolved' ? 'تم الحل' : 'مرفوض'}
+                            </span>
+                          </div>
+                          <div className="mt-1.5 text-xs text-white/30">
+                            السبب: <span className="text-white/50">{
+                              report.reason === 'abuse' ? 'إساءة / شتم' :
+                              report.reason === 'spam' ? 'سبام' :
+                              report.reason === 'inappropriate' ? 'محتوى غير لائق' :
+                              report.reason === 'harassment' ? 'تحرش / مضايقة' : 'أخرى'
+                            }</span>
+                            <span className="mr-2 text-white/20">{new Date(report.createdAt).toLocaleString('ar')}</span>
+                          </div>
+                          {report.messageContent && (
+                            <div className="mt-2 px-3 py-2 bg-black/30 rounded-lg text-xs text-white/60 border border-white/5 break-all">
+                              "{report.messageContent}"
+                            </div>
+                          )}
+                          {report.reviewedBy && (
+                            <div className="mt-1 text-[10px] text-white/20">راجعه: {report.reviewedBy}</div>
+                          )}
+                        </div>
+                        <button onClick={() => deleteReport(report.id)} className="p-1 text-white/20 hover:text-red-400 flex-shrink-0">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      {report.status === 'pending' && (
+                        <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-white/5">
+                          <button onClick={() => reviewReport(report.id, 'kick')}
+                            className="text-xs px-3 py-1.5 bg-yellow-500/15 text-yellow-400 hover:bg-yellow-500/25 rounded-lg transition-colors flex items-center gap-1">
+                            <UserX className="w-3 h-3" />طرد
+                          </button>
+                          <button onClick={() => reviewReport(report.id, 'mute')}
+                            className="text-xs px-3 py-1.5 bg-violet-500/15 text-violet-400 hover:bg-violet-500/25 rounded-lg transition-colors flex items-center gap-1">
+                            <VolumeX className="w-3 h-3" />كتم
+                          </button>
+                          <button onClick={() => reviewReport(report.id, 'ban')}
+                            className="text-xs px-3 py-1.5 bg-red-500/15 text-red-400 hover:bg-red-500/25 rounded-lg transition-colors flex items-center gap-1">
+                            <Ban className="w-3 h-3" />حظر
+                          </button>
+                          <button onClick={() => reviewReport(report.id, 'dismiss')}
+                            className="text-xs px-3 py-1.5 bg-white/5 text-white/40 hover:bg-white/10 rounded-lg transition-colors flex items-center gap-1 mr-auto">
+                            <X className="w-3 h-3" />تجاهل
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+              </div>
+            )}
           </div>
         )}
 
