@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation } from 'wouter';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Search, Globe, Lock, X, Mail, Check, UserCircle2, Tv2, Play } from 'lucide-react';
+import { Plus, Globe, Lock, X, Mail, Check, UserCircle2, Tv2, Play } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/hooks/use-auth';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -273,7 +273,6 @@ export function RoomsTab({ kickedRooms: kickedRoomsProp = [] }: { kickedRooms?: 
   const { user } = useAuth();
   const qc = useQueryClient();
   const { t } = useI18n();
-  const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [roomName, setRoomName] = useState('');
   const [isPrivate, setIsPrivate] = useState(false);
@@ -339,7 +338,6 @@ export function RoomsTab({ kickedRooms: kickedRoomsProp = [] }: { kickedRooms?: 
     onError: (e: Error) => setCreateErr(e.message),
   });
 
-  const filtered = rooms.filter(r => r.name.toLowerCase().includes(search.toLowerCase()));
 
   const handleJoinCode = () => {
     const slug = joinCode.replace(/^(.*\/room\/)/, '').trim();
@@ -363,17 +361,8 @@ export function RoomsTab({ kickedRooms: kickedRoomsProp = [] }: { kickedRooms?: 
         )}
       </AnimatePresence>
 
-      {/* Search & Join */}
-      <div className="px-4 pt-2 pb-1.5 space-y-1.5">
-        <div className="relative">
-          <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder={t('searchRoomPlaceholder')}
-            className="w-full bg-muted/50 border border-border rounded-xl pl-4 pr-10 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-          />
-        </div>
+      {/* Join by code/link */}
+      <div className="px-4 pt-2 pb-1.5">
         <div className="flex gap-2">
           <input
             value={joinCode}
@@ -468,9 +457,9 @@ export function RoomsTab({ kickedRooms: kickedRoomsProp = [] }: { kickedRooms?: 
         {/* ── Rooms count header ── */}
         <div className="flex items-center justify-between py-0.5">
           <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            {t('publicRooms')} ({filtered.length})
+            {t('publicRooms')} ({rooms.length})
           </span>
-          {filtered.some(r => r.userCount > 0) && (
+          {rooms.some(r => r.userCount > 0) && (
             <span className="flex items-center gap-1 text-[10px] text-emerald-500 font-medium">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
               {t('liveStream')}
@@ -490,14 +479,14 @@ export function RoomsTab({ kickedRooms: kickedRoomsProp = [] }: { kickedRooms?: 
               </div>
             </div>
           ))
-        ) : filtered.length === 0 ? (
+        ) : rooms.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
             <Globe className="w-12 h-12 mb-3 opacity-20" />
             <p className="text-sm font-medium">{t('noPublicRooms')}</p>
             <p className="text-xs mt-1 opacity-50">{t('createFirstRoom')}</p>
           </div>
         ) : (
-          filtered.map((room, i) => (
+          rooms.map((room, i) => (
             <motion.div
               key={room.id}
               initial={{ opacity: 0, y: 10 }}

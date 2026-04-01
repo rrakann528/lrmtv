@@ -170,6 +170,29 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
     const [rpMuted, setRpMuted] = useState(false);
     const [mutedAutoplay, setMutedAutoplay] = useState(false);
 
+    // ── YouTube mute sync: after every render where rpMuted changes, push state
+    // directly to the IFrame API. ReactPlayer's own prop handling can race with
+    // the IFrame API on mobile — this effect fires *after* ReactPlayer has
+    // processed the new props, so it always wins.
+    const rpMutedRef = useRef(rpMuted);
+    useEffect(() => {
+      rpMutedRef.current = rpMuted;
+      if (isHls) return;
+      const timer = setTimeout(() => {
+        try {
+          const ip = reactPlayerRef.current?.getInternalPlayer() as any;
+          if (!ip) return;
+          if (rpMuted) {
+            if (ip.mute) ip.mute();
+          } else {
+            if (ip.unMute) ip.unMute();
+            if (ip.setVolume) ip.setVolume(100);
+          }
+        } catch {}
+      }, 80);
+      return () => clearTimeout(timer);
+    }, [rpMuted, isHls]);
+
     // ── Subtitle state (ReactPlayer branch only) ─────────────────────────────
     const [showSubtitleSearch, setShowSubtitleSearch] = useState(false);
     const [customSubtitleCues, setCustomSubtitleCues] = useState<SubtitleCue[]>([]);
@@ -195,15 +218,65 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
     const isHls = videoType === 'hls';
 
     // On iOS Safari, direct mp4/html5 video works natively without proxy.
-    // Bypassing the proxy removes round-trip latency and buffering stutter on mobile.
     const isIosBrowser = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
                          (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    const needsProxy = isIosBrowser
-      ? (videoType === 'hls' || videoType === 'dash') // iOS: only HLS/DASH need proxy (CORS), not direct mp4
+
+    // Types that could potentially bypass the proxy if the server allows CORS
+    const mightNeedProxy = isIosBrowser
+      ? (videoType === 'hls' || videoType === 'dash')
       : (videoType === 'hls' || videoType === 'dash' || videoType === 'html5');
-    const playableUrl = needsProxy
-      ? `/api/proxy/stream?url=${encodeURIComponent(normalizedUrl)}`
-      : normalizedUrl;
+
+    const proxyUrl = `/api/proxy/stream?url=${encodeURIComponent(normalizedUrl)}`;
+
+    // ── Smart proxy resolution ────────────────────────────────────────────────
+    // Start with the proxy as a safe fallback, then try a direct CORS HEAD request.
+    // If the origin server allows CORS, switch to the direct URL — no server bandwidth used.
+    // The check completes in < 2 s so in most cases the player hasn't started yet.
+    const [playableUrl, setPlayableUrl] = useState<string>(
+      mightNeedProxy ? proxyUrl : normalizedUrl
+    );
+    const [corsChecking, setCorsChecking] = useState(false);
+
+    useEffect(() => {
+      if (!mightNeedProxy) {
+        // YouTube / Twitch / non-proxied — set immediately, no check needed
+        setPlayableUrl(normalizedUrl);
+        return;
+      }
+
+      // Reset to proxy while we verify
+      setPlayableUrl(proxyUrl);
+      setCorsChecking(true);
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 2500); // 2.5 s max wait
+
+      fetch(normalizedUrl, {
+        method: 'HEAD',
+        mode: 'cors',
+        signal: controller.signal,
+      })
+        .then((res) => {
+          // Any response (even 4xx) means CORS headers were present → direct OK
+          if (res.status < 500) {
+            setPlayableUrl(normalizedUrl);
+          }
+          // 5xx or unreachable → keep proxy
+        })
+        .catch(() => {
+          // NetworkError = CORS blocked or server unreachable → keep proxy
+        })
+        .finally(() => {
+          clearTimeout(timer);
+          setCorsChecking(false);
+        });
+
+      return () => {
+        controller.abort();
+        clearTimeout(timer);
+      };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [normalizedUrl]);
 
     useEffect(() => {
       setError(null);
@@ -497,12 +570,10 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       }
       const e = err as { name?: string } | null;
       if (e?.name === 'NotAllowedError' || (typeof err === 'string' && err.toLowerCase().includes('not allowed'))) {
-        // Autoplay blocked → mute and retry silently
+        // Autoplay blocked → show "Press to Watch" button so user can start with a gesture
         setRpMuted(true);
         setMutedAutoplay(true);
-        setTimeout(() => {
-          try { reactPlayerRef.current?.getInternalPlayer()?.playVideo?.(); } catch {}
-        }, 100);
+        setAutoplayBlocked(true);
         return;
       }
       // Generic YouTube errors (2=bad param, 5=html5, 100=not found) — try muted autoplay
@@ -518,7 +589,15 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
     if (isHls) {
       return (
         <div ref={containerRef} className="absolute inset-0 bg-black">
+          {/* CORS check indicator — disappears once URL is resolved (< 2.5 s) */}
+          {corsChecking && (
+            <div className="absolute top-2 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-black/60 backdrop-blur-sm rounded-full px-3 py-1.5 text-[11px] text-white/70 pointer-events-none">
+              <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+              {lang === 'ar' ? 'فحص الاتصال…' : 'Checking connection…'}
+            </div>
+          )}
           <HlsPlayer
+            key={playableUrl}
             ref={hlsPlayerRef}
             src={playableUrl}
             playing={playing}
@@ -600,6 +679,38 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
           </div>
         )}
 
+        {/* "Press to Watch" overlay — shown when browser blocks autoplay entirely */}
+        <AnimatePresence>
+          {autoplayBlocked && !error && (
+            <motion.div
+              key="autoplay-blocked-overlay"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+              onClick={() => {
+                setAutoplayBlocked(false);
+                setRpMuted(true);
+                setMutedAutoplay(true);
+                // Must play inside user gesture — call YouTube IFrame API directly
+                try {
+                  const ip = reactPlayerRef.current?.getInternalPlayer() as any;
+                  if (ip?.playVideo) ip.playVideo();
+                } catch {}
+              }}
+            >
+              <div className="flex flex-col items-center gap-3 select-none">
+                <div className="w-16 h-16 rounded-full bg-white/10 border border-white/20 flex items-center justify-center backdrop-blur">
+                  <Play className="w-7 h-7 text-white fill-white translate-x-0.5" />
+                </div>
+                <span className="text-white font-semibold text-base">
+                  {lang === 'ar' ? 'اضغط للمشاهدة' : 'Tap to watch'}
+                </span>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <AnimatePresence>
           {mutedAutoplay && !error && (
             <motion.div
@@ -612,12 +723,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
               onClick={() => {
                 setRpMuted(false);
                 setMutedAutoplay(false);
-                // YouTube IFrame API keeps its own internal mute state — must call unMute() directly
-                try {
-                  const ip = reactPlayerRef.current?.getInternalPlayer() as any;
-                  if (ip?.unMute) ip.unMute();
-                  if (ip?.setVolume) ip.setVolume(100);
-                } catch {}
+                // useEffect handles direct YouTube IFrame API call after render
               }}
             >
               <div className="flex items-center gap-2 bg-black/75 backdrop-blur-md rounded-full px-4 py-2 border border-white/15 shadow-xl select-none">
@@ -995,19 +1101,9 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
                     <button
                       className="p-2.5 text-white hover:bg-white/10 rounded-full transition"
                       onClick={() => {
-                        setRpMuted((m) => {
-                          const nowUnmuting = m;
-                          if (nowUnmuting) {
-                            setMutedAutoplay(false);
-                            // YouTube IFrame API must be told directly to unmute
-                            try {
-                              const ip = reactPlayerRef.current?.getInternalPlayer() as any;
-                              if (ip?.unMute) ip.unMute();
-                              if (ip?.setVolume) ip.setVolume(100);
-                            } catch {}
-                          }
-                          return !m;
-                        });
+                        if (rpMuted) setMutedAutoplay(false);
+                        setRpMuted(m => !m);
+                        // useEffect handles direct YouTube IFrame API call after render
                       }}
                     >
                       {rpMuted || rpVolume === 0

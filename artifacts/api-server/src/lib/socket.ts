@@ -1234,6 +1234,9 @@ export function initSocketServer(httpServer: HttpServer): Server {
       const roomState = getRoomState(currentRoomSlug);
       if (!roomState) return;
       roomState.isLive = data.isLive === true;
+      // Stop heartbeat immediately when stream is confirmed live —
+      // no need to wait for the next tick to self-cancel.
+      if (roomState.isLive) stopHeartbeat(roomState);
     });
 
     // ── WebRTC ────────────────────────────────────────────────────────────────
@@ -1437,11 +1440,18 @@ export function initSocketServer(httpServer: HttpServer): Server {
   return io;
 }
 
-// ── Heartbeat: re-broadcast currentTime every 5s while playing ──────────────
+// ── Heartbeat: re-broadcast currentTime every 1.5s while playing ─────────────
+// For live streams (isLive=true) the heartbeat is skipped entirely:
+// clients already ignore time-sync for live content, so broadcasting
+// position every 1.5 s is pure overhead — especially with large audiences.
 function startHeartbeat(io: Server, state: RoomState) {
   stopHeartbeat(state);
+  // Live streams don't need time-based sync — skip heartbeat completely
+  if (state.isLive) return;
   state.heartbeatTimer = setInterval(() => {
     if (!state.isPlaying || state.users.size === 0) { stopHeartbeat(state); return; }
+    // Re-check inside the interval in case stream became live mid-play
+    if (state.isLive) { stopHeartbeat(state); return; }
     io.to(state.slug).emit("heartbeat", {
       currentTime: computedTime(state),
       isPlaying: true,
