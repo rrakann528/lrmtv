@@ -725,6 +725,14 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
               setError('link-dead');
               return;
             }
+            // 403 on manifest = Origin/IP blocked — don't retry, go to next strategy immediately
+            if (isManifestErr && httpCode === 403) {
+              hls.destroy();
+              if (stallWatchdog) { clearInterval(stallWatchdog); stallWatchdog = null; }
+              setStatusMsg(null);
+              onFatal();
+              return;
+            }
             if (netErrCount < 3) {
               const isCorsBlock = !httpCode || httpCode === 0;
               if (isCorsBlock) {
