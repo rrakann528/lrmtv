@@ -593,19 +593,29 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         let lastTime = -1;
         let stalledFor = 0;
         let edgeTick = 0; // for periodic live-edge drift correction
-        let blackScreenChecked = false; // only warn once per load
+        let blackScreenChecked = false; // only act once per load
+        let blackScreenAttempts = 0;   // how many quality-switch attempts made
 
         stallWatchdog = setInterval(() => {
           if (cancelled || !video || video.paused || video.ended) return;
 
           // ── Black-screen detector ─────────────────────────────────────────
-          // If video is playing (currentTime > 3 s) but videoWidth is 0, the
-          // browser is decoding audio but can't render video — usually H.265/HEVC
-          // on a device that lacks hardware support, or a video-track CORS failure.
+          // If video is playing but videoWidth is 0, the browser is decoding
+          // audio but can't render video — usually H.265/HEVC on unsupported device.
+          // Strategy: silently try lowest quality level (more likely to be H.264).
           if (!blackScreenChecked && video.currentTime > 5) {
-            blackScreenChecked = true;
             if (video.videoWidth === 0) {
-              setError('black-screen');
+              blackScreenChecked = true;
+              const hls = hlsRef.current;
+              if (hls && hls.levels.length > 1 && blackScreenAttempts === 0) {
+                blackScreenAttempts++;
+                hls.loadLevel = 0; // switch to lowest quality at next segment boundary
+                // Re-check after 8s to see if quality switch helped
+                setTimeout(() => { if (!cancelled) blackScreenChecked = false; }, 8_000);
+              }
+              // If no hls / single level / second attempt: just let audio play silently
+            } else {
+              blackScreenChecked = true; // video rendering fine
             }
           }
           const now = video.currentTime;
@@ -1129,25 +1139,6 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
               <p className="text-white/70 text-sm">
                 {statusLabel[statusMsg]?.[lang] ?? t('loading')}
               </p>
-            </div>
-          </div>
-        )}
-
-        {/* Black-screen warning — audio works but video codec unsupported */}
-        {error === 'black-screen' && !statusMsg && (
-          <div className="absolute inset-x-0 top-4 flex justify-center z-20 pointer-events-none px-4">
-            <div className="flex items-start gap-2.5 bg-black/75 backdrop-blur-sm border border-amber-500/30 rounded-2xl px-4 py-3 max-w-sm">
-              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-              <div>
-                <p className="text-white text-[13px] font-semibold leading-snug">
-                  {lang === 'ar' ? 'الصوت يعمل — الفيديو غير مدعوم' : 'Audio works — video codec unsupported'}
-                </p>
-                <p className="text-white/55 text-[11px] mt-0.5 leading-snug">
-                  {lang === 'ar'
-                    ? 'هذا البث يستخدم H.265/HEVC. جرّبه على Safari أو متصفح يدعم هذا الترميز.'
-                    : 'Stream uses H.265/HEVC. Try Safari or a browser with HEVC support.'}
-                </p>
-              </div>
             </div>
           </div>
         )}
