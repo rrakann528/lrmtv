@@ -271,6 +271,22 @@ export function getActiveRoomsDetailed(): { slug: string; userCount: number; isP
   }));
 }
 
+export function getActiveRoomsWithUsers(): Array<{
+  slug: string;
+  userCount: number;
+  isPlaying: boolean;
+  url: string | null;
+  users: Array<{ username: string }>;
+}> {
+  return Array.from(rooms.entries()).map(([slug, s]) => ({
+    slug,
+    userCount: s.users.size,
+    isPlaying: s.isPlaying,
+    url: s.currentVideo,
+    users: Array.from(s.users.values()).slice(0, 8).map(u => ({ username: u.username })),
+  }));
+}
+
 export function broadcastSystemMessage(message: string): void {
   if (!_io) return;
   const now = new Date().toISOString();

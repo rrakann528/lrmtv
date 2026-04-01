@@ -2,12 +2,13 @@ import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation } from 'wouter';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Users, Play, Search, Globe, Lock, X, Mail, Check, UserCircle2 } from 'lucide-react';
+import { Plus, Search, Globe, Lock, X, Mail, Check, UserCircle2, Tv2, Play } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { apiFetch } from '@/hooks/use-auth';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Switch } from '@/components/ui/switch';
 import { useI18n } from '@/lib/i18n';
+import { generateColorFromString } from '@/lib/utils';
 
 interface PublicRoom {
   id: number;
@@ -16,6 +17,8 @@ interface PublicRoom {
   type: string;
   userCount: number;
   createdAt: string;
+  currentVideoUrl?: string | null;
+  users?: Array<{ username: string }>;
 }
 
 interface RoomInvite {
@@ -39,6 +42,21 @@ function fetchInvites(): Promise<RoomInvite[]> {
   return apiFetch('/invites/pending').then(r => r.json()).then(d => Array.isArray(d) ? d : []);
 }
 
+function getYoutubeThumbnail(url: string): string | null {
+  if (!url) return null;
+  let videoId: string | null = null;
+  try {
+    const u = new URL(url);
+    if (u.hostname.includes('youtube.com')) {
+      videoId = u.searchParams.get('v');
+    } else if (u.hostname === 'youtu.be') {
+      videoId = u.pathname.slice(1).split('?')[0];
+    }
+  } catch {}
+  if (!videoId) return null;
+  return `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`;
+}
+
 function useKeyboardOffset() {
   const [offset, setOffset] = useState(0);
   useEffect(() => {
@@ -55,12 +73,147 @@ function useKeyboardOffset() {
   return offset;
 }
 
-// Prefetch the room page chunk so navigation feels instant
 const prefetchedRef: Set<string> = new Set();
 function prefetchRoomChunk() {
   if (prefetchedRef.has('room')) return;
   prefetchedRef.add('room');
   import('@/pages/room').catch(() => {});
+}
+
+function RoomCard({ room, banned, onEnter }: {
+  room: PublicRoom;
+  banned: boolean;
+  onEnter: () => void;
+}) {
+  const { t } = useI18n();
+  const thumbnail = room.currentVideoUrl ? getYoutubeThumbnail(room.currentVideoUrl) : null;
+  const isYouTube = !!thumbnail;
+  const users = room.users ?? [];
+  const MAX_AVATARS = 5;
+  const shown = users.slice(0, MAX_AVATARS);
+  const extra = room.userCount > MAX_AVATARS ? room.userCount - MAX_AVATARS : 0;
+
+  const gradientColor = generateColorFromString(room.name);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      whileTap={!banned ? { scale: 0.97 } : {}}
+      onClick={!banned ? onEnter : undefined}
+      onMouseEnter={prefetchRoomChunk}
+      onTouchStart={prefetchRoomChunk}
+      className={`flex rounded-2xl overflow-hidden border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm ${!banned ? 'cursor-pointer active:scale-[0.97]' : 'opacity-60'}`}
+      style={{ minHeight: '86px' }}
+    >
+      {/* ── Left: Thumbnail ── */}
+      <div className="relative shrink-0 overflow-hidden" style={{ width: '120px' }}>
+        {thumbnail ? (
+          <>
+            <img
+              src={thumbnail}
+              alt={room.name}
+              className="w-full h-full object-cover"
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).style.display = 'none';
+                (e.currentTarget.nextElementSibling as HTMLElement | null)?.classList.remove('hidden');
+              }}
+            />
+            {/* Fallback behind image */}
+            <div
+              className="hidden absolute inset-0 flex items-center justify-center"
+              style={{ background: `linear-gradient(135deg, ${gradientColor}55, ${gradientColor}22)` }}
+            >
+              <Tv2 className="w-8 h-8 text-white/40" />
+            </div>
+            {/* YouTube icon */}
+            <div className="absolute bottom-1.5 left-1.5 bg-black/70 rounded px-1 py-0.5 flex items-center gap-0.5">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="#FF0000">
+                <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-2.75 12.68 12.68 0 0 0-7.35 0 4.83 4.83 0 0 1-3.77 2.75A5 5 0 0 0 3 11.5v1a5 5 0 0 0 1.7 3.81 4.83 4.83 0 0 1 3.77 2.75 12.68 12.68 0 0 0 7.35 0 4.83 4.83 0 0 1 3.77-2.75A5 5 0 0 0 21 12.5v-1a5 5 0 0 0-1.41-3.81z"/>
+              </svg>
+            </div>
+            {/* Play indicator */}
+            <div className="absolute inset-0 bg-gradient-to-r from-transparent to-black/20" />
+          </>
+        ) : (
+          <div
+            className="w-full h-full flex flex-col items-center justify-center gap-1"
+            style={{ background: `linear-gradient(135deg, ${gradientColor}44 0%, ${gradientColor}18 100%)` }}
+          >
+            {room.type === 'private' ? (
+              <Lock className="w-7 h-7 text-white/50" />
+            ) : (
+              <Play className="w-7 h-7 text-white/40" />
+            )}
+            <span className="text-[9px] text-white/30 font-medium uppercase tracking-widest">
+              {room.userCount === 0 ? 'فارغة' : 'مباشر'}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* ── Right: Info ── */}
+      <div className="flex-1 min-w-0 flex flex-col justify-between p-3">
+        {/* Room name */}
+        <div className="flex items-start gap-1.5">
+          <p className="font-bold text-foreground text-[13px] leading-tight flex-1 line-clamp-2">
+            {room.name}
+          </p>
+          {room.type === 'private' && (
+            <Lock className="w-3 h-3 text-muted-foreground shrink-0 mt-0.5" />
+          )}
+        </div>
+
+        {/* Bottom: avatars + count badge */}
+        <div className="flex items-center justify-between mt-2">
+          {/* Overlapping avatars */}
+          <div className="flex items-center">
+            {shown.length > 0 ? (
+              shown.map((u, i) => (
+                <div
+                  key={u.username + i}
+                  className="w-[22px] h-[22px] rounded-full border-[1.5px] border-card flex items-center justify-center text-[8px] font-bold text-white shrink-0"
+                  style={{
+                    backgroundColor: generateColorFromString(u.username),
+                    marginLeft: i > 0 ? '-7px' : '0',
+                    zIndex: shown.length - i,
+                    position: 'relative',
+                  }}
+                >
+                  {u.username.charAt(0).toUpperCase()}
+                </div>
+              ))
+            ) : (
+              <span className="text-[10px] text-muted-foreground/60">
+                {t('noPublicRooms').length > 0 ? 'لا يوجد مشاهدين' : 'empty'}
+              </span>
+            )}
+          </div>
+
+          {/* User count badge or banned */}
+          {banned ? (
+            <span className="text-[10px] font-bold text-red-400 bg-red-500/15 border border-red-500/30 rounded-full px-2 py-0.5">
+              {t('banned')}
+            </span>
+          ) : room.userCount > 0 ? (
+            <div className="flex items-center gap-1">
+              {extra > 0 && (
+                <span className="text-[10px] font-bold text-muted-foreground">+{extra}</span>
+              )}
+              <div
+                className="min-w-[28px] h-[22px] rounded-full flex items-center justify-center text-[10px] font-extrabold text-white px-1.5"
+                style={{ backgroundColor: isYouTube ? '#ef4444' : 'var(--primary)' }}
+              >
+                {room.userCount}
+              </div>
+            </div>
+          ) : (
+            <span className="text-[10px] text-muted-foreground/50">خالية</span>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  );
 }
 
 export function RoomsTab() {
@@ -93,8 +246,6 @@ export function RoomsTab() {
     refetchOnWindowFocus: true,
   });
 
-
-  // Read banned rooms from localStorage on mount + detect kicked redirect
   useEffect(() => {
     try {
       const banned: string[] = JSON.parse(localStorage.getItem('lrmtv_banned_rooms') || '[]');
@@ -187,9 +338,9 @@ export function RoomsTab() {
       </div>
 
       {/* Rooms list */}
-      <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-3">
+      <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-2.5">
 
-        {/* ── Friend Invites Section ── */}
+        {/* ── Friend Invites ── */}
         <AnimatePresence>
           {invites.length > 0 && (
             <motion.div
@@ -216,22 +367,15 @@ export function RoomsTab() {
                     transition={{ delay: i * 0.05 }}
                     className="flex items-center gap-3 bg-primary/8 border border-primary/20 rounded-2xl p-3"
                   >
-                    {/* Icon */}
                     <div className="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center shrink-0">
                       <UserCircle2 className="w-5 h-5 text-primary" />
                     </div>
-
-                    {/* Info */}
                     <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-sm text-foreground truncate">
-                        {inv.roomName}
-                      </p>
+                      <p className="font-semibold text-sm text-foreground truncate">{inv.roomName}</p>
                       <p className="text-xs text-muted-foreground truncate">
                         <span className="text-primary font-medium">{senderName}</span> {t('invitedYouBy')}
                       </p>
                     </div>
-
-                    {/* Actions */}
                     <div className="flex gap-1.5 shrink-0">
                       <button
                         onClick={() => {
@@ -246,7 +390,6 @@ export function RoomsTab() {
                       </button>
                       <button
                         onClick={() => {
-                          // Mark as accepted then join
                           apiFetch(`/invites/${inv.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'accepted' }) });
                           qc.invalidateQueries({ queryKey: ['room-invites'] });
                           qc.invalidateQueries({ queryKey: ['rooms-badge'] });
@@ -267,67 +410,56 @@ export function RoomsTab() {
           )}
         </AnimatePresence>
 
-        {/* ── Rooms List ── */}
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-semibold text-foreground">{t('publicRooms')} ({filtered.length})</span>
+        {/* ── Rooms count header ── */}
+        <div className="flex items-center justify-between py-0.5">
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            {t('publicRooms')} ({filtered.length})
+          </span>
+          {filtered.some(r => r.userCount > 0) && (
+            <span className="flex items-center gap-1 text-[10px] text-emerald-500 font-medium">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              مباشر
+            </span>
+          )}
         </div>
 
+        {/* ── Room cards ── */}
         {isLoading ? (
-          Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-20 bg-muted/40 rounded-2xl animate-pulse" />
+          Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="flex rounded-2xl overflow-hidden border border-border/40 bg-card/60 animate-pulse" style={{ height: '86px' }}>
+              <div className="w-[120px] shrink-0 bg-muted/60" />
+              <div className="flex-1 p-3 space-y-2">
+                <div className="h-3.5 bg-muted/60 rounded-lg w-3/4" />
+                <div className="h-3 bg-muted/40 rounded-lg w-1/2" />
+                <div className="h-5 bg-muted/30 rounded-full w-1/3 mt-auto" />
+              </div>
+            </div>
           ))
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-            <Globe className="w-12 h-12 mb-3 opacity-30" />
-            <p className="text-sm">{t('noPublicRooms')}</p>
-            <p className="text-xs mt-1 opacity-60">{t('createFirstRoom')}</p>
+            <Globe className="w-12 h-12 mb-3 opacity-20" />
+            <p className="text-sm font-medium">{t('noPublicRooms')}</p>
+            <p className="text-xs mt-1 opacity-50">{t('createFirstRoom')}</p>
           </div>
         ) : (
           filtered.map((room, i) => (
             <motion.div
               key={room.id}
-              initial={{ opacity: 0, y: 12 }}
+              initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.05 }}
-              className="flex items-center gap-3 bg-card border border-border rounded-2xl p-4"
-              onMouseEnter={prefetchRoomChunk}
-              onTouchStart={prefetchRoomChunk}
+              transition={{ delay: i * 0.04 }}
             >
-              <div className="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center flex-shrink-0">
-                {room.type === 'private' ? (
-                  <Lock className="w-5 h-5 text-primary" />
-                ) : (
-                  <Play className="w-5 h-5 text-primary" />
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-foreground text-sm truncate">{room.name}</p>
-                <div className="flex items-center gap-1 mt-0.5">
-                  <Users className="w-3 h-3 text-muted-foreground" />
-                  <span className="text-xs text-muted-foreground">{room.userCount} {t('viewers')}</span>
-                </div>
-              </div>
-              {bannedRooms.includes(room.slug) ? (
-                <button
-                  disabled
-                  className="flex-shrink-0 px-4 py-2 bg-red-500/20 text-red-400 border border-red-500/40 rounded-xl text-xs font-bold cursor-not-allowed"
-                >
-                  {t('banned')}
-                </button>
-              ) : (
-                <button
-                  onClick={() => setLocation('/room/' + room.slug)}
-                  className="flex-shrink-0 px-4 py-2 bg-primary text-primary-foreground rounded-xl text-xs font-bold hover:bg-primary/90"
-                >
-                  {t('enterRoom')}
-                </button>
-              )}
+              <RoomCard
+                room={room}
+                banned={bannedRooms.includes(room.slug)}
+                onEnter={() => setLocation('/room/' + room.slug)}
+              />
             </motion.div>
           ))
         )}
       </div>
 
-      {/* FAB — only for registered users */}
+      {/* FAB */}
       {user && (
         <motion.button
           whileTap={{ scale: 0.92 }}
@@ -350,56 +482,48 @@ export function RoomsTab() {
               exit={{ opacity: 0 }}
             >
               <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowCreate(false)} />
-              <div
-                style={{
-                  width: '100%',
-                  transform: `translateY(-${keyboardOffset}px)`,
-                  transition: 'transform 0.25s ease-out',
-                }}
-              >
-              <motion.div
-                className="relative w-full bg-card rounded-t-3xl p-6 z-10"
-                style={{ paddingBottom: 'max(2.5rem, env(safe-area-inset-bottom, 0px))' }}
-                initial={{ y: '100%' }}
-                animate={{ y: 0 }}
-                exit={{ y: '100%' }}
-                transition={{ type: 'spring', damping: 30, stiffness: 400 }}
-              >
-                <div className="flex items-center justify-between mb-5">
-                  <h3 className="text-lg font-bold text-foreground">{t('createNewRoom')}</h3>
-                  <button onClick={() => setShowCreate(false)} className="p-2 rounded-xl hover:bg-muted/50">
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
-
-                {createErr && (
-                  <div className="mb-3 px-3 py-2 bg-destructive/10 border border-destructive/30 rounded-xl text-destructive text-xs">{createErr}</div>
-                )}
-
-                <div className="space-y-3">
-                  <input
-                    value={roomName}
-                    onChange={e => setRoomName(e.target.value)}
-                    placeholder={t('roomName')}
-                    className="w-full bg-muted/50 border border-border rounded-xl px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                    dir="rtl"
-                    autoFocus
-                  />
-
-                  <div className="flex items-center justify-between px-1 py-2">
-                    <span className="text-sm text-foreground">{t('privateRoom')}</span>
-                    <Switch checked={isPrivate} onCheckedChange={setIsPrivate} />
+              <div style={{ width: '100%', transform: `translateY(-${keyboardOffset}px)`, transition: 'transform 0.25s ease-out' }}>
+                <motion.div
+                  className="relative w-full bg-card rounded-t-3xl p-6 z-10"
+                  style={{ paddingBottom: 'max(2.5rem, env(safe-area-inset-bottom, 0px))' }}
+                  initial={{ y: '100%' }}
+                  animate={{ y: 0 }}
+                  exit={{ y: '100%' }}
+                  transition={{ type: 'spring', damping: 30, stiffness: 400 }}
+                >
+                  <div className="flex items-center justify-between mb-5">
+                    <h3 className="text-lg font-bold text-foreground">{t('createNewRoom')}</h3>
+                    <button onClick={() => setShowCreate(false)} className="p-2 rounded-xl hover:bg-muted/50">
+                      <X className="w-5 h-5" />
+                    </button>
                   </div>
 
-                  <button
-                    onClick={() => { setCreateErr(''); createMut.mutate(); }}
-                    disabled={!roomName.trim() || createMut.isPending}
-                    className="w-full py-3.5 bg-primary text-primary-foreground rounded-2xl font-bold text-base disabled:opacity-40"
-                  >
-                    {createMut.isPending ? t('creating') : t('createRoom')}
-                  </button>
-                </div>
-              </motion.div>
+                  {createErr && (
+                    <div className="mb-3 px-3 py-2 bg-destructive/10 border border-destructive/30 rounded-xl text-destructive text-xs">{createErr}</div>
+                  )}
+
+                  <div className="space-y-3">
+                    <input
+                      value={roomName}
+                      onChange={e => setRoomName(e.target.value)}
+                      placeholder={t('roomName')}
+                      className="w-full bg-muted/50 border border-border rounded-xl px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                      dir="rtl"
+                      autoFocus
+                    />
+                    <div className="flex items-center justify-between px-1 py-2">
+                      <span className="text-sm text-foreground">{t('privateRoom')}</span>
+                      <Switch checked={isPrivate} onCheckedChange={setIsPrivate} />
+                    </div>
+                    <button
+                      onClick={() => { setCreateErr(''); createMut.mutate(); }}
+                      disabled={!roomName.trim() || createMut.isPending}
+                      className="w-full py-3.5 bg-primary text-primary-foreground rounded-2xl font-bold text-base disabled:opacity-40"
+                    >
+                      {createMut.isPending ? t('creating') : t('createRoom')}
+                    </button>
+                  </div>
+                </motion.div>
               </div>
             </motion.div>
           )}
@@ -410,4 +534,3 @@ export function RoomsTab() {
     </div>
   );
 }
-

@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq, desc, asc, and, count } from "drizzle-orm";
 import { db, roomsTable, playlistItemsTable, chatMessagesTable, roomInvitesTable } from "@workspace/db";
-import { getActiveRooms, kickRoom, getCachedSetting, applyWordFilter } from "../lib/socket";
+import { getActiveRooms, kickRoom, getCachedSetting, applyWordFilter, getActiveRoomsWithUsers } from "../lib/socket";
 import { requireAuth, type AuthRequest } from "../middlewares/auth";
 import {
   CreateRoomBody,
@@ -37,10 +37,18 @@ router.get("/rooms", async (_req, res): Promise<void> => {
     createdAt: roomsTable.createdAt,
   }).from(roomsTable).where(eq(roomsTable.type, "public")).orderBy(desc(roomsTable.createdAt)).limit(50);
 
-  const active = getActiveRooms();
-  const countMap = new Map(active.map(r => [r.slug, r.userCount]));
+  const active = getActiveRoomsWithUsers();
+  const activeMap = new Map(active.map(r => [r.slug, r]));
 
-  res.json(dbRooms.map(r => ({ ...r, userCount: countMap.get(r.slug) ?? 0 })));
+  res.json(dbRooms.map(r => {
+    const live = activeMap.get(r.slug);
+    return {
+      ...r,
+      userCount: live?.userCount ?? 0,
+      currentVideoUrl: live?.url ?? null,
+      users: live?.users ?? [],
+    };
+  }));
 });
 
 router.post("/rooms", requireAuth, async (req: AuthRequest, res): Promise<void> => {
