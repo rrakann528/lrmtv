@@ -187,7 +187,7 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
     const [activeQuality, setActiveQuality] = useState(-1);
 
     // Video fit mode
-    const [videoFit, setVideoFit] = useState<VideoFit>('cover');
+    const [videoFit, setVideoFit] = useState<VideoFit>('contain');
 
     // Subtitle style
     const [subtitleFontSize, setSubtitleFontSize] = useState(100);
