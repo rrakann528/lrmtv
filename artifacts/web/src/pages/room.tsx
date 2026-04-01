@@ -88,7 +88,7 @@ export default function RoomPage() {
   const [isSeeking]             = useState(false);
   const [playerReady, setPlayerReady] = useState(false);
 
-  const [watcherReadyState, setWatcherReadyState] = useState(false);
+  const [watcherReadyState, setWatcherReadyState] = useState(true);
   const [localPlaying, setLocalPlaying] = useState(false);
   const prevVideoUrlRef = useRef<string | null>(null);
   const suppressPauseRef = useRef(false);
@@ -299,7 +299,6 @@ export default function RoomPage() {
   useEffect(() => {
     if (syncState.url !== prevVideoUrlRef.current) {
       prevVideoUrlRef.current = syncState.url;
-      setWatcherReadyState(false);
       setPlayerReady(false);
       readyTimeRef.current = 0;
     }
@@ -573,35 +572,6 @@ export default function RoomPage() {
                 />
                 </div>
 
-                {!watcherReady && syncState.url && (
-                  <div
-                    className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 backdrop-blur-sm cursor-pointer select-none"
-                    onClick={() => {
-                      setWatcherReadyState(true);
-                      // Call play() synchronously within the user gesture —
-                      // iOS Safari ONLY allows autoplay when play() is triggered
-                      // directly from a user interaction (not from useEffect/setTimeout).
-                      playerRef.current?.play();
-                      // Do NOT emit video-sync or requestSync here.
-                      // Calling requestSync() would trigger TWO rapid seeks:
-                      //   1st seek: from the watcherReady change in the sync effect
-                      //   2nd seek: from the requestSync() response arriving moments later
-                      // Each seek flushes HLS.js buffers and restarts from the proxy,
-                      // causing a permanent buffering loop.
-                      // The heartbeat (already running) will correct any drift naturally.
-                    }}
-                  >
-                    <div className="text-center space-y-3 animate-pulse">
-                      <div className="w-20 h-20 md:w-24 md:h-24 rounded-full bg-primary/30 backdrop-blur-md flex items-center justify-center mx-auto border-2 border-primary/60 hover:bg-primary/40 hover:scale-105 transition-all duration-200 shadow-lg shadow-primary/20">
-                        <Play className="w-10 h-10 md:w-12 md:h-12 text-white fill-white ms-1" />
-                      </div>
-                      <div>
-                        <p className="text-white text-lg md:text-xl font-bold">{t('pressToWatch')}</p>
-                        <p className="text-white/40 text-xs mt-1">{t('pressToWatchDesc')}</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
               </>
             ) : (
               <div className="absolute inset-0 flex flex-col items-center justify-center text-white/40 gap-3">
