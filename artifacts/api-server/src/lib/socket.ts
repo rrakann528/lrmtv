@@ -748,7 +748,15 @@ export function initSocketServer(httpServer: HttpServer): Server {
       switch (data.action) {
         case "play":
           roomState.isPlaying = true;
-          roomState.currentTime = data.currentTime;
+          // Use the server's stored time instead of the client-reported time.
+          // The stored time is set reliably during pause/seek actions and is not
+          // affected by the DJ's local buffer state or network jitter.
+          // Only accept the client time if it differs significantly (> 3s) from
+          // the stored value — which means the DJ intentionally moved position
+          // without emitting a seek first (edge case).
+          if (Math.abs(data.currentTime - roomState.currentTime) > 3) {
+            roomState.currentTime = data.currentTime;
+          }
           roomState.lastSyncTimestamp = Date.now();
           startHeartbeat(io, roomState);
           break;
