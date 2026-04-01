@@ -232,29 +232,21 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
     // mixed-content fetch() entirely, so a CORS check would always fail.
     const isHttpUrl = normalizedUrl.startsWith('http://');
 
-    // HLS/DASH: always proxy — the manifest may allow CORS but segments often
-    // come from a different origin that does not. Our proxy rewrites ALL URLs
-    // (manifest + segments) so everything goes through the same trusted path.
-    // HTML5/MP4: a single URL covers both the resource and its CORS policy,
-    // so we can safely try direct and fall back to proxy if CORS fails.
-    const alwaysProxy = isHttpUrl || videoType === 'hls' || videoType === 'dash';
-
-    // html5/mp4 only: may benefit from direct URL if the server allows CORS
-    const mightNeedProxy = alwaysProxy || (!isIosBrowser && videoType === 'html5');
+    // Types that could potentially bypass the proxy if the server allows CORS
+    const mightNeedProxy = isHttpUrl || (isIosBrowser
+      ? (videoType === 'hls' || videoType === 'dash')
+      : (videoType === 'hls' || videoType === 'dash' || videoType === 'html5'));
 
     const proxyUrl = `/api/proxy/stream?url=${encodeURIComponent(normalizedUrl)}`;
 
-    // ── Proxy / CORS resolution ───────────────────────────────────────────────
-    // HLS/DASH/HTTP: go straight to proxy (no delay, no CORS check).
-    // HTML5/MP4: try direct first; fall back to proxy if CORS blocks.
-    // YouTube/Twitch: never proxied — handled natively.
+    // ── Smart proxy resolution ────────────────────────────────────────────────
+    // Player is hidden (corsChecking=true) until the CORS HEAD check resolves.
+    // This guarantees Cast/AirPlay only ever sees ONE video source — never
+    // the proxy first and then the direct URL.
     const [playableUrl, setPlayableUrl] = useState<string>(
       mightNeedProxy ? proxyUrl : normalizedUrl
     );
-    const [corsChecking, setCorsChecking] = useState(
-      // Only show loading spinner for html5 CORS check; HLS/DASH are immediate.
-      !alwaysProxy && mightNeedProxy
-    );
+    const [corsChecking, setCorsChecking] = useState(mightNeedProxy);
 
     useEffect(() => {
       if (!mightNeedProxy) {
@@ -265,15 +257,16 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
         return;
       }
 
-      // HLS / DASH / HTTP — always use proxy, skip the CORS check entirely.
-      if (alwaysProxy) {
+      // HTTP URLs are always blocked by mixed-content policy on an HTTPS page —
+      // skip the CORS check entirely and go straight to proxy.
+      if (isHttpUrl) {
         setPlayableUrl(proxyUrl);
         setCorsChecking(false);
         onUrlResolved?.(proxyUrl, true);
         return;
       }
 
-      // HTML5/MP4 — try direct with a CORS HEAD check; hide player until resolved.
+      // Hold playback until we know which URL wins
       setPlayableUrl(proxyUrl);
       setCorsChecking(true);
 
@@ -287,17 +280,19 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
         signal: controller.signal,
       })
         .then((res) => {
-          // Any 2xx/3xx/4xx means CORS headers were present → direct OK
+          // Any response (even 4xx) means CORS headers were present → direct OK
           if (res.status < 500) {
             resolvedUrl = normalizedUrl;
             setPlayableUrl(normalizedUrl);
           }
+          // 5xx or unreachable → keep proxy URL already set above
         })
         .catch(() => {
           // NetworkError = CORS blocked or server unreachable → keep proxy
         })
         .finally(() => {
           clearTimeout(timer);
+          // Reveal the player now that we have a definitive URL
           setCorsChecking(false);
           onUrlResolved?.(resolvedUrl, resolvedUrl === proxyUrl);
         });
