@@ -658,6 +658,28 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           setStatusMsg(null);
           onFatal();
         });
+        // ── Audio track helper (defined before listeners so both can call it) ───
+        // Syncs hls.audioTracks → state. Called from MANIFEST_PARSED (initial)
+        // AND from AUDIO_TRACKS_UPDATED (async, for complex manifests like Disney+/BAMTech
+        // where renditions are resolved after the master playlist is first parsed).
+        const syncAudioTracks = () => {
+          if (cancelled) return;
+          if (hls.audioTracks.length > 1) {
+            const aTracks: AudioTrack[] = hls.audioTracks.map((at, i) => ({
+              id: i,
+              label: at.name || at.lang || `Track ${i + 1}`,
+              lang: at.lang,
+            }));
+            setAudioTracks(aTracks);
+            setActiveAudioTrack(hls.audioTrack >= 0 ? hls.audioTrack : 0);
+          } else {
+            setAudioTracks([]);
+          }
+        };
+        hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, () => { syncAudioTracks(); });
+        hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, (_e, data) => {
+          if (!cancelled) setActiveAudioTrack(data.id);
+        });
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           if (cancelled) return;
           // Resolve live status synchronously before signalReady so the seek decision is correct
@@ -679,18 +701,8 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           });
           setQualityLevels(levels);
           setActiveQuality(-1);
-          // Build audio track list from HLS manifest
-          if (hls.audioTracks.length > 1) {
-            const aTracks: AudioTrack[] = hls.audioTracks.map((at, i) => ({
-              id: i,
-              label: at.name || at.lang || `Track ${i + 1}`,
-              lang: at.lang,
-            }));
-            setAudioTracks(aTracks);
-            setActiveAudioTrack(hls.audioTrack >= 0 ? hls.audioTrack : 0);
-          } else {
-            setAudioTracks([]);
-          }
+          // Build audio track list from HLS manifest (initial pass at MANIFEST_PARSED)
+          syncAudioTracks();
           startStallWatchdog();
           // signalReady() is intentionally NOT called here.
           // It fires from the 'canplay' event once the buffer at startPosition is truly
