@@ -10,7 +10,7 @@ import Hls from 'hls.js';
 import { Play, AlertTriangle, RotateCcw, Loader2 } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 import { onFullscreenChange } from '@/lib/fullscreen';
-import PlayerControls, { type SubtitleTrack, type ToastMessage } from './player-controls';
+import PlayerControls, { type SubtitleTrack, type ToastMessage, type QualityLevel, type VideoFit } from './player-controls';
 import FullscreenChat from './fullscreen-chat';
 import SubtitleSearch from './subtitle-search';
 import { type ChatMessage } from './smart-player';
@@ -181,6 +181,36 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
     const [currentSubtitleText, setCurrentSubtitleText] = useState('');
     const [showSubtitleSearch, setShowSubtitleSearch] = useState(false);
     const subtitleIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+    // Quality levels (populated from HLS.js manifest)
+    const [qualityLevels, setQualityLevels] = useState<QualityLevel[]>([]);
+    const [activeQuality, setActiveQuality] = useState(-1);
+
+    // Video fit mode
+    const [videoFit, setVideoFit] = useState<VideoFit>('contain');
+
+    // Subtitle style
+    const [subtitleFontSize, setSubtitleFontSize] = useState(100);
+    const [subtitleHasBg, setSubtitleHasBg] = useState(true);
+
+    // Apply video fit to the video element
+    useEffect(() => {
+      const v = videoRef.current;
+      if (v) v.style.objectFit = videoFit;
+    }, [videoFit]);
+
+    // Quality change handler
+    const handleQualityChange = useCallback((id: number) => {
+      const hls = hlsRef.current;
+      if (!hls) return;
+      if (id === -1) {
+        hls.currentLevel = -1;
+      } else {
+        hls.currentLevel = id;
+        hls.loadLevel = id;
+      }
+      setActiveQuality(id);
+    }, []);
 
     // Poll video.currentTime to find the active subtitle cue
     useEffect(() => {
@@ -618,10 +648,23 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           }
           setStatusMsg(null); setError(null);
           setSubtitleTracks(hls.subtitleTracks.map((tk, i) => ({ id: i, name: tk.name || tk.lang || `Track ${i + 1}`, lang: tk.lang })));
+          // Build quality level list from HLS manifest
+          const levels: QualityLevel[] = [{ id: -1, label: 'Auto' }];
+          hls.levels.forEach((lv, i) => {
+            const label = lv.height ? `${lv.height}p` : lv.bitrate ? `${Math.round(lv.bitrate / 1000)}k` : `Level ${i + 1}`;
+            levels.push({ id: i, label });
+          });
+          setQualityLevels(levels);
+          setActiveQuality(-1);
           startStallWatchdog();
           // signalReady() is intentionally NOT called here.
           // It fires from the 'canplay' event once the buffer at startPosition is truly
           // ready — this prevents the triple-seek that caused heavy join-time stuttering.
+        });
+        hls.on(Hls.Events.LEVEL_SWITCHED, (_evt, data) => {
+          if (cancelled) return;
+          // Only update badge if user explicitly locked a level
+          if (!hls.autoLevelEnabled) setActiveQuality(data.level);
         });
         return hls;
       };
@@ -1027,9 +1070,9 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
             <div
               className="text-white text-center font-medium leading-snug px-3 py-1.5 rounded-lg max-w-[90%]"
               style={{
-                fontSize: 'clamp(13px, 2.2vw, 20px)',
+                fontSize: `clamp(${Math.round(13 * subtitleFontSize / 100)}px, ${(2.2 * subtitleFontSize / 100).toFixed(2)}vw, ${Math.round(20 * subtitleFontSize / 100)}px)`,
                 textShadow: '0 1px 4px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.7)',
-                background: 'rgba(0,0,0,0.45)',
+                background: subtitleHasBg ? 'rgba(0,0,0,0.45)' : 'transparent',
                 whiteSpace: 'pre-line',
               }}
             >
@@ -1062,6 +1105,15 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
             if (v) { v.muted = false; }
             setMutedForAutoplay(false);
           }}
+          qualityLevels={qualityLevels}
+          activeQuality={activeQuality}
+          onQualityChange={handleQualityChange}
+          videoFit={videoFit}
+          onVideoFitChange={setVideoFit}
+          subtitleFontSize={subtitleFontSize}
+          onSubtitleFontSizeChange={setSubtitleFontSize}
+          subtitleHasBg={subtitleHasBg}
+          onSubtitleHasBgChange={setSubtitleHasBg}
         />
 
         <FullscreenChat

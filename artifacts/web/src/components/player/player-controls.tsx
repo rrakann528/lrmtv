@@ -4,6 +4,7 @@ import {
   Play, Pause, SkipBack, SkipForward,
   Volume2, VolumeX, Maximize, Minimize,
   MessageSquare, Subtitles, Lock,
+  MoreVertical, ChevronRight, ChevronLeft, Check,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { generateColorFromString } from '@/lib/utils';
@@ -16,11 +17,20 @@ export interface SubtitleTrack {
   lang?: string;
 }
 
+export interface QualityLevel {
+  id: number;
+  label: string;
+}
+
 export interface ToastMessage {
   id: string;
   username: string;
   content: string;
 }
+
+type SettingsView = null | 'main' | 'quality' | 'fit' | 'subtitle';
+
+export type VideoFit = 'contain' | 'cover' | 'fill';
 
 interface PlayerControlsProps {
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -40,10 +50,20 @@ interface PlayerControlsProps {
   isChatOpen: boolean;
   toastMessages: ToastMessage[];
   lang?: 'en' | 'ar';
-  /** True when video started muted due to browser autoplay policy */
   mutedForAutoplay?: boolean;
-  /** Called when user clicks unmute from the volume icon */
   onUnmuteAutoplay?: () => void;
+  // Quality
+  qualityLevels?: QualityLevel[];
+  activeQuality?: number;
+  onQualityChange?: (id: number) => void;
+  // Video fit
+  videoFit?: VideoFit;
+  onVideoFitChange?: (fit: VideoFit) => void;
+  // Subtitle style
+  subtitleFontSize?: number;
+  onSubtitleFontSizeChange?: (size: number) => void;
+  subtitleHasBg?: boolean;
+  onSubtitleHasBgChange?: (bg: boolean) => void;
 }
 
 function formatTime(s: number): string {
@@ -54,6 +74,19 @@ function formatTime(s: number): string {
   if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
   return `${m}:${String(sec).padStart(2, '0')}`;
 }
+
+const FIT_LABELS: Record<VideoFit, { ar: string; en: string }> = {
+  contain: { ar: 'عادي',        en: 'Normal' },
+  cover:   { ar: 'تملأ الشاشة', en: 'Fill' },
+  fill:    { ar: 'ممتد',        en: 'Stretch' },
+};
+
+const FONT_SIZES = [
+  { value: 75,  label: { ar: 'صغير',     en: 'Small'   } },
+  { value: 100, label: { ar: 'متوسط',    en: 'Medium'  } },
+  { value: 130, label: { ar: 'كبير',     en: 'Large'   } },
+  { value: 170, label: { ar: 'كبير جداً', en: 'X-Large' } },
+];
 
 export default function PlayerControls({
   videoRef,
@@ -75,6 +108,15 @@ export default function PlayerControls({
   lang = 'en',
   mutedForAutoplay = false,
   onUnmuteAutoplay,
+  qualityLevels = [],
+  activeQuality = -1,
+  onQualityChange,
+  videoFit = 'contain',
+  onVideoFitChange,
+  subtitleFontSize = 100,
+  onSubtitleFontSizeChange,
+  subtitleHasBg = true,
+  onSubtitleHasBgChange,
 }: PlayerControlsProps) {
   const { t } = useI18n();
   const [currentTime, setCurrentTime] = useState(0);
@@ -85,10 +127,11 @@ export default function PlayerControls({
   const [showControls, setShowControls] = useState(true);
   const [showSubMenu, setShowSubMenu] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [settingsView, setSettingsView] = useState<SettingsView>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rafRef = useRef<number>(0);
-  // Track last touch time so click handler knows whether event came from a touch
   const lastTouchTimeRef = useRef(0);
+  const settingsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const tick = () => {
@@ -134,20 +177,20 @@ export default function PlayerControls({
     return () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current); };
   }, [resetTimer]);
 
+  // Close settings when controls hide
+  useEffect(() => {
+    if (!showControls) setSettingsView(null);
+  }, [showControls]);
+
   const togglePlay = useCallback(() => {
     if (isPlaying) onPause(); else onPlay();
   }, [isPlaying, onPlay, onPause]);
 
-  /**
-   * Handles a tap/click on the video area.
-   * - Touch devices: first tap shows controls only; controls bar play button handles play/pause.
-   *   This matches YouTube/Netflix mobile UX — touching the video never accidentally pauses.
-   * - Mouse (desktop): click toggles play/pause as before.
-   */
   const handleVideoAreaTap = useCallback(() => {
     const isTouchEvent = Date.now() - lastTouchTimeRef.current < 500;
     if (isTouchEvent) {
-      // Mobile tap: just toggle controls visibility, do NOT toggle play/pause
+      if (settingsView !== null) { setSettingsView(null); return; }
+      if (showSubMenu) { setShowSubMenu(false); return; }
       if (showControls) {
         setShowControls(false);
         if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
@@ -155,10 +198,9 @@ export default function PlayerControls({
         resetTimer();
       }
     } else {
-      // Desktop click: toggle play/pause (classic behavior)
       togglePlay();
     }
-  }, [showControls, resetTimer, togglePlay]);
+  }, [showControls, resetTimer, togglePlay, settingsView, showSubMenu]);
 
   const seekRelative = useCallback((delta: number) => {
     const v = videoRef.current;
@@ -168,7 +210,6 @@ export default function PlayerControls({
     onSeek(t);
   }, [videoRef, onSeek]);
 
-  // Progress click: always measured from physical left → ratio left-to-right
   const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (isLive) return;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -186,6 +227,227 @@ export default function PlayerControls({
   }, [containerRef]);
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+
+  const activeQualityLabel = qualityLevels.find(q => q.id === activeQuality)?.label ?? 'Auto';
+
+  // ── Settings panel content ─────────────────────────────────────────────────
+  const renderSettingsContent = () => {
+    if (settingsView === 'quality') {
+      return (
+        <>
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10">
+            <button className="p-1 rounded hover:bg-white/10 transition" onClick={() => setSettingsView('main')}>
+              <ChevronLeft className="w-4 h-4 text-white" />
+            </button>
+            <span className="text-sm font-semibold text-white">{lang === 'ar' ? 'جودة الفيديو' : 'Quality'}</span>
+          </div>
+          <div className="py-1 max-h-48 overflow-y-auto">
+            {qualityLevels.map(q => (
+              <button
+                key={q.id}
+                className="w-full flex items-center justify-between px-4 py-2 text-sm hover:bg-white/10 transition"
+                onClick={() => { onQualityChange?.(q.id); setSettingsView(null); }}
+              >
+                <span className={cn(q.id === activeQuality ? 'text-primary font-medium' : 'text-white/80')}>{q.label}</span>
+                {q.id === activeQuality && <Check className="w-4 h-4 text-primary" />}
+              </button>
+            ))}
+            {qualityLevels.length === 0 && (
+              <p className="text-center text-white/40 text-sm py-3">{lang === 'ar' ? 'غير متاح' : 'N/A'}</p>
+            )}
+          </div>
+        </>
+      );
+    }
+
+    if (settingsView === 'fit') {
+      const fits: VideoFit[] = ['contain', 'cover', 'fill'];
+      return (
+        <>
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10">
+            <button className="p-1 rounded hover:bg-white/10 transition" onClick={() => setSettingsView('main')}>
+              <ChevronLeft className="w-4 h-4 text-white" />
+            </button>
+            <span className="text-sm font-semibold text-white">{lang === 'ar' ? 'نسبة الصورة' : 'Aspect Ratio'}</span>
+          </div>
+          <div className="py-1">
+            {fits.map(f => (
+              <button
+                key={f}
+                className="w-full flex items-center justify-between px-4 py-2 text-sm hover:bg-white/10 transition"
+                onClick={() => { onVideoFitChange?.(f); setSettingsView(null); }}
+              >
+                <span className={cn(f === videoFit ? 'text-primary font-medium' : 'text-white/80')}>
+                  {FIT_LABELS[f][lang === 'ar' ? 'ar' : 'en']}
+                </span>
+                {f === videoFit && <Check className="w-4 h-4 text-primary" />}
+              </button>
+            ))}
+          </div>
+        </>
+      );
+    }
+
+    if (settingsView === 'subtitle') {
+      return (
+        <>
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10">
+            <button className="p-1 rounded hover:bg-white/10 transition" onClick={() => setSettingsView('main')}>
+              <ChevronLeft className="w-4 h-4 text-white" />
+            </button>
+            <span className="text-sm font-semibold text-white">{lang === 'ar' ? 'إعدادات الترجمة' : 'Subtitle Style'}</span>
+          </div>
+          <div className="p-3 space-y-4">
+            {/* Font size */}
+            <div>
+              <p className="text-xs text-white/50 mb-2">{lang === 'ar' ? 'حجم الخط' : 'Font Size'}</p>
+              <div className="flex gap-1.5">
+                {FONT_SIZES.map(fs => (
+                  <button
+                    key={fs.value}
+                    className={cn(
+                      'flex-1 py-1.5 rounded-lg text-xs font-medium transition border',
+                      subtitleFontSize === fs.value
+                        ? 'bg-primary/20 border-primary text-primary'
+                        : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10',
+                    )}
+                    onClick={() => onSubtitleFontSizeChange?.(fs.value)}
+                  >
+                    {fs.label[lang === 'ar' ? 'ar' : 'en']}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {/* Background */}
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-white/80">{lang === 'ar' ? 'خلفية الترجمة' : 'Background'}</span>
+              <button
+                className={cn(
+                  'relative w-11 h-6 rounded-full transition-colors',
+                  subtitleHasBg ? 'bg-primary' : 'bg-white/20',
+                )}
+                onClick={() => onSubtitleHasBgChange?.(!subtitleHasBg)}
+              >
+                <span
+                  className={cn(
+                    'absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-all',
+                    subtitleHasBg ? 'left-6' : 'left-1',
+                  )}
+                />
+              </button>
+            </div>
+          </div>
+        </>
+      );
+    }
+
+    // Main menu
+    return (
+      <>
+        <div className="px-3 py-2 border-b border-white/10">
+          <span className="text-sm font-semibold text-white">{lang === 'ar' ? 'الإعدادات' : 'Settings'}</span>
+        </div>
+        <div className="py-1">
+          {/* Quality */}
+          <button
+            className="w-full flex items-center justify-between px-4 py-2.5 text-sm hover:bg-white/10 transition"
+            onClick={() => setSettingsView('quality')}
+          >
+            <div className="flex items-center gap-2.5">
+              <span className="text-base">🎬</span>
+              <span className="text-white/90">{lang === 'ar' ? 'جودة الفيديو' : 'Quality'}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-white/40">{activeQualityLabel}</span>
+              <ChevronRight className="w-4 h-4 text-white/30" />
+            </div>
+          </button>
+
+          {/* Video fit */}
+          <button
+            className="w-full flex items-center justify-between px-4 py-2.5 text-sm hover:bg-white/10 transition"
+            onClick={() => setSettingsView('fit')}
+          >
+            <div className="flex items-center gap-2.5">
+              <span className="text-base">▢</span>
+              <span className="text-white/90">{lang === 'ar' ? 'نسبة الصورة' : 'Aspect Ratio'}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-white/40">
+                {FIT_LABELS[videoFit][lang === 'ar' ? 'ar' : 'en']}
+              </span>
+              <ChevronRight className="w-4 h-4 text-white/30" />
+            </div>
+          </button>
+
+          {/* Subtitle settings */}
+          <button
+            className="w-full flex items-center justify-between px-4 py-2.5 text-sm hover:bg-white/10 transition"
+            onClick={() => setSettingsView('subtitle')}
+          >
+            <div className="flex items-center gap-2.5">
+              <span className="text-base">CC</span>
+              <span className="text-white/90">{lang === 'ar' ? 'إعدادات الترجمة' : 'Subtitle Style'}</span>
+            </div>
+            <ChevronRight className="w-4 h-4 text-white/30" />
+          </button>
+
+          <div className="border-t border-white/10 mt-1 pt-1">
+            {/* Subtitle tracks */}
+            <button
+              className="w-full flex items-center justify-between px-4 py-2.5 text-sm hover:bg-white/10 transition"
+              onClick={() => { onSubtitleChange?.(-1); setSettingsView(null); }}
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="text-base">🚫</span>
+                <span className={cn(activeSubtitleId === -1 ? 'text-primary' : 'text-white/90')}>
+                  {lang === 'ar' ? 'إيقاف الترجمة' : 'Subtitles Off'}
+                </span>
+              </div>
+              {activeSubtitleId === -1 && <Check className="w-4 h-4 text-primary" />}
+            </button>
+
+            {customSubtitleLabel && (
+              <button
+                className="w-full flex items-center justify-between px-4 py-2.5 text-sm hover:bg-white/10 transition"
+                onClick={() => { onSubtitleChange?.(-2); setSettingsView(null); }}
+              >
+                <div className="flex items-center gap-2.5">
+                  <span className="text-base">✓</span>
+                  <span className={cn('truncate max-w-[140px]', activeSubtitleId === -2 ? 'text-primary' : 'text-white/90')}>
+                    {customSubtitleLabel}
+                  </span>
+                </div>
+                {activeSubtitleId === -2 && <Check className="w-4 h-4 text-primary" />}
+              </button>
+            )}
+
+            {subtitleTracks.map((tk) => (
+              <button
+                key={tk.id}
+                className="w-full flex items-center justify-between px-4 py-2.5 text-sm hover:bg-white/10 transition"
+                onClick={() => { onSubtitleChange?.(tk.id); setSettingsView(null); }}
+              >
+                <span className={cn(activeSubtitleId === tk.id ? 'text-primary' : 'text-white/90')}>
+                  {tk.name || tk.lang || `Track ${tk.id + 1}`}
+                </span>
+                {activeSubtitleId === tk.id && <Check className="w-4 h-4 text-primary" />}
+              </button>
+            ))}
+
+            {/* Search subtitles */}
+            <button
+              className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm hover:bg-white/10 transition"
+              onClick={() => { onSearchSubtitles?.(); setSettingsView(null); }}
+            >
+              <span className="text-base">🔍</span>
+              <span className="text-white/70">{lang === 'ar' ? 'البحث عن ترجمة' : 'Search Subtitle'}</span>
+            </button>
+          </div>
+        </div>
+      </>
+    );
+  };
 
   return (
     <div
@@ -221,6 +483,45 @@ export default function PlayerControls({
         </AnimatePresence>
       </div>
 
+      {/* ── Three-dots settings button — top-left ── */}
+      <AnimatePresence>
+        {showControls && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="absolute top-2 left-2 z-30"
+            onClick={(e) => e.stopPropagation()}
+            ref={settingsRef}
+          >
+            <button
+              className={cn(
+                'p-2 rounded-full transition bg-black/30 hover:bg-black/50 text-white backdrop-blur-sm',
+                settingsView !== null && 'bg-black/60',
+              )}
+              onClick={() => setSettingsView(v => v === null ? 'main' : null)}
+            >
+              <MoreVertical className="w-5 h-5" />
+            </button>
+
+            <AnimatePresence>
+              {settingsView !== null && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.92, y: -6 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.92, y: -6 }}
+                  transition={{ duration: 0.15 }}
+                  className="absolute top-10 left-0 w-64 bg-zinc-900/97 backdrop-blur-xl rounded-xl border border-white/10 shadow-2xl overflow-hidden"
+                >
+                  {renderSettingsContent()}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Controls bar */}
       <AnimatePresence>
         {showControls && (
@@ -233,7 +534,7 @@ export default function PlayerControls({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="relative">
-              {/* ── Progress bar — always left→right regardless of page direction ── */}
+              {/* Progress bar */}
               {!isLive ? (
                 <div
                   className={cn('py-2 group relative', canControl ? 'cursor-pointer' : 'cursor-default')}
@@ -244,7 +545,6 @@ export default function PlayerControls({
                   onTouchEnd={() => setIsDragging(false)}
                 >
                   <div className="h-1 md:h-1.5 bg-white/20 rounded-full relative">
-                    {/* Filled portion — starts from physical left */}
                     <div
                       className={cn('absolute left-0 top-0 h-full rounded-full', canControl ? 'bg-primary' : 'bg-white/40')}
                       style={{ width: `${progress}%` }}
@@ -262,23 +562,18 @@ export default function PlayerControls({
                 </div>
               )}
 
-              {/* ── Buttons row — left group / right group ── */}
-              {/* dir="ltr" forces physical left→right regardless of page RTL */}
+              {/* Buttons row */}
               <div className="flex items-center justify-between gap-1" dir="ltr">
 
-                {/* ── LEFT: Back · Play/Pause · Forward · Volume ── */}
+                {/* LEFT: Skip · Play/Pause · Volume */}
                 <div className="flex items-center">
-                  {/* Lock badge for guests */}
                   {!canControl && (
                     <div className="flex items-center gap-1 px-2 py-1 me-1 rounded-full bg-amber-500/20 border border-amber-400/30">
                       <Lock className="w-3 h-3 text-amber-400" />
-                      <span className="text-[10px] text-amber-300 font-medium">
-                        {t('viewOnly')}
-                      </span>
+                      <span className="text-[10px] text-amber-300 font-medium">{t('viewOnly')}</span>
                     </div>
                   )}
 
-                  {/* Skip Back */}
                   <button
                     className={cn('p-2.5 rounded-full transition', canControl ? 'hover:bg-white/10 active:bg-white/20 text-white' : 'text-white/25 cursor-not-allowed')}
                     onClick={() => seekRelative(-10)}
@@ -287,7 +582,6 @@ export default function PlayerControls({
                     <SkipBack className="w-5 h-5" />
                   </button>
 
-                  {/* Play / Pause */}
                   <button
                     className={cn('p-2.5 rounded-full transition', canControl ? 'hover:bg-white/10 active:bg-white/20 text-white' : 'text-white/25 cursor-not-allowed')}
                     onClick={togglePlay}
@@ -298,7 +592,6 @@ export default function PlayerControls({
                       : <Play  className="w-5 h-5 fill-white" />}
                   </button>
 
-                  {/* Skip Forward */}
                   <button
                     className={cn('p-2.5 rounded-full transition', canControl ? 'hover:bg-white/10 active:bg-white/20 text-white' : 'text-white/25 cursor-not-allowed')}
                     onClick={() => seekRelative(10)}
@@ -307,7 +600,6 @@ export default function PlayerControls({
                     <SkipForward className="w-5 h-5" />
                   </button>
 
-                  {/* Volume */}
                   <div className="flex items-center gap-1">
                     <div className="relative">
                       <button
@@ -342,7 +634,6 @@ export default function PlayerControls({
                     />
                   </div>
 
-                  {/* Time */}
                   {!isLive && duration > 0 && (
                     <span className="hidden sm:inline text-[11px] text-white/60 font-mono ms-0.5 tabular-nums">
                       {formatTime(currentTime)} / {formatTime(duration)}
@@ -350,98 +641,71 @@ export default function PlayerControls({
                   )}
                 </div>
 
-                {/* ── RIGHT: Subtitle · Chat · Fullscreen ── */}
+                {/* RIGHT: Subtitle · Chat · Fullscreen */}
                 <div className="flex items-center">
-                  {/* Subtitles */}
-                  <div className="relative">
-                    <button
-                      className={cn(
-                        'p-2.5 rounded-full hover:bg-white/10 transition text-white',
-                        (activeSubtitleId >= 0 || activeSubtitleId === -2) && 'text-primary',
-                      )}
-                      onClick={() => setShowSubMenu((s) => !s)}
-                    >
-                      <Subtitles className="w-5 h-5" />
-                    </button>
-                    <AnimatePresence>
-                      {showSubMenu && (
-                        <motion.div
-                          initial={{ opacity: 0, y: 6 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: 6 }}
-                          className="absolute bottom-full right-0 mb-2 bg-zinc-900/95 backdrop-blur rounded-xl border border-white/10 p-1 min-w-[170px] shadow-2xl z-20"
-                        >
-                          <button
-                            className={cn(
-                              'w-full text-right px-3 py-1.5 rounded-lg text-sm hover:bg-white/10',
-                              activeSubtitleId === -1 ? 'text-primary' : 'text-white/70',
-                            )}
-                            onClick={() => { onSubtitleChange?.(-1); setShowSubMenu(false); }}
+                  {/* Subtitle quick-toggle in bottom bar (kept for HLS tracks) */}
+                  {(subtitleTracks.length > 0 || customSubtitleLabel) && (
+                    <div className="relative">
+                      <button
+                        className={cn(
+                          'p-2.5 rounded-full hover:bg-white/10 transition text-white',
+                          (activeSubtitleId >= 0 || activeSubtitleId === -2) && 'text-primary',
+                        )}
+                        onClick={() => setShowSubMenu((s) => !s)}
+                      >
+                        <Subtitles className="w-5 h-5" />
+                      </button>
+                      <AnimatePresence>
+                        {showSubMenu && (
+                          <motion.div
+                            initial={{ opacity: 0, y: 6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 6 }}
+                            className="absolute bottom-full right-0 mb-2 bg-zinc-900/95 backdrop-blur rounded-xl border border-white/10 p-1 min-w-[170px] shadow-2xl z-20"
                           >
-                            {t('off')}
-                          </button>
-
-                          {customSubtitleLabel && (
                             <button
-                              className={cn(
-                                'w-full text-right px-3 py-1.5 rounded-lg text-sm hover:bg-white/10 truncate',
-                                activeSubtitleId === -2 ? 'text-primary' : 'text-white/70',
-                              )}
-                              onClick={() => { onSubtitleChange?.(-2); setShowSubMenu(false); }}
+                              className={cn('w-full text-right px-3 py-1.5 rounded-lg text-sm hover:bg-white/10', activeSubtitleId === -1 ? 'text-primary' : 'text-white/70')}
+                              onClick={() => { onSubtitleChange?.(-1); setShowSubMenu(false); }}
                             >
-                              {customSubtitleLabel}
+                              {t('off')}
                             </button>
-                          )}
+                            {customSubtitleLabel && (
+                              <button
+                                className={cn('w-full text-right px-3 py-1.5 rounded-lg text-sm hover:bg-white/10 truncate', activeSubtitleId === -2 ? 'text-primary' : 'text-white/70')}
+                                onClick={() => { onSubtitleChange?.(-2); setShowSubMenu(false); }}
+                              >
+                                {customSubtitleLabel}
+                              </button>
+                            )}
+                            {subtitleTracks.map((tk) => (
+                              <button
+                                key={tk.id}
+                                className={cn('w-full text-right px-3 py-1.5 rounded-lg text-sm hover:bg-white/10', activeSubtitleId === tk.id ? 'text-primary' : 'text-white/70')}
+                                onClick={() => { onSubtitleChange?.(tk.id); setShowSubMenu(false); }}
+                              >
+                                {tk.name || tk.lang || `Track ${tk.id + 1}`}
+                              </button>
+                            ))}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  )}
 
-                          {subtitleTracks.map((t) => (
-                            <button
-                              key={t.id}
-                              className={cn(
-                                'w-full text-right px-3 py-1.5 rounded-lg text-sm hover:bg-white/10',
-                                activeSubtitleId === t.id ? 'text-primary' : 'text-white/70',
-                              )}
-                              onClick={() => { onSubtitleChange?.(t.id); setShowSubMenu(false); }}
-                            >
-                              {t.name || t.lang || `Track ${t.id + 1}`}
-                            </button>
-                          ))}
-
-                          <div className="border-t border-white/10 mt-1 pt-1">
-                            <button
-                              className="w-full text-right px-3 py-1.5 rounded-lg text-sm text-white/50 hover:bg-white/10 hover:text-white transition flex items-center gap-2 justify-end"
-                              onClick={() => { onSearchSubtitles?.(); setShowSubMenu(false); }}
-                            >
-                              {t('searchSubtitles')}
-                              <span className="text-base leading-none">🔍</span>
-                            </button>
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-
-                  {/* Chat */}
                   <button
-                    className={cn(
-                      'p-2.5 rounded-full hover:bg-white/10 transition text-white',
-                      isChatOpen && 'text-primary bg-white/10',
-                    )}
+                    className={cn('p-2.5 rounded-full hover:bg-white/10 transition text-white', isChatOpen && 'text-primary bg-white/10')}
                     onClick={onToggleChat}
                   >
                     <MessageSquare className="w-5 h-5" />
                   </button>
 
-                  {/* Fullscreen — rightmost */}
                   <button
                     className="p-2.5 rounded-full hover:bg-white/10 transition text-white"
                     onClick={toggleFullscreen}
                   >
-                    {isFullscreen
-                      ? <Minimize className="w-5 h-5" />
-                      : <Maximize className="w-5 h-5" />}
+                    {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
                   </button>
                 </div>
-
               </div>
             </div>
           </motion.div>
