@@ -393,6 +393,58 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       }
     }, [onSubtitleApplied]);
 
+    // ── Apply video fit (aspect ratio) for ReactPlayer sources ─────────────────
+    // For HTML5 <video>: objectFit is applied directly.
+    // For YouTube/iframe: the iframe is scaled via transform to simulate contain/cover/fill.
+    useEffect(() => {
+      if (isHls) return;
+      const container = containerRef.current;
+      if (!container) return;
+
+      const apply = () => {
+        const iframe = container.querySelector('iframe') as HTMLIFrameElement | null;
+        const videoEl = container.querySelector('video') as HTMLVideoElement | null;
+
+        if (videoEl) {
+          videoEl.style.objectFit = rpVideoFit === 'contain' ? 'contain' : rpVideoFit === 'cover' ? 'cover' : 'fill';
+          return;
+        }
+
+        if (!iframe) return;
+
+        // Ensure the container clips overflowing content when scaled beyond bounds
+        container.style.overflow = rpVideoFit !== 'contain' ? 'hidden' : '';
+
+        if (rpVideoFit === 'contain') {
+          iframe.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;transform:none;';
+        } else if (rpVideoFit === 'cover') {
+          // Scale the 16:9 iframe so it fully covers the container without black bars
+          const { width: cw, height: ch } = container.getBoundingClientRect();
+          if (!cw || !ch) return;
+          const videoRatio = 16 / 9;
+          const containerRatio = cw / ch;
+          const scale = containerRatio > videoRatio
+            ? containerRatio / videoRatio   // wider container: scale by x
+            : videoRatio / containerRatio;  // taller container: scale by y
+          iframe.style.cssText = `position:absolute;top:50%;left:50%;width:100%;height:100%;transform:translate(-50%,-50%) scale(${scale.toFixed(4)});transform-origin:center;`;
+        } else {
+          // fill: stretch the iframe to fill the container ignoring aspect ratio
+          const { width: cw, height: ch } = container.getBoundingClientRect();
+          if (!cw || !ch) return;
+          const videoRatio = 16 / 9;
+          const containerRatio = cw / ch;
+          const scaleX = containerRatio > videoRatio ? containerRatio / videoRatio : 1;
+          const scaleY = containerRatio < videoRatio ? videoRatio / containerRatio : 1;
+          iframe.style.cssText = `position:absolute;top:50%;left:50%;width:100%;height:100%;transform:translate(-50%,-50%) scaleX(${scaleX.toFixed(4)}) scaleY(${scaleY.toFixed(4)});transform-origin:center;`;
+        }
+      };
+
+      apply();
+      const ro = new ResizeObserver(apply);
+      ro.observe(container);
+      return () => ro.disconnect();
+    }, [rpVideoFit, isHls, ready]);
+
     // ── PWA / tab-switch recovery: resume ReactPlayer (YouTube/Twitch) ─────────
     useEffect(() => {
       if (isHls) return; // HLS handled in hls-player.tsx
