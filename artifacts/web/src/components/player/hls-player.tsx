@@ -203,24 +203,49 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
     const [audioTracks, setAudioTracks] = useState<AudioTrack[]>([]);
     const [activeAudioTrack, setActiveAudioTrack] = useState(0);
 
-    // Quality change handler
+    // Keep a ref to the latest `playing` value so callbacks (quality/audio) don't close over a stale value
+    const playingRef = useRef(playing);
+    useEffect(() => { playingRef.current = playing; }, [playing]);
+
+    // Quality change handler — uses loadLevel (not currentLevel) for seamless transition.
+    // hls.currentLevel triggers immediateLevelSwitch() which flushes the buffer → black screen.
+    // hls.loadLevel switches at the next segment boundary without flushing → no black screen.
     const handleQualityChange = useCallback((id: number) => {
       const hls = hlsRef.current;
       if (!hls) return;
       if (id === -1) {
+        // Re-enable ABR. Use currentLevel=-1 here since ABR re-enable is lightweight.
         hls.currentLevel = -1;
       } else {
-        hls.currentLevel = id;
+        // Seamless: switch at next segment boundary, lock to this level (disables ABR).
         hls.loadLevel = id;
       }
       setActiveQuality(id);
     }, []);
 
-    // Audio track change handler — works for both HLS.js (hls.audioTrack) and native video (AudioTrackList)
+    // Audio track change handler — works for both HLS.js and native Safari AudioTrackList.
+    // After switching, HLS.js must reload audio segments which causes a brief buffer underrun.
+    // We snapshot currentTime and set up a recovery: if the video stalls after the switch
+    // we force it back to loading from the snapshotted position.
     const handleAudioTrackChange = useCallback((id: number) => {
       const hls = hlsRef.current;
+      const video = videoRef.current;
       if (hls) {
+        const snapTime = video?.currentTime ?? 0;
         hls.audioTrack = id;
+        // Give HLS.js ~300 ms to flush and start loading the new audio.
+        // If the video has stalled after that, nudge it to start loading from current position.
+        setTimeout(() => {
+          if (!hlsRef.current || !videoRef.current) return;
+          const v = videoRef.current;
+          const h = hlsRef.current;
+          if (v.readyState < 3) {
+            try { h.stopLoad(); h.startLoad(snapTime); } catch { /* ignore */ }
+          }
+          if (playingRef.current && v.paused) {
+            v.play().catch(() => {});
+          }
+        }, 500);
       } else {
         // Native Safari AudioTrackList: enable selected, disable others
         const nativeTracks = (videoRef.current as unknown as { audioTracks?: AudioTrackList & { [i: number]: { label: string; language: string; enabled: boolean } } })?.audioTracks;
@@ -306,28 +331,37 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
     useEffect(() => {
       const onVisible = () => {
         if (document.hidden) return;
-        const video = videoRef.current;
-        if (!video) return;
-        // Small delay so browser finishes its own resume logic first
-        setTimeout(() => {
+        const tryResume = () => {
           if (document.hidden) return;
+          const video = videoRef.current;
           const hls = hlsRef.current;
+          if (!video) return;
+
           if (hls) {
-            // Kick HLS.js to resume fetching segments (browser may have frozen it)
-            try { hls.startLoad(); } catch { /* ignore if not attached */ }
+            const snapTime = video.currentTime;
             // For live: jump to live edge if we've drifted more than 4 s behind
             if (isLiveRef.current) {
               const edge = hls.liveSyncPosition;
               if (edge && isFinite(edge) && video.currentTime < edge - 4) {
                 video.currentTime = edge;
               }
+              // Kick HLS.js to resume fetching (browser may have frozen the network)
+              try { hls.stopLoad(); hls.startLoad(-1); } catch { /* ignore */ }
+            } else {
+              // VOD: resume loading from current position
+              try { hls.stopLoad(); hls.startLoad(snapTime); } catch { /* ignore */ }
             }
           }
-          // If video is supposed to be playing but has no data, nudge it
-          if (!video.paused && video.readyState < 2) {
+
+          // If video is supposed to be playing but is paused or starved, force play
+          if (playingRef.current && (video.paused || video.readyState < 3)) {
             video.play().catch(() => {});
           }
-        }, 400);
+        };
+
+        // Two attempts: immediately (300 ms) and a follow-up (1.5 s) for slow-waking browsers
+        setTimeout(tryResume, 300);
+        setTimeout(tryResume, 1500);
       };
       document.addEventListener('visibilitychange', onVisible);
       return () => document.removeEventListener('visibilitychange', onVisible);
@@ -559,13 +593,14 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           }
 
           // ── Stall detection: currentTime not advancing + not enough buffer ─
-          if (now === lastTime && video.readyState < 3) {
+          const isStalled = now === lastTime && video.readyState < 3;
+          if (isStalled) {
             stalledFor += 1;
             if (stalledFor >= 2) {  // 2 s of true stall → act
               stalledFor = 0;
               const buf = video.buffered;
               const ahead = buf.length > 0 ? buf.end(buf.length - 1) - now : 0;
-              if (ahead > 0.3) {
+              if (ahead > 0.3 && !video.paused) {
                 // Buffer exists but decoder froze — nudge past stuck frame
                 isInternalNudgeRef.current = true;
                 video.currentTime = now + 0.1;
@@ -579,6 +614,14 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
                 } else {
                   // VOD: reload from where we stopped
                   try { hls.stopLoad(); hls.startLoad(now); } catch { /* ignore */ }
+                }
+                // Force play after reloading (covers "paused by OS/browser" cases)
+                if (playingRef.current && video.paused) {
+                  setTimeout(() => {
+                    if (playingRef.current && videoRef.current?.paused) {
+                      videoRef.current.play().catch(() => {});
+                    }
+                  }, 600);
                 }
               } else if (dashRef.current) {
                 // DASH auto-recovers
