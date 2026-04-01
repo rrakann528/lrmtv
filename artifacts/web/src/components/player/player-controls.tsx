@@ -550,7 +550,8 @@ export default function PlayerControls({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="absolute top-2 left-2 z-30"
+            className="absolute left-2 z-30"
+            style={{ top: 'calc(8px + env(safe-area-inset-top, 0px))' }}
             onClick={(e) => e.stopPropagation()}
             ref={settingsRef}
           >
