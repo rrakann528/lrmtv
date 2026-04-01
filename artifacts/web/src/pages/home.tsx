@@ -74,6 +74,7 @@ export default function HomePage() {
   }, [tabParam]);
 
   const [acceptedToast, setAcceptedToast] = useState<string | null>(null);
+  const [kickedRooms, setKickedRooms] = useState<string[]>([]);
 
   const handleFriendAccepted = useCallback((data: { byId: number; byName: string }) => {
     setAcceptedToast(data.byName);
@@ -84,10 +85,15 @@ export default function HomePage() {
     setActiveTab('friends');
   }, []);
 
+  const handleKickedFromRoom = useCallback((slug: string) => {
+    setKickedRooms(prev => prev.includes(slug) ? prev : [...prev, slug]);
+  }, []);
+
   useUserSocket({
     userId: user?.id,
     onFriendRequest: handleFriendRequest,
     onFriendAccepted: handleFriendAccepted,
+    onKickedFromRoom: handleKickedFromRoom,
   });
 
   // Badge: pending friend requests + unread DMs
@@ -184,7 +190,7 @@ export default function HomePage() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
           >
-            {activeTab === 'rooms'   && <RoomsTab />}
+            {activeTab === 'rooms'   && <RoomsTab kickedRooms={kickedRooms} />}
             {activeTab === 'friends' && <FriendsTab acceptedToast={acceptedToast} onDismissAcceptedToast={() => setAcceptedToast(null)} />}
             {activeTab === 'groups'  && <GroupsTab />}
             {activeTab === 'profile' && (

@@ -609,7 +609,16 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
               exit={{ opacity: 0, y: 8 }}
               transition={{ duration: 0.2 }}
               className="absolute bottom-16 left-1/2 -translate-x-1/2 z-30 cursor-pointer"
-              onClick={() => { setRpMuted(false); setMutedAutoplay(false); }}
+              onClick={() => {
+                setRpMuted(false);
+                setMutedAutoplay(false);
+                // YouTube IFrame API keeps its own internal mute state — must call unMute() directly
+                try {
+                  const ip = reactPlayerRef.current?.getInternalPlayer() as any;
+                  if (ip?.unMute) ip.unMute();
+                  if (ip?.setVolume) ip.setVolume(100);
+                } catch {}
+              }}
             >
               <div className="flex items-center gap-2 bg-black/75 backdrop-blur-md rounded-full px-4 py-2 border border-white/15 shadow-xl select-none">
                 <VolumeX className="w-4 h-4 text-white/80 shrink-0" />
@@ -693,6 +702,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
                 iv_load_policy: 3,
                 fs: 0,
                 modestbranding: 1,
+                autoplay: 1,
                 mute: 1,
               },
             },
@@ -984,7 +994,21 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
                   <div className="flex items-center">
                     <button
                       className="p-2.5 text-white hover:bg-white/10 rounded-full transition"
-                      onClick={() => { setRpMuted((m) => { if (m) setMutedAutoplay(false); return !m; }); }}
+                      onClick={() => {
+                        setRpMuted((m) => {
+                          const nowUnmuting = m;
+                          if (nowUnmuting) {
+                            setMutedAutoplay(false);
+                            // YouTube IFrame API must be told directly to unmute
+                            try {
+                              const ip = reactPlayerRef.current?.getInternalPlayer() as any;
+                              if (ip?.unMute) ip.unMute();
+                              if (ip?.setVolume) ip.setVolume(100);
+                            } catch {}
+                          }
+                          return !m;
+                        });
+                      }}
                     >
                       {rpMuted || rpVolume === 0
                         ? <VolumeX className="w-5 h-5" />

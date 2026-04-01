@@ -46,6 +46,7 @@ router.get("/rooms", async (_req, res): Promise<void> => {
       ...r,
       userCount: live?.userCount ?? 0,
       currentVideoUrl: live?.url ?? null,
+      currentVideoTitle: live?.videoTitle ?? null,
       users: live?.users ?? [],
     };
   }));

@@ -18,7 +18,8 @@ interface PublicRoom {
   userCount: number;
   createdAt: string;
   currentVideoUrl?: string | null;
-  users?: Array<{ username: string }>;
+  currentVideoTitle?: string | null;
+  users?: Array<{ username: string; avatarUrl?: string | null }>;
 }
 
 interface RoomInvite {
@@ -57,6 +58,26 @@ function getYoutubeThumbnail(url: string): string | null {
   return `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`;
 }
 
+function isDirectStream(url: string): boolean {
+  if (!url) return false;
+  try {
+    const u = new URL(url);
+    const path = u.pathname.toLowerCase();
+    return (
+      path.endsWith('.m3u8') ||
+      path.endsWith('.mpd') ||
+      path.endsWith('.ts') ||
+      path.includes('/live/') ||
+      path.includes('/stream/') ||
+      path.includes('/hls/') ||
+      u.hostname.includes('twitch') ||
+      u.hostname.includes('dailymotion')
+    );
+  } catch {
+    return false;
+  }
+}
+
 function useKeyboardOffset() {
   const [offset, setOffset] = useState(0);
   useEffect(() => {
@@ -88,11 +109,11 @@ function RoomCard({ room, banned, onEnter }: {
   const { t } = useI18n();
   const thumbnail = room.currentVideoUrl ? getYoutubeThumbnail(room.currentVideoUrl) : null;
   const isYouTube = !!thumbnail;
+  const isLive = !thumbnail && !!room.currentVideoUrl && isDirectStream(room.currentVideoUrl);
   const users = room.users ?? [];
   const MAX_AVATARS = 5;
   const shown = users.slice(0, MAX_AVATARS);
   const extra = room.userCount > MAX_AVATARS ? room.userCount - MAX_AVATARS : 0;
-
   const gradientColor = generateColorFromString(room.name);
 
   return (
@@ -103,11 +124,11 @@ function RoomCard({ room, banned, onEnter }: {
       onClick={!banned ? onEnter : undefined}
       onMouseEnter={prefetchRoomChunk}
       onTouchStart={prefetchRoomChunk}
-      className={`flex rounded-2xl overflow-hidden border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm ${!banned ? 'cursor-pointer active:scale-[0.97]' : 'opacity-60'}`}
-      style={{ minHeight: '86px' }}
+      className={`flex rounded-2xl overflow-hidden border border-border/50 bg-card/80 backdrop-blur-sm shadow-sm ${!banned ? 'cursor-pointer' : 'opacity-60'}`}
+      style={{ minHeight: '88px' }}
     >
       {/* ── Left: Thumbnail ── */}
-      <div className="relative shrink-0 overflow-hidden" style={{ width: '120px' }}>
+      <div className="relative shrink-0 overflow-hidden" style={{ width: '118px' }}>
         {thumbnail ? (
           <>
             <img
@@ -116,47 +137,59 @@ function RoomCard({ room, banned, onEnter }: {
               className="w-full h-full object-cover"
               onError={(e) => {
                 (e.currentTarget as HTMLImageElement).style.display = 'none';
-                (e.currentTarget.nextElementSibling as HTMLElement | null)?.classList.remove('hidden');
+                const next = e.currentTarget.nextElementSibling as HTMLElement | null;
+                if (next) next.style.display = 'flex';
               }}
             />
-            {/* Fallback behind image */}
             <div
-              className="hidden absolute inset-0 flex items-center justify-center"
-              style={{ background: `linear-gradient(135deg, ${gradientColor}55, ${gradientColor}22)` }}
+              className="absolute inset-0 items-center justify-center"
+              style={{ display: 'none', background: `linear-gradient(135deg, ${gradientColor}55, ${gradientColor}22)` }}
             >
               <Tv2 className="w-8 h-8 text-white/40" />
             </div>
-            {/* YouTube icon */}
-            <div className="absolute bottom-1.5 left-1.5 bg-black/70 rounded px-1 py-0.5 flex items-center gap-0.5">
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="#FF0000">
-                <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-2.75 12.68 12.68 0 0 0-7.35 0 4.83 4.83 0 0 1-3.77 2.75A5 5 0 0 0 3 11.5v1a5 5 0 0 0 1.7 3.81 4.83 4.83 0 0 1 3.77 2.75 12.68 12.68 0 0 0 7.35 0 4.83 4.83 0 0 1 3.77-2.75A5 5 0 0 0 21 12.5v-1a5 5 0 0 0-1.41-3.81z"/>
+            {/* YouTube badge */}
+            <div className="absolute bottom-1.5 left-1.5 bg-black/75 rounded-[4px] px-1 py-[2px] flex items-center gap-0.5">
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="#FF0000">
+                <path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.5A3 3 0 0 0 .5 6.2C0 8.1 0 12 0 12s0 3.9.5 5.8a3 3 0 0 0 2.1 2.1c1.9.5 9.4.5 9.4.5s7.5 0 9.4-.5a3 3 0 0 0 2.1-2.1C24 15.9 24 12 24 12s0-3.9-.5-5.8zM9.8 15.5V8.5l6.3 3.5-6.3 3.5z"/>
               </svg>
             </div>
-            {/* Play indicator */}
-            <div className="absolute inset-0 bg-gradient-to-r from-transparent to-black/20" />
+            <div className="absolute inset-0 bg-gradient-to-r from-transparent to-black/15" />
           </>
+        ) : isLive ? (
+          /* Direct / HLS stream placeholder */
+          <div
+            className="w-full h-full flex flex-col items-center justify-center gap-2"
+            style={{ background: 'linear-gradient(135deg, #1a0a0a 0%, #2d0f0f 50%, #1a0a0a 100%)' }}
+          >
+            {/* Pulsing red dot */}
+            <div className="relative flex items-center justify-center">
+              <span className="absolute w-8 h-8 rounded-full bg-red-500/20 animate-ping" />
+              <span className="w-4 h-4 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.7)]" />
+            </div>
+            <span className="text-[9px] font-bold text-red-400 tracking-widest uppercase">{t('liveStream')}</span>
+          </div>
         ) : (
           <div
-            className="w-full h-full flex flex-col items-center justify-center gap-1"
-            style={{ background: `linear-gradient(135deg, ${gradientColor}44 0%, ${gradientColor}18 100%)` }}
+            className="w-full h-full flex flex-col items-center justify-center gap-1.5"
+            style={{ background: `linear-gradient(135deg, ${gradientColor}40 0%, ${gradientColor}15 100%)` }}
           >
             {room.type === 'private' ? (
-              <Lock className="w-7 h-7 text-white/50" />
+              <Lock className="w-6 h-6 text-white/40" />
             ) : (
-              <Play className="w-7 h-7 text-white/40" />
+              <Play className="w-6 h-6 text-white/30 fill-white/20" />
             )}
-            <span className="text-[9px] text-white/30 font-medium uppercase tracking-widest">
-              {room.userCount === 0 ? 'فارغة' : 'مباشر'}
+            <span className="text-[9px] text-white/25 font-medium uppercase tracking-widest">
+              {room.userCount === 0 ? t('roomEmpty') : t('liveStream')}
             </span>
           </div>
         )}
       </div>
 
       {/* ── Right: Info ── */}
-      <div className="flex-1 min-w-0 flex flex-col justify-between p-3">
-        {/* Room name */}
-        <div className="flex items-start gap-1.5">
-          <p className="font-bold text-foreground text-[13px] leading-tight flex-1 line-clamp-2">
+      <div className="flex-1 min-w-0 flex flex-col justify-between p-3 gap-1">
+        {/* Top: room name + lock */}
+        <div className="flex items-start gap-1">
+          <p className="font-bold text-foreground text-[13px] leading-snug flex-1 line-clamp-1">
             {room.name}
           </p>
           {room.type === 'private' && (
@@ -164,33 +197,54 @@ function RoomCard({ room, banned, onEnter }: {
           )}
         </div>
 
+        {/* Video title */}
+        {room.currentVideoTitle ? (
+          <p className="text-[11px] text-muted-foreground leading-tight line-clamp-1">
+            {room.currentVideoTitle}
+          </p>
+        ) : room.userCount === 0 ? (
+          <p className="text-[11px] text-muted-foreground/40 leading-tight">{t('noVideoPlaying')}</p>
+        ) : null}
+
         {/* Bottom: avatars + count badge */}
-        <div className="flex items-center justify-between mt-2">
+        <div className="flex items-center justify-between">
           {/* Overlapping avatars */}
           <div className="flex items-center">
-            {shown.length > 0 ? (
-              shown.map((u, i) => (
-                <div
+            {shown.map((u, i) => (
+              u.avatarUrl ? (
+                <img
                   key={u.username + i}
-                  className="w-[22px] h-[22px] rounded-full border-[1.5px] border-card flex items-center justify-center text-[8px] font-bold text-white shrink-0"
-                  style={{
-                    backgroundColor: generateColorFromString(u.username),
-                    marginLeft: i > 0 ? '-7px' : '0',
-                    zIndex: shown.length - i,
-                    position: 'relative',
+                  src={u.avatarUrl}
+                  alt={u.username}
+                  className="w-[22px] h-[22px] rounded-full border-[1.5px] border-card object-cover shrink-0"
+                  style={{ marginLeft: i > 0 ? '-7px' : '0', zIndex: shown.length - i, position: 'relative' }}
+                  onError={(e) => {
+                    const el = e.currentTarget;
+                    el.style.display = 'none';
+                    const next = el.nextElementSibling as HTMLElement | null;
+                    if (next) next.style.display = 'flex';
                   }}
-                >
-                  {u.username.charAt(0).toUpperCase()}
-                </div>
-              ))
-            ) : (
-              <span className="text-[10px] text-muted-foreground/60">
-                {t('noPublicRooms').length > 0 ? 'لا يوجد مشاهدين' : 'empty'}
-              </span>
-            )}
+                />
+              ) : null
+            ))}
+            {shown.map((u, i) => (
+              <div
+                key={'init-' + u.username + i}
+                className="w-[22px] h-[22px] rounded-full border-[1.5px] border-card items-center justify-center text-[8px] font-bold text-white shrink-0"
+                style={{
+                  backgroundColor: generateColorFromString(u.username),
+                  marginLeft: i > 0 ? '-7px' : '0',
+                  zIndex: shown.length - i,
+                  position: 'relative',
+                  display: u.avatarUrl ? 'none' : 'flex',
+                }}
+              >
+                {u.username.charAt(0).toUpperCase()}
+              </div>
+            ))}
           </div>
 
-          {/* User count badge or banned */}
+          {/* Count badge or banned */}
           {banned ? (
             <span className="text-[10px] font-bold text-red-400 bg-red-500/15 border border-red-500/30 rounded-full px-2 py-0.5">
               {t('banned')}
@@ -198,25 +252,23 @@ function RoomCard({ room, banned, onEnter }: {
           ) : room.userCount > 0 ? (
             <div className="flex items-center gap-1">
               {extra > 0 && (
-                <span className="text-[10px] font-bold text-muted-foreground">+{extra}</span>
+                <span className="text-[10px] font-semibold text-muted-foreground">+{extra}</span>
               )}
               <div
-                className="min-w-[28px] h-[22px] rounded-full flex items-center justify-center text-[10px] font-extrabold text-white px-1.5"
-                style={{ backgroundColor: isYouTube ? '#ef4444' : 'var(--primary)' }}
+                className="min-w-[26px] h-[20px] rounded-full flex items-center justify-center text-[10px] font-extrabold text-white px-1.5"
+                style={{ backgroundColor: isYouTube ? '#ef4444' : 'hsl(var(--primary))' }}
               >
                 {room.userCount}
               </div>
             </div>
-          ) : (
-            <span className="text-[10px] text-muted-foreground/50">خالية</span>
-          )}
+          ) : null}
         </div>
       </div>
     </motion.div>
   );
 }
 
-export function RoomsTab() {
+export function RoomsTab({ kickedRooms: kickedRoomsProp = [] }: { kickedRooms?: string[] }) {
   const [, setLocation] = useLocation();
   const { user } = useAuth();
   const qc = useQueryClient();
@@ -229,6 +281,9 @@ export function RoomsTab() {
   const [bannedRooms, setBannedRooms] = useState<string[]>([]);
   const [kickedMsg, setKickedMsg] = useState<string | null>(null);
   const [createErr, setCreateErr] = useState('');
+
+  // Merge real-time kicked rooms (via socket) into the banned list
+  const allBannedRooms = Array.from(new Set([...bannedRooms, ...kickedRoomsProp]));
 
   const keyboardOffset = useKeyboardOffset();
   const { data: rooms = [], isLoading } = useQuery<PublicRoom[]>({
@@ -418,7 +473,7 @@ export function RoomsTab() {
           {filtered.some(r => r.userCount > 0) && (
             <span className="flex items-center gap-1 text-[10px] text-emerald-500 font-medium">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              مباشر
+              {t('liveStream')}
             </span>
           )}
         </div>
@@ -451,7 +506,7 @@ export function RoomsTab() {
             >
               <RoomCard
                 room={room}
-                banned={bannedRooms.includes(room.slug)}
+                banned={allBannedRooms.includes(room.slug)}
                 onEnter={() => setLocation('/room/' + room.slug)}
               />
             </motion.div>

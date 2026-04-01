@@ -522,7 +522,7 @@ export default function AdminPage() {
   const btnCls = (color: string) => `flex items-center gap-2 px-4 py-2 ${color} font-semibold rounded-xl text-sm transition-colors`;
 
   return (
-    <div className="min-h-screen bg-[#0D0D0E] text-white flex flex-col" dir="rtl">
+    <div className="h-screen h-dvh bg-[#0D0D0E] text-white flex flex-col overflow-hidden" dir="rtl">
 
       {/* Feedback toast */}
       {feedback && (
@@ -698,7 +698,7 @@ export default function AdminPage() {
         ))}
       </div>
 
-      <div className="flex-1 p-4 max-w-5xl mx-auto w-full space-y-4">
+      <div className="flex-1 min-h-0 overflow-y-auto p-4 max-w-5xl mx-auto w-full space-y-4">
 
         {/* ══════════════════ DASHBOARD ══════════════════════════════════════ */}
         {tab === 'dashboard' && (

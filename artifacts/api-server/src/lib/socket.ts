@@ -72,6 +72,7 @@ interface RoomUser {
   userId?: number;
   username: string;
   displayName: string;
+  avatarUrl?: string | null;
   isAdmin: boolean;
   isDJ: boolean;
   isMuted: boolean;
@@ -95,6 +96,7 @@ interface RoomState {
   bannedUserIds: Set<number>;
   bannedUsernames: Set<string>;
   currentVideo: string | null;
+  currentVideoTitle: string | null;
   isPlaying: boolean;
   currentTime: number;
   isLocked: boolean;
@@ -276,14 +278,16 @@ export function getActiveRoomsWithUsers(): Array<{
   userCount: number;
   isPlaying: boolean;
   url: string | null;
-  users: Array<{ username: string }>;
+  videoTitle: string | null;
+  users: Array<{ username: string; avatarUrl?: string | null }>;
 }> {
   return Array.from(rooms.entries()).map(([slug, s]) => ({
     slug,
     userCount: s.users.size,
     isPlaying: s.isPlaying,
     url: s.currentVideo,
-    users: Array.from(s.users.values()).slice(0, 8).map(u => ({ username: u.username })),
+    videoTitle: s.currentVideoTitle,
+    users: Array.from(s.users.values()).slice(0, 8).map(u => ({ username: u.username, avatarUrl: u.avatarUrl ?? null })),
   }));
 }
 
@@ -420,6 +424,7 @@ function createRoomState(slug: string, roomId: number, roomName: string): RoomSt
     bannedUserIds: new Set<number>(),
     bannedUsernames: new Set<string>(),
     currentVideo: null,
+    currentVideoTitle: null,
     isPlaying: false,
     currentTime: 0,
     isLocked: false,
@@ -576,7 +581,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
       }
     });
 
-    socket.on("join-room", async (data: { slug: string; username: string; displayName?: string; userId?: number }) => {
+    socket.on("join-room", async (data: { slug: string; username: string; displayName?: string; userId?: number; avatarUrl?: string | null }) => {
       if (!joinThrottle.allow(socket.id)) {
         socket.emit("error", { message: "too_many_join_attempts" });
         return;
@@ -715,6 +720,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
         userId,
         username,
         displayName,
+        avatarUrl: data.avatarUrl ?? null,
         isAdmin,
         isDJ: isAdmin,
         isMuted: true,
@@ -850,11 +856,42 @@ export function initSocketServer(httpServer: HttpServer): Server {
           break;
         case "change-video":
           roomState.currentVideo = data.url || null;
+          roomState.currentVideoTitle = null;
           roomState.currentTime = 0;
           roomState.isPlaying = false;
-          roomState.isLive = false; // reset — player will re-detect after manifest load
+          roomState.isLive = false;
           roomState.lastSyncTimestamp = 0;
           stopHeartbeat(roomState);
+          // Fetch title asynchronously
+          if (data.url) {
+            (async () => {
+              try {
+                const ytMatch = data.url!.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&?/]+)/);
+                if (ytMatch) {
+                  // YouTube — use oEmbed
+                  const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${ytMatch[1]}&format=json`;
+                  const r = await fetch(oembedUrl, { headers: { 'User-Agent': 'LrmTV/1.0' } });
+                  if (r.ok) {
+                    const json = await r.json() as { title?: string };
+                    if (json.title && roomState.currentVideo === data.url) {
+                      roomState.currentVideoTitle = json.title;
+                    }
+                  }
+                } else {
+                  // Direct / HLS link — extract readable name from URL path
+                  try {
+                    const u = new URL(data.url!);
+                    const segments = u.pathname.split('/').filter(Boolean);
+                    const last = segments[segments.length - 1] ?? '';
+                    const name = decodeURIComponent(last).replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ').trim();
+                    if (name && roomState.currentVideo === data.url) {
+                      roomState.currentVideoTitle = name || null;
+                    }
+                  } catch {}
+                }
+              } catch {}
+            })();
+          }
           break;
       }
 
@@ -1125,6 +1162,8 @@ export function initSocketServer(httpServer: HttpServer): Server {
       // Add to ban list so they cannot rejoin
       if (target.userId) {
         roomState.bannedUserIds.add(target.userId);
+        // Also notify via the persistent user channel (home page socket)
+        io.to(`user:${target.userId}`).emit("kicked-from-room", { slug: currentRoomSlug });
       } else {
         roomState.bannedUsernames.add(target.username.toLowerCase());
       }

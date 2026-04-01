@@ -17,9 +17,10 @@ interface Options {
   onFriendRequest?: () => void;
   onFriendAccepted?: (data: { byId: number; byName: string }) => void;
   onDmReceive?: (msg: DmMsg) => void;
+  onKickedFromRoom?: (slug: string) => void;
 }
 
-export function useUserSocket({ userId, onFriendRequest, onFriendAccepted, onDmReceive }: Options) {
+export function useUserSocket({ userId, onFriendRequest, onFriendAccepted, onDmReceive, onKickedFromRoom }: Options) {
   const qc = useQueryClient();
   const socketRef = useRef<Socket | null>(null);
 
@@ -72,6 +73,16 @@ export function useUserSocket({ userId, onFriendRequest, onFriendAccepted, onDmR
     socket.on('room-deleted', () => {
       qc.invalidateQueries({ queryKey: ['room-invites'] });
       qc.invalidateQueries({ queryKey: ['rooms-badge'] });
+    });
+
+    socket.on('kicked-from-room', (data: { slug: string }) => {
+      if (!data?.slug) return;
+      try {
+        const banned: string[] = JSON.parse(localStorage.getItem('lrmtv_banned_rooms') || '[]');
+        if (!banned.includes(data.slug)) banned.push(data.slug);
+        localStorage.setItem('lrmtv_banned_rooms', JSON.stringify(banned));
+      } catch {}
+      onKickedFromRoom?.(data.slug);
     });
 
     return () => {

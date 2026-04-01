@@ -238,6 +238,9 @@ const translations = {
     noPublicRooms: "No public rooms right now",
     createFirstRoom: "Create the first room!",
     banned: "Banned",
+    roomEmpty: "Empty",
+    noVideoPlaying: "No video",
+    liveStream: "Live",
     createNewRoom: "Create New Room",
     creating: "Creating...",
     // Friends tab
@@ -546,6 +549,9 @@ const translations = {
     noPublicRooms: "لا توجد غرف عامة حالياً",
     createFirstRoom: "أنشئ أول غرفة!",
     banned: "مطرود",
+    roomEmpty: "فارغة",
+    noVideoPlaying: "لا يوجد فيديو",
+    liveStream: "مباشر",
     createNewRoom: "إنشاء غرفة جديدة",
     creating: "جاري الإنشاء...",
     // Friends tab
@@ -853,6 +859,9 @@ const translations = {
     noPublicRooms: "Aucune salle publique pour l'instant",
     createFirstRoom: "Créez la première salle!",
     banned: "Banni",
+    roomEmpty: "Vide",
+    noVideoPlaying: "Pas de vidéo",
+    liveStream: "En direct",
     createNewRoom: "Créer une nouvelle salle",
     creating: "Création en cours...",
     // Friends tab
@@ -1160,6 +1169,9 @@ const translations = {
     noPublicRooms: "Şu an genel oda yok",
     createFirstRoom: "İlk odayı oluştur!",
     banned: "Yasaklı",
+    roomEmpty: "Boş",
+    noVideoPlaying: "Video yok",
+    liveStream: "Canlı",
     createNewRoom: "Yeni Oda Oluştur",
     creating: "Oluşturuluyor...",
     // Friends tab
@@ -1467,6 +1479,9 @@ const translations = {
     noPublicRooms: "No hay salas públicas ahora",
     createFirstRoom: "¡Crea la primera sala!",
     banned: "Baneado",
+    roomEmpty: "Vacía",
+    noVideoPlaying: "Sin video",
+    liveStream: "En vivo",
     createNewRoom: "Crear nueva sala",
     creating: "Creando...",
     // Friends tab
@@ -1774,6 +1789,9 @@ const translations = {
     noPublicRooms: "Tidak ada ruangan publik saat ini",
     createFirstRoom: "Buat ruangan pertama!",
     banned: "Diblokir",
+    roomEmpty: "Kosong",
+    noVideoPlaying: "Tidak ada video",
+    liveStream: "Langsung",
     createNewRoom: "Buat Ruangan Baru",
     creating: "Membuat...",
     // Friends tab

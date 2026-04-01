@@ -108,7 +108,8 @@ export function useSocket(slug: string | null) {
       const currentDisplayName = fresh?.displayName || fresh?.username || username;
       const currentUserId = fresh?.id;
       setConnected(true);
-      socket.emit('join-room', { slug, username, displayName: currentDisplayName, userId: currentUserId });
+      const currentAvatarUrl = fresh?.avatarUrl ?? null;
+      socket.emit('join-room', { slug, username, displayName: currentDisplayName, userId: currentUserId, avatarUrl: currentAvatarUrl });
     });
 
     socket.on('disconnect', () => setConnected(false));
