@@ -142,6 +142,11 @@ router.get(
       res.status(400).json({ error: "Missing url parameter" });
       return;
     }
+    // Segments should fail fast: short timeout, no retries.
+    // Manifests get more time and retries since they're small but critical.
+    const isSegment = req.query.seg === "1";
+    const proxyTimeout  = isSegment ? 12_000 : 20_000;
+    const proxyRetries  = isSegment ? 0 : 2;
 
     let parsed: URL;
     try {
@@ -174,7 +179,7 @@ router.get(
     }
 
     try {
-      const upstream = await fetchWithRetry(targetUrl, headers);
+      const upstream = await fetchWithRetry(targetUrl, headers, proxyRetries, proxyTimeout);
 
       setCorsHeaders(res);
 
@@ -185,7 +190,7 @@ router.get(
           ...headers,
           Referer: "",
           Origin: "",
-        });
+        }, proxyRetries, proxyTimeout);
         if (!tryNoReferer.ok) {
           res
             .status(tryNoReferer.status)

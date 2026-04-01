@@ -490,30 +490,39 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         liveMaxLatencyDurationCount: 4,
         maxLiveSyncPlaybackRate:     1.2,
 
-        // iOS: keep buffers small — large buffers exhaust mobile RAM and cause stuttering
-        backBufferLength:   isIosDevice ? 5  : (isProxiedStream ? 10 : 20),
-        maxBufferLength:    isIosDevice ? 20 : (isProxiedStream ? 90 : 60),
-        maxMaxBufferLength: isIosDevice ? 40 : (isProxiedStream ? 180 : 120),
+        // Buffer tuning:
+        // - Proxy path: keep buffers moderate so we don't flood the API server with
+        //   hundreds of simultaneous segment requests. 30 s ahead is more than enough
+        //   for smooth playback while keeping server load reasonable.
+        // - iOS: keep small to avoid exhausting mobile RAM.
+        backBufferLength:   isIosDevice ? 5  : (isProxiedStream ? 8  : 20),
+        maxBufferLength:    isIosDevice ? 20 : (isProxiedStream ? 30 : 60),
+        maxMaxBufferLength: isIosDevice ? 40 : (isProxiedStream ? 60 : 120),
 
+        // Manifest/level retries: generous for proxy (high latency expected).
+        // Fragment retries: proxy path — fail FAST (4 retries, 12 s timeout) so HLS.js
+        // can drop to a lower quality rather than waiting 25 s per failed segment.
         manifestLoadingMaxRetry:   isProxiedStream ? 3 : 1,
         manifestLoadingTimeOut:    isProxiedStream ? 15_000 : 6_000,
         manifestLoadingRetryDelay: isProxiedStream ? 1_000 : 500,
-        levelLoadingMaxRetry:      isProxiedStream ? 5 : 3,
-        levelLoadingTimeOut:       isProxiedStream ? 20_000 : 10_000,
+        levelLoadingMaxRetry:      isProxiedStream ? 4 : 3,
+        levelLoadingTimeOut:       isProxiedStream ? 15_000 : 10_000,
         levelLoadingRetryDelay:    isProxiedStream ? 1_000 : 500,
-        fragLoadingMaxRetry:       isProxiedStream ? 8 : 5,
-        fragLoadingTimeOut:        isProxiedStream ? 25_000 : 12_000,
-        fragLoadingRetryDelay:     isProxiedStream ? 500 : 300,
+        fragLoadingMaxRetry:       isProxiedStream ? 4 : 5,
+        fragLoadingTimeOut:        isProxiedStream ? 12_000 : 12_000,
+        fragLoadingRetryDelay:     isProxiedStream ? 1_000 : 300,
 
-        // iOS: start at lowest quality then ramp up (avoids initial decode failure)
-        startLevel:             isIosDevice ? 0 : (isProxiedStream ? 1 : -1),
-        abrEwmaDefaultEstimate: isIosDevice ? 500_000 : (isProxiedStream ? 1_000_000 : 2_000_000),
-        abrBandWidthFactor:     isIosDevice ? 0.8 : 0.9,
-        abrBandWidthUpFactor:   isIosDevice ? 0.5 : 0.7,
+        // Proxy path: start at the LOWEST quality level (0) so the first segments
+        // are small. ABR will ramp up once it has a bandwidth measurement.
+        // Assume a conservative 350 kbps through the proxy so ABR starts low.
+        startLevel:             isIosDevice ? 0 : (isProxiedStream ? 0 : -1),
+        abrEwmaDefaultEstimate: isIosDevice ? 500_000 : (isProxiedStream ? 350_000 : 2_000_000),
+        abrBandWidthFactor:     isIosDevice ? 0.8 : (isProxiedStream ? 0.7 : 0.9),
+        abrBandWidthUpFactor:   isIosDevice ? 0.5 : (isProxiedStream ? 0.4 : 0.7),
         testBandwidth:          true,
 
         progressive:   true,
-        nudgeMaxRetry: isProxiedStream ? 20 : 10,
+        nudgeMaxRetry: isProxiedStream ? 15 : 10,
         nudgeOffset:   0.1,
       };
 
