@@ -184,7 +184,7 @@ function cancelRoomDeletion(roomState: RoomState) {
 }
 
 /** Apply word filter to chat content — replaces banned words with *** */
-function applyWordFilter(content: string): string {
+export function applyWordFilter(content: string): string {
   try {
     const raw = getCachedSetting("word_filter", "[]");
     const words: string[] = JSON.parse(raw);
@@ -885,7 +885,8 @@ export function initSocketServer(httpServer: HttpServer): Server {
         return;
       }
 
-      const filteredContent = applyWordFilter(String(data.content || "").trim());
+      const rawContent = String(data.content || "").trim();
+      const filteredContent = roomState.isPrivate ? rawContent : applyWordFilter(rawContent);
       if (!filteredContent) return;
 
       const msg: Record<string, any> = {

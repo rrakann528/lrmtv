@@ -168,6 +168,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
     const [rpDuration, setRpDuration] = useState(0);
     const [rpVolume, setRpVolume] = useState(1);
     const [rpMuted, setRpMuted] = useState(false);
+    const [mutedAutoplay, setMutedAutoplay] = useState(false);
 
     // ── Subtitle state (ReactPlayer branch only) ─────────────────────────────
     const [showSubtitleSearch, setShowSubtitleSearch] = useState(false);
@@ -210,10 +211,14 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       setAutoplayBlocked(false);
       lastSkippedRef.current = null;
       setSponsorSegments([]);
-      // Reset pending-play so a stale request from the old URL never fires
       pendingPlayRef.current = false;
       if (isYouTubeUrl(normalizedUrl)) {
         fetchSponsorSegments(normalizedUrl, setSponsorSegments);
+        // Always start YouTube muted to bypass browser autoplay policy
+        setRpMuted(true);
+        setMutedAutoplay(true);
+      } else {
+        setMutedAutoplay(false);
       }
     }, [normalizedUrl]);
 
@@ -492,13 +497,18 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       }
       const e = err as { name?: string } | null;
       if (e?.name === 'NotAllowedError' || (typeof err === 'string' && err.toLowerCase().includes('not allowed'))) {
-        setAutoplayBlocked(true);
+        // Autoplay blocked → mute and retry silently
+        setRpMuted(true);
+        setMutedAutoplay(true);
+        setTimeout(() => {
+          try { reactPlayerRef.current?.getInternalPlayer()?.playVideo?.(); } catch {}
+        }, 100);
         return;
       }
-      // Generic YouTube errors (2=bad param, 5=html5, 100=not found) — show tap-to-play
-      // instead of a hard error so the user can try manually
+      // Generic YouTube errors (2=bad param, 5=html5, 100=not found) — try muted autoplay
       if (typeof ytCode === 'number') {
-        setAutoplayBlocked(true);
+        setRpMuted(true);
+        setMutedAutoplay(true);
         return;
       }
       setError('playback');
@@ -590,19 +600,26 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
           </div>
         )}
 
-        {autoplayBlocked && !error && (
-          <div
-            className="absolute inset-0 flex items-center justify-center bg-black/60 z-20 cursor-pointer"
-            onClick={() => { setAutoplayBlocked(false); directPlay(); }}
-          >
-            <div className="text-center space-y-3">
-              <div className="w-20 h-20 rounded-full bg-white/20 backdrop-blur flex items-center justify-center mx-auto border border-white/30">
-                <Play className="w-10 h-10 text-white fill-white" />
+        <AnimatePresence>
+          {mutedAutoplay && !error && (
+            <motion.div
+              key="muted-autoplay-banner"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 8 }}
+              transition={{ duration: 0.2 }}
+              className="absolute bottom-16 left-1/2 -translate-x-1/2 z-30 cursor-pointer"
+              onClick={() => { setRpMuted(false); setMutedAutoplay(false); }}
+            >
+              <div className="flex items-center gap-2 bg-black/75 backdrop-blur-md rounded-full px-4 py-2 border border-white/15 shadow-xl select-none">
+                <VolumeX className="w-4 h-4 text-white/80 shrink-0" />
+                <span className="text-white/90 text-sm font-medium whitespace-nowrap">
+                  {lang === 'ar' ? 'الصوت مكتوم — اضغط لرفع الصوت' : 'Muted — tap to unmute'}
+                </span>
               </div>
-              <p className="text-white/80 text-sm">{t('tapToPlay')}</p>
-            </div>
-          </div>
-        )}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <AnimatePresence>
           {sponsorSkipNotice && (
@@ -624,7 +641,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
           url={playableUrl}
           width="100%"
           height="100%"
-          playing={autoplayBlocked ? false : playing}
+          playing={playing}
           controls={false}
           volume={rpMuted ? 0 : rpVolume}
           muted={rpMuted}
@@ -676,6 +693,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
                 iv_load_policy: 3,
                 fs: 0,
                 modestbranding: 1,
+                mute: 1,
               },
             },
             twitch: {
@@ -966,7 +984,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
                   <div className="flex items-center">
                     <button
                       className="p-2.5 text-white hover:bg-white/10 rounded-full transition"
-                      onClick={() => setRpMuted((m) => !m)}
+                      onClick={() => { setRpMuted((m) => { if (m) setMutedAutoplay(false); return !m; }); }}
                     >
                       {rpMuted || rpVolume === 0
                         ? <VolumeX className="w-5 h-5" />

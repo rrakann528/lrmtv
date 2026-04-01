@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, pool, groupsTable, groupMembersTable, groupMessagesTable, groupInvitationsTable, usersTable, pushSubscriptionsTable } from "@workspace/db";
 import { eq, and, desc, asc, sql, inArray, ilike, not } from "drizzle-orm";
 import { requireAuth, type AuthRequest } from "../middlewares/auth";
+import { applyWordFilter } from "../lib/socket";
 import webpush from "web-push";
 
 const router = Router();
@@ -84,11 +85,12 @@ router.post("/groups", requireAuth, async (req: AuthRequest, res) => {
       return;
     }
 
+    const isPublicGroup = isPrivate === false;
     const values: any = {
-      name: name.trim(),
+      name: isPublicGroup ? applyWordFilter(name.trim()) : name.trim(),
       description: description?.trim()?.slice(0, 200) || null,
       creatorId: userId,
-      isPrivate: isPrivate !== false,
+      isPrivate: !isPublicGroup,
     };
     if (avatarColor && /^#[0-9A-Fa-f]{6}$/.test(avatarColor)) {
       values.avatarColor = avatarColor;
@@ -634,10 +636,14 @@ router.post("/groups/:id/messages", requireAuth, async (req: AuthRequest, res) =
       .limit(1);
     if (!membership) { res.status(403).json({ error: "Not a member" }); return; }
 
+    const [groupInfo] = await db.select({ isPrivate: groupsTable.isPrivate })
+      .from(groupsTable).where(eq(groupsTable.id, groupId)).limit(1);
+    const filteredContent = groupInfo?.isPrivate ? content.trim() : applyWordFilter(content.trim());
+
     const [msg] = await db.insert(groupMessagesTable).values({
       groupId,
       senderId: userId,
-      content: content.trim(),
+      content: filteredContent,
       replyToId: replyToId ?? null,
       replyToContent: typeof replyToContent === 'string' ? replyToContent.slice(0, 200) : null,
       replyToSenderName: typeof replyToSenderName === 'string' ? replyToSenderName.slice(0, 100) : null,

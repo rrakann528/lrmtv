@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq, desc, asc, and, count } from "drizzle-orm";
 import { db, roomsTable, playlistItemsTable, chatMessagesTable, roomInvitesTable } from "@workspace/db";
-import { getActiveRooms, kickRoom, getCachedSetting } from "../lib/socket";
+import { getActiveRooms, kickRoom, getCachedSetting, applyWordFilter } from "../lib/socket";
 import { requireAuth, type AuthRequest } from "../middlewares/auth";
 import {
   CreateRoomBody,
@@ -69,7 +69,7 @@ router.post("/rooms", requireAuth, async (req: AuthRequest, res): Promise<void> 
         .insert(roomsTable)
         .values({
           slug,
-          name: parsed.data.name,
+          name: applyWordFilter(parsed.data.name),
           type: parsed.data.type,
           creatorUserId: req.userId ?? null,
         })
