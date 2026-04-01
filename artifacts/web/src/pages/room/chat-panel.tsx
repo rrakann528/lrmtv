@@ -145,7 +145,7 @@ export default function ChatPanel({
             const isAdminBroadcast = msg.username === 'النظام';
             if (isAdminBroadcast) {
               return (
-                <div key={msg.id || i} className="flex justify-center my-3">
+                <div key={msg.id || i} className="flex justify-center my-2">
                   <div className="w-full bg-cyan-500/15 border border-cyan-500/40 rounded-xl px-4 py-2.5 flex items-start gap-2">
                     <span className="text-cyan-400 mt-0.5 shrink-0">📢</span>
                     <div>
@@ -156,10 +156,23 @@ export default function ChatPanel({
                 </div>
               );
             }
+
+            // Join / leave — parse content to show compact bilingual pill
+            const isJoin = msg.content.includes('joined') || msg.content.includes('انضم');
+            // Extract username from the content: "username joined the room / ..."
+            const rawName = msg.content.split(' ')[0] ?? '';
+
             return (
-              <div key={msg.id || i} className="flex justify-center my-2">
-                <span className="bg-white/10 px-3 py-1 rounded-full text-xs text-white/50">
-                  {msg.content}
+              <div key={msg.id || i} className="flex justify-center my-0.5">
+                <span className="flex items-center gap-1 bg-white/6 border border-white/8 px-2.5 py-0.5 rounded-full text-[11px] text-white/40 max-w-[85%] truncate">
+                  <span className={isJoin ? 'text-green-400' : 'text-red-400'} style={{ fontSize: 8 }}>
+                    {isJoin ? '●' : '●'}
+                  </span>
+                  <span className="truncate">
+                    {isJoin
+                      ? `${rawName} انضم · joined`
+                      : `${rawName} غادر · left`}
+                  </span>
                 </span>
               </div>
             );

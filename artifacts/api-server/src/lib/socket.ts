@@ -707,8 +707,8 @@ export function initSocketServer(httpServer: HttpServer): Server {
         roomId: roomState.roomId,
       };
 
-      // Fire-and-forget — don't block the socket response on a DB write
-      db.insert(chatMessagesTable).values(systemMsg).catch(() => {});
+      // Join/leave notifications are real-time only — not persisted to DB
+      // to prevent accumulation from reconnections flooding the chat history.
 
       io.to(slug).emit("user-joined", {
         user,
@@ -1272,7 +1272,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
           type: "system" as const,
           roomId: state.roomId,
         };
-        db.insert(chatMessagesTable).values(systemMsg).catch(() => {});
+        // Leave notifications are real-time only — not persisted to DB
         io.to(slug).emit("user-left", {
           socketId: socket.id,
           username: user.username,
