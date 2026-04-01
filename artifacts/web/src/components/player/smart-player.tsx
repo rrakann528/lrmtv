@@ -228,10 +228,14 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
     const isIosBrowser = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
                          (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
+    // HTTP URLs are always proxied when served from HTTPS — browsers block
+    // mixed-content fetch() entirely, so a CORS check would always fail.
+    const isHttpUrl = normalizedUrl.startsWith('http://');
+
     // Types that could potentially bypass the proxy if the server allows CORS
-    const mightNeedProxy = isIosBrowser
+    const mightNeedProxy = isHttpUrl || (isIosBrowser
       ? (videoType === 'hls' || videoType === 'dash')
-      : (videoType === 'hls' || videoType === 'dash' || videoType === 'html5');
+      : (videoType === 'hls' || videoType === 'dash' || videoType === 'html5'));
 
     const proxyUrl = `/api/proxy/stream?url=${encodeURIComponent(normalizedUrl)}`;
 
@@ -250,6 +254,15 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
         setPlayableUrl(normalizedUrl);
         setCorsChecking(false);
         onUrlResolved?.(normalizedUrl, false);
+        return;
+      }
+
+      // HTTP URLs are always blocked by mixed-content policy on an HTTPS page —
+      // skip the CORS check entirely and go straight to proxy.
+      if (isHttpUrl) {
+        setPlayableUrl(proxyUrl);
+        setCorsChecking(false);
+        onUrlResolved?.(proxyUrl, true);
         return;
       }
 

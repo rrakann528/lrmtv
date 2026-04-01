@@ -473,6 +473,10 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           const live = !d || !isFinite(d) || d === Infinity;
           isLiveRef.current = live;
           setIsLive(live);
+          // Notify parent immediately — don't wait for timeupdate (which only
+          // fires while playing). This ensures the server knows it's live even
+          // before autoplay starts or if the user is paused.
+          onIsLiveRef.current?.(live);
         }
       };
       video.addEventListener('durationchange', onDurationChange);
