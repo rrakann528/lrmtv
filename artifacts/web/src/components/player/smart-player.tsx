@@ -233,22 +233,23 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
     const proxyUrl = `/api/proxy/stream?url=${encodeURIComponent(normalizedUrl)}`;
 
     // ── Smart proxy resolution ────────────────────────────────────────────────
-    // Start with the proxy as a safe fallback, then try a direct CORS HEAD request.
-    // If the origin server allows CORS, switch to the direct URL — no server bandwidth used.
-    // The check completes in < 2 s so in most cases the player hasn't started yet.
+    // Player is hidden (corsChecking=true) until the CORS HEAD check resolves.
+    // This guarantees Cast/AirPlay only ever sees ONE video source — never
+    // the proxy first and then the direct URL.
     const [playableUrl, setPlayableUrl] = useState<string>(
       mightNeedProxy ? proxyUrl : normalizedUrl
     );
-    const [corsChecking, setCorsChecking] = useState(false);
+    const [corsChecking, setCorsChecking] = useState(mightNeedProxy);
 
     useEffect(() => {
       if (!mightNeedProxy) {
         // YouTube / Twitch / non-proxied — set immediately, no check needed
         setPlayableUrl(normalizedUrl);
+        setCorsChecking(false);
         return;
       }
 
-      // Reset to proxy while we verify
+      // Hold playback until we know which URL wins
       setPlayableUrl(proxyUrl);
       setCorsChecking(true);
 
@@ -265,13 +266,14 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
           if (res.status < 500) {
             setPlayableUrl(normalizedUrl);
           }
-          // 5xx or unreachable → keep proxy
+          // 5xx or unreachable → keep proxy URL already set above
         })
         .catch(() => {
           // NetworkError = CORS blocked or server unreachable → keep proxy
         })
         .finally(() => {
           clearTimeout(timer);
+          // Reveal the player now that we have a definitive URL
           setCorsChecking(false);
         });
 
@@ -593,66 +595,72 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
     if (isHls) {
       return (
         <div ref={containerRef} className="absolute inset-0 bg-black">
-          {/* CORS check indicator — disappears once URL is resolved (< 2.5 s) */}
-          {corsChecking && (
-            <div className="absolute top-2 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-black/60 backdrop-blur-sm rounded-full px-3 py-1.5 text-[11px] text-white/70 pointer-events-none">
-              <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-              {lang === 'ar' ? 'فحص الاتصال…' : 'Checking connection…'}
+          {/* While the CORS check is running, hide the player entirely so
+              Cast/AirPlay only ever sees ONE video source (no proxy→direct switch). */}
+          {corsChecking ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-10">
+              <span className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+              <span className="text-[12px] text-white/60">
+                {lang === 'ar' ? 'جارٍ التحقق من الاتصال…' : 'Checking connection…'}
+              </span>
             </div>
+          ) : (
+            <>
+              <HlsPlayer
+                key={playableUrl}
+                ref={hlsPlayerRef}
+                src={playableUrl}
+                playing={playing}
+                canControl={canControl}
+                initialTime={initialTime}
+                onPlay={onPlay}
+                onPause={onPause}
+                onSeek={onSeek}
+                onReady={onReady}
+                containerRef={containerRef}
+                chatMessages={chatMessages}
+                username={username}
+                onSendChatMessage={onSendChatMessage ?? (() => {})}
+                onFocusChat={onFocusChat ?? (() => {})}
+                lang={lang}
+                onSubtitleApplied={onSubtitleApplied}
+                externalSubtitle={externalSubtitle}
+                isLiveHint={isLiveHint}
+                onIsLive={onIsLive}
+              />
+              {/* Join/leave toast notifications — bottom-right, fullscreen only */}
+              <div className="absolute bottom-20 right-4 z-50 flex flex-col items-end gap-2 pointer-events-none">
+                <AnimatePresence>
+                  {roomNotifications.map((n) => (
+                    <motion.div
+                      key={n.id}
+                      initial={{ opacity: 0, x: 30, scale: 0.92 }}
+                      animate={{ opacity: 1, x: 0, scale: 1 }}
+                      exit={{ opacity: 0, x: 30, scale: 0.92 }}
+                      transition={{ type: 'spring', stiffness: 320, damping: 26 }}
+                      className="flex items-center gap-2 bg-black/70 backdrop-blur-md rounded-2xl rounded-br-sm px-3 py-2 shadow-xl border border-white/10 max-w-[220px]"
+                      dir="rtl"
+                    >
+                      <div
+                        className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-[10px] font-bold text-white"
+                        style={{ backgroundColor: generateColorFromString(n.username) }}
+                      >
+                        {n.username.substring(0, 2).toUpperCase()}
+                      </div>
+                      <div className="min-w-0 text-right">
+                        <p className="text-[11px] font-semibold text-white/80 leading-none">{n.username}</p>
+                        <p className={`text-[10px] mt-0.5 leading-none ${n.type === 'join' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {n.type === 'join'
+                            ? (lang === 'ar' ? 'دخل الغرفة' : 'joined')
+                            : (lang === 'ar' ? 'غادر الغرفة' : 'left')}
+                        </p>
+                      </div>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              </div>
+            </>
           )}
-          <HlsPlayer
-            key={playableUrl}
-            ref={hlsPlayerRef}
-            src={playableUrl}
-            playing={playing}
-            canControl={canControl}
-            initialTime={initialTime}
-            onPlay={onPlay}
-            onPause={onPause}
-            onSeek={onSeek}
-            onReady={onReady}
-            containerRef={containerRef}
-            chatMessages={chatMessages}
-            username={username}
-            onSendChatMessage={onSendChatMessage ?? (() => {})}
-            onFocusChat={onFocusChat ?? (() => {})}
-            lang={lang}
-            onSubtitleApplied={onSubtitleApplied}
-            externalSubtitle={externalSubtitle}
-            isLiveHint={isLiveHint}
-            onIsLive={onIsLive}
-          />
-          {/* Join/leave toast notifications — bottom-right, fullscreen only */}
-          <div className="absolute bottom-20 right-4 z-50 flex flex-col items-end gap-2 pointer-events-none">
-            <AnimatePresence>
-              {roomNotifications.map((n) => (
-                <motion.div
-                  key={n.id}
-                  initial={{ opacity: 0, x: 30, scale: 0.92 }}
-                  animate={{ opacity: 1, x: 0, scale: 1 }}
-                  exit={{ opacity: 0, x: 30, scale: 0.92 }}
-                  transition={{ type: 'spring', stiffness: 320, damping: 26 }}
-                  className="flex items-center gap-2 bg-black/70 backdrop-blur-md rounded-2xl rounded-br-sm px-3 py-2 shadow-xl border border-white/10 max-w-[220px]"
-                  dir="rtl"
-                >
-                  <div
-                    className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-[10px] font-bold text-white"
-                    style={{ backgroundColor: generateColorFromString(n.username) }}
-                  >
-                    {n.username.substring(0, 2).toUpperCase()}
-                  </div>
-                  <div className="min-w-0 text-right">
-                    <p className="text-[11px] font-semibold text-white/80 leading-none">{n.username}</p>
-                    <p className={`text-[10px] mt-0.5 leading-none ${n.type === 'join' ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      {n.type === 'join'
-                        ? (lang === 'ar' ? 'دخل الغرفة' : 'joined')
-                        : (lang === 'ar' ? 'غادر الغرفة' : 'left')}
-                    </p>
-                  </div>
-                </motion.div>
-              ))}
-            </AnimatePresence>
-          </div>
         </div>
       );
     }
