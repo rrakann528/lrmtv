@@ -322,7 +322,16 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
     useImperativeHandle(ref, () => ({
       getCurrentTime: () => videoRef.current?.currentTime ?? 0,
       seekTo: (time: number) => { if (videoRef.current) videoRef.current.currentTime = time; },
-      play: () => { videoRef.current?.play().catch(() => {}); },
+      play: () => {
+        const v = videoRef.current;
+        if (!v) return;
+        v.play().catch(() => {
+          v.muted = true;
+          v.play().catch(() => {
+            setAutoplayBlocked(true);
+          });
+        });
+      },
       pause: () => { videoRef.current?.pause(); },
       getVideoElement: () => videoRef.current,
     }));
