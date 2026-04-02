@@ -6,6 +6,8 @@ import { rateLimit } from "express-rate-limit";
 
 const router = Router();
 
+const CF_PROXY = "https://lrmtv-proxy.rrakann528.workers.dev/?url=";
+
 const uploadLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 20,
@@ -22,19 +24,26 @@ function rewriteM3u8Paths(content: string, baseUrl?: string): string {
     .map(line => {
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith("#")) return line;
-      if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return line;
 
-      const domainMatch = trimmed.match(domainInPathRegex);
-      if (domainMatch) {
-        const domain = domainMatch[1];
-        const rest = domainMatch[2] || "";
-        return `https://${domain}${rest}`;
+      let absoluteUrl: string | null = null;
+
+      if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+        absoluteUrl = trimmed;
+      } else {
+        const domainMatch = trimmed.match(domainInPathRegex);
+        if (domainMatch) {
+          const domain = domainMatch[1];
+          const rest = domainMatch[2] || "";
+          absoluteUrl = `https://${domain}${rest}`;
+        } else if (baseUrl) {
+          const base = baseUrl.replace(/\/$/, "");
+          const path = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+          absoluteUrl = `${base}${path}`;
+        }
       }
 
-      if (baseUrl) {
-        const base = baseUrl.replace(/\/$/, "");
-        const path = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
-        return `${base}${path}`;
+      if (absoluteUrl) {
+        return `${CF_PROXY}${encodeURIComponent(absoluteUrl)}`;
       }
 
       return line;
