@@ -9,6 +9,7 @@ import React, {
 import ReactPlayer from 'react-player';
 import { motion, AnimatePresence } from 'framer-motion';
 import { normalizeUrl, detectVideoType } from '@/lib/detect-video-type';
+import { extractM3u8Id, isM3u8Owned } from '@/lib/m3u8-owned';
 import {
   AlertTriangle, Play, Pause, Maximize, Minimize,
   MessageSquare, SkipBack, SkipForward, Volume2, VolumeX, Lock,
@@ -672,6 +673,8 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
                 externalSubtitle={externalSubtitle}
                 isLiveHint={isLiveHint}
                 onIsLive={onIsLive}
+                relayM3u8Id={extractM3u8Id(url) ?? undefined}
+                isRelayOwner={(() => { const id = extractM3u8Id(url); return id ? isM3u8Owned(id) : false; })()}
               />
               {/* Join/leave toast notifications — bottom-right, fullscreen only */}
               <div className="absolute bottom-20 right-4 z-50 flex flex-col items-end gap-2 pointer-events-none">

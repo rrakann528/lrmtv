@@ -132,6 +132,72 @@ router.post("/m3u8/upload", requireAuth, uploadLimiter,
   }
 );
 
+// ── Segment relay cache (host browser → server → all viewers) ─────────────────
+// Key: m3u8 UUID → Map of (segmentUrl → {data, ts})
+interface RelayEntry { data: Buffer; ts: number }
+const relayCache = new Map<string, Map<string, RelayEntry>>();
+const RELAY_MAX_SEGS = 40;
+const RELAY_TTL_MS   = 10 * 60 * 1000; // 10 minutes
+
+function evictSegments(id: string) {
+  const bucket = relayCache.get(id);
+  if (!bucket) return;
+  const now = Date.now();
+  for (const [url, e] of bucket) {
+    if (now - e.ts > RELAY_TTL_MS) bucket.delete(url);
+  }
+  while (bucket.size > RELAY_MAX_SEGS) {
+    const oldest = [...bucket.entries()].sort((a, b) => a[1].ts - b[1].ts)[0];
+    bucket.delete(oldest[0]);
+  }
+  if (bucket.size === 0) relayCache.delete(id);
+}
+
+// Host pushes a fetched segment to the relay cache
+router.post("/m3u8/:id/relay", requireAuth, proxyLimiter, async (req, res) => {
+  const { id } = req.params;
+  const { url, data } = req.body as { url?: string; data?: string };
+  if (!url || !data) return res.status(400).json({ error: "Missing url or data" });
+
+  let buf: Buffer;
+  try { buf = Buffer.from(data, "base64"); } catch {
+    return res.status(400).json({ error: "Invalid base64" });
+  }
+  if (buf.byteLength > 8 * 1024 * 1024) {
+    return res.status(413).json({ error: "Segment too large (max 8 MB)" });
+  }
+
+  if (!relayCache.has(id)) relayCache.set(id, new Map());
+  relayCache.get(id)!.set(url, { data: buf, ts: Date.now() });
+  evictSegments(id);
+
+  return res.json({ ok: true, cached: relayCache.get(id)!.size });
+});
+
+// Viewers pull a cached segment
+router.get("/m3u8/:id/relay", proxyLimiter, async (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+
+  const { id } = req.params;
+  const { url } = req.query as { url?: string };
+  if (!url) return res.status(400).json({ error: "Missing url" });
+
+  const entry = relayCache.get(id)?.get(url);
+  if (!entry) return res.status(404).json({ error: "Not in relay cache" });
+
+  res.setHeader("Content-Type", "video/MP2T");
+  res.setHeader("Cache-Control", "no-cache");
+  return res.send(entry.data);
+});
+
+router.options("/m3u8/:id/relay", (_req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Range, Content-Type");
+  res.sendStatus(204);
+});
+
 // ── Serve stored M3U8 (with proxy URLs injected at serve time) ─────────────────
 
 router.get("/m3u8/:id", async (req, res) => {

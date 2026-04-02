@@ -131,7 +131,7 @@ export const oauthLimiter = rateLimit({
 
 // ── Payload Size Guard ─────────────────────────────────────────────────────────
 export function payloadGuard(req: Request, res: Response, next: NextFunction) {
-  if (req.path.includes("/avatar-upload") || req.path.includes("/m3u8/upload")) {
+  if (req.path.includes("/avatar-upload") || req.path.includes("/m3u8/upload") || req.path.endsWith("/relay")) {
     next();
     return;
   }
