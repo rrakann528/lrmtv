@@ -617,9 +617,11 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
     // ── HLS: custom player with built-in controls ────────────────────────────
     if (isHls) {
       // workers.dev URLs only work via native iOS video — no free cloud proxy
-      // can access them. Show a clear error on Android/desktop immediately.
+      // can access them. But some workers.dev URLs have open CORS headers and work
+      // directly from the user's browser — let the CORS check run first.
+      // Only show the error AFTER the check confirms proxy is needed (CORS failed).
       const isWorkersDevUrl = normalizedUrl.includes('.workers.dev');
-      if (isWorkersDevUrl && !isIosBrowser) {
+      if (isWorkersDevUrl && !isIosBrowser && !corsChecking && playableUrl !== normalizedUrl) {
         return (
           <div ref={containerRef} className="absolute inset-0 bg-black flex items-center justify-center">
             <div className="text-center space-y-3 px-8">

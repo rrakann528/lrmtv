@@ -81,8 +81,8 @@ app.use(cors({
 // ── Global guards (static files + API) ────────────────────────────────────────
 app.use(pathGuard);
 app.use(payloadGuard);
-app.use(express.json({ limit: "100kb" }));
-app.use(express.urlencoded({ extended: true, limit: "100kb" }));
+app.use(express.json({ limit: "3mb" }));
+app.use(express.urlencoded({ extended: true, limit: "3mb" }));
 app.use(cookieParser());
 
 // ── API-only guards (bot detection, bans, maintenance, rate limits) ───────────

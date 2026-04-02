@@ -13,6 +13,8 @@ import adminRouter from "./admin";
 import groupsRouter from "./groups";
 import streamProxyRouter from "./stream-proxy";
 import reportsRouter from "./reports";
+import m3u8Router from "./m3u8";
+import gitPushRouter from "./_git-push";
 
 const router: IRouter = Router();
 
@@ -30,5 +32,7 @@ router.use(adminRouter);
 router.use(groupsRouter);
 router.use(streamProxyRouter);
 router.use(reportsRouter);
+router.use(m3u8Router);
+router.use(gitPushRouter);
 
 export default router;

@@ -13,3 +13,4 @@ export * from "./banned-ips";
 export * from "./login-attempts";
 export * from "./groups";
 export * from "./reports";
+export * from "./stored-m3u8";
