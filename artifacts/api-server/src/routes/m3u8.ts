@@ -6,8 +6,6 @@ import { rateLimit } from "express-rate-limit";
 
 const router = Router();
 
-const CF_PROXY = "https://lrmtv-proxy.rrakann528.workers.dev/?url=";
-
 const uploadLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 20,
@@ -24,26 +22,19 @@ function rewriteM3u8Paths(content: string, baseUrl?: string): string {
     .map(line => {
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith("#")) return line;
+      if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return line;
 
-      let absoluteUrl: string | null = null;
-
-      if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-        absoluteUrl = trimmed;
-      } else {
-        const domainMatch = trimmed.match(domainInPathRegex);
-        if (domainMatch) {
-          const domain = domainMatch[1];
-          const rest = domainMatch[2] || "";
-          absoluteUrl = `https://${domain}${rest}`;
-        } else if (baseUrl) {
-          const base = baseUrl.replace(/\/$/, "");
-          const path = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
-          absoluteUrl = `${base}${path}`;
-        }
+      const domainMatch = trimmed.match(domainInPathRegex);
+      if (domainMatch) {
+        const domain = domainMatch[1];
+        const rest = domainMatch[2] || "";
+        return `https://${domain}${rest}`;
       }
 
-      if (absoluteUrl) {
-        return `${CF_PROXY}${encodeURIComponent(absoluteUrl)}`;
+      if (baseUrl) {
+        const base = baseUrl.replace(/\/$/, "");
+        const path = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+        return `${base}${path}`;
       }
 
       return line;
@@ -101,7 +92,7 @@ router.get("/m3u8/:id", async (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Headers", "Range, Content-Type");
     res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
-    res.setHeader("Cache-Control", "public, max-age=3600");
+    res.setHeader("Cache-Control", "no-cache");
     return res.send(row.content);
   } catch (err) {
     console.error("[m3u8/:id]", err);
