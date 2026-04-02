@@ -149,17 +149,14 @@ router.get("/m3u8/:id", async (req, res) => {
       return res.status(410).json({ error: "Expired" });
     }
 
-    // Use baseUrl stored at upload time as the manifest base for URL resolution
-    const manifestBase = row.baseUrl ?? "https://example.com";
-    const proxyBase    = getProxyBase(req);
-    const proxied      = proxifyM3u8(row.content, proxyBase, manifestBase);
-
     res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Headers", "Range, Content-Type");
     res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
     res.setHeader("Cache-Control", "no-cache");
-    return res.send(proxied);
+    // Serve content directly — browser fetches segments from CDN using
+    // the user's own residential IP (cloud IPs are blocked by these CDNs).
+    return res.send(row.content);
   } catch (err) {
     console.error("[m3u8/:id]", err);
     return res.status(500).json({ error: "Server error" });
