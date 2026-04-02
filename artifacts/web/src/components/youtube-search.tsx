@@ -115,7 +115,7 @@ export default function YoutubeSearch({ onAdd, isAdding, lang = 'en' }: Props) {
         throw new Error(body?.error ?? 'Upload failed');
       }
       const { id } = await res.json() as { id: string };
-      const streamUrl = `${BASE}api/m3u8/${id}`;
+      const streamUrl = `${window.location.origin}/api/m3u8/${id}`;
       const title = file.name.replace(/\.(m3u8|m3u)$/i, '') || t('m3u8Title');
       setM3u8Status('success');
       setM3u8Msg(t('m3u8Success'));
