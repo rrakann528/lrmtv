@@ -246,6 +246,15 @@ CREATE TABLE IF NOT EXISTS reports (
 );
 CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status);
 CREATE INDEX IF NOT EXISTS idx_reports_reported ON reports(reported_username);
+
+CREATE TABLE IF NOT EXISTS stored_m3u8 (
+  id VARCHAR(36) PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  content TEXT NOT NULL,
+  base_url TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_stored_m3u8_expires ON stored_m3u8(expires_at);
 `;
 
 export async function runMigrations(): Promise<void> {
