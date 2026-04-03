@@ -1,4 +1,5 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
+import compression from "compression";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
@@ -76,6 +77,22 @@ app.use(cors({
     }
   },
   credentials: true,
+}));
+
+// ── HTTP compression ───────────────────────────────────────────────────────────
+// Gzip JSON/HTML/CSS/JS responses.  Chunks (media segments) pass through unchanged
+// because they are already compressed.  Stream-proxy segments are binary — skip those.
+app.use(compression({
+  // Compress if response body > 1 KB (JSON, HTML, JS always qualify; tiny pings don't)
+  threshold: 1024,
+  // Skip stream segments already being served as binary data
+  filter: (req, res) => {
+    const ct = res.getHeader('Content-Type') as string | undefined;
+    if (ct && (ct.includes('video/') || ct.includes('audio/') || ct.includes('mpegurl'))) {
+      return false;
+    }
+    return compression.filter(req, res);
+  },
 }));
 
 // ── Global guards (static files + API) ────────────────────────────────────────

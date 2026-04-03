@@ -38,6 +38,8 @@ export default defineConfig(async () => {
     build: {
       outDir: path.resolve(import.meta.dirname, "dist/public"),
       emptyOutDir: true,
+      // Target modern browsers — smaller output (no legacy transforms for arrow fns, etc.)
+      target: "esnext",
       // Minify with esbuild (default, fastest). Keeps bundles small without needing terser.
       minify: "esbuild",
       // Inline assets smaller than 4 KB to save round trips

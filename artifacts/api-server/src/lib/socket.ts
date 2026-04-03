@@ -507,6 +507,13 @@ export function initSocketServer(httpServer: HttpServer): Server {
     path: "/api/socket.io",
     // Protect against large single-event payloads
     maxHttpBufferSize: 64 * 1024, // 64 KB per event
+    // Keep connections alive on mobile networks (NATs drop idle connections after ~30s)
+    // pingInterval: how often to send a ping (ms). Default: 25 000.
+    // pingTimeout: how long to wait for a pong before considering disconnected. Default: 20 000.
+    // Reducing pingInterval catches dead connections faster; raising pingTimeout
+    // prevents false disconnects on slow/lossy mobile connections.
+    pingInterval: 20_000,
+    pingTimeout: 30_000,
   });
   _io = io;
 
@@ -817,7 +824,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
     });
 
     // ── Video sync (play / pause / seek / change-video) ─────────────────────
-    socket.on("video-sync", (data: { action: string; currentTime: number; url?: string }) => {
+    socket.on("video-sync", (data: { action: string; currentTime: number; url?: string; isPlaying?: boolean }) => {
       if (!syncThrottle.allow(socket.id)) return; // silently drop — too fast
       if (!currentRoomSlug) return;
       const roomState = getRoomState(currentRoomSlug);
@@ -877,10 +884,16 @@ export function initSocketServer(httpServer: HttpServer): Server {
           roomState.currentVideo = data.url || null;
           roomState.currentVideoTitle = null;
           roomState.currentTime = 0;
-          roomState.isPlaying = false;
+          // Respect the DJ's explicit isPlaying flag so we don't need a second
+          // play/pause emit after change-video (eliminates the old race condition).
+          roomState.isPlaying = data.isPlaying ?? false;
           roomState.isLive = false;
-          roomState.lastSyncTimestamp = 0;
-          stopHeartbeat(roomState);
+          roomState.lastSyncTimestamp = roomState.isPlaying ? Date.now() : 0;
+          if (roomState.isPlaying) {
+            startHeartbeat(io, roomState);
+          } else {
+            stopHeartbeat(roomState);
+          }
           // Fetch title asynchronously
           if (data.url) {
             (async () => {

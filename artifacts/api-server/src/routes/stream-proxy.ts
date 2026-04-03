@@ -6,6 +6,10 @@ const router: IRouter = Router();
 const HLS_EXTENSIONS = [".m3u8", ".m3u"];
 const DASH_EXTENSIONS = [".mpd"];
 
+// Query-param patterns that hint at HLS or DASH even without a matching extension
+const HLS_QUERY_HINTS = ["format=hls", "type=m3u8", "format=m3u8", "playlist_type=hls", "stream_type=hls"];
+const DASH_QUERY_HINTS = ["format=mpd", "format=dash", "type=mpd", "stream_type=dash"];
+
 const USER_AGENTS = [
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15",
@@ -20,13 +24,15 @@ function pickUA(): string {
 const unsafeAgent = new https.Agent({ rejectUnauthorized: false });
 
 function isHlsUrl(url: string): boolean {
-  const path = url.split("?")[0].toLowerCase();
-  return HLS_EXTENSIONS.some((ext) => path.endsWith(ext));
+  const [pathPart, query = ""] = url.toLowerCase().split("?");
+  return HLS_EXTENSIONS.some((ext) => pathPart.endsWith(ext))
+    || HLS_QUERY_HINTS.some((hint) => query.includes(hint));
 }
 
 function isDashUrl(url: string): boolean {
-  const path = url.split("?")[0].toLowerCase();
-  return DASH_EXTENSIONS.some((ext) => path.endsWith(ext));
+  const [pathPart, query = ""] = url.toLowerCase().split("?");
+  return DASH_EXTENSIONS.some((ext) => pathPart.endsWith(ext))
+    || DASH_QUERY_HINTS.some((hint) => query.includes(hint));
 }
 
 function isHlsContent(ct: string): boolean {

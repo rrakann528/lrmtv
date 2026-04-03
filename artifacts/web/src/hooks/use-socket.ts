@@ -96,8 +96,16 @@ export function useSocket(slug: string | null) {
     const token = localStorage.getItem('lrmtv_auth_token') || '';
     const socket = io('/', {
       path: '/api/socket.io',
-      transports: ['polling', 'websocket'],
+      // WebSocket first — eliminates the polling phase for the ~95% of users
+      // who have WS support.  Falls back to polling only if WS is blocked.
+      transports: ['websocket', 'polling'],
+      upgrade: true,
       auth: { token },
+      // Faster reconnection (default 1 s → 0.5 s first attempt, cap at 8 s)
+      reconnectionDelay: 500,
+      reconnectionDelayMax: 8000,
+      // Longer connection timeout to handle slow mobile networks
+      timeout: 20000,
     });
 
     socketRef.current = socket;
@@ -339,10 +347,10 @@ export function useSocket(slug: string | null) {
   const emitSync = useCallback((time: number, playing: boolean, url: string | null) => {
     if (!socketRef.current?.connected) return;
     if (url && url !== syncState.url) {
-      socketRef.current.emit('video-sync', { action: 'change-video', currentTime: 0, url });
-      setTimeout(() => {
-        socketRef.current?.emit('video-sync', { action: playing ? 'play' : 'pause', currentTime: 0 });
-      }, 100);
+      // Single emit: pass isPlaying so the server sets the correct state atomically.
+      // The old two-emit approach (change-video then play/pause after 100 ms) had a race
+      // condition where clients could briefly see the wrong playing state.
+      socketRef.current.emit('video-sync', { action: 'change-video', currentTime: 0, url, isPlaying: playing });
     } else if (playing) {
       socketRef.current.emit('video-sync', { action: 'play', currentTime: time });
     } else {

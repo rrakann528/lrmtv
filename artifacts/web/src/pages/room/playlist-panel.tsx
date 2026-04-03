@@ -34,11 +34,21 @@ interface PlaylistPanelProps {
 }
 
 function sourceIcon(sourceType: string) {
-  if (sourceType === 'youtube')  return '▶ YouTube';
-  if (sourceType === 'hls') return '📡 HLS';
-  if (sourceType === 'twitch')   return '🟣 Twitch';
-  if (sourceType === 'vimeo')    return '🎬 Vimeo';
-  return `🎵 ${sourceType}`;
+  switch (sourceType) {
+    case 'youtube':    return '▶ YouTube';
+    case 'twitch':     return '🟣 Twitch';
+    case 'vimeo':      return '🎬 Vimeo';
+    case 'dailymotion':return '▶ Dailymotion';
+    case 'rumble':     return '▶ Rumble';
+    case 'kick':       return '🟢 Kick';
+    case 'facebook':   return '📘 Facebook';
+    case 'twitter':    return '🐦 X / Twitter';
+    case 'odysee':     return '🌊 Odysee';
+    case 'hls':        return '📡 HLS';
+    case 'dash':       return '📡 DASH';
+    case 'html5':      return '🎬 فيديو';
+    default:           return `🎵 ${sourceType}`;
+  }
 }
 
 export default function PlaylistPanel({

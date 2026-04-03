@@ -28,15 +28,12 @@ import { RoomSettingsSheet } from './room/room-settings-sheet';
 import { UserProfileSheet } from '@/components/user-profile-sheet';
 import { SmartPlayer, type SmartPlayerHandle, type RoomEventNotif } from '@/components/player/smart-player';
 import { isFullscreenActive } from '@/lib/fullscreen';
+import { detectVideoType } from '@/lib/detect-video-type';
 
 import YoutubeSearch from '@/components/youtube-search';
 
-function detectSourceType(url: string): 'youtube' | 'vimeo' | 'twitch' | 'mp4' | 'other' {
-  if (url.includes('youtube') || url.includes('youtu.be')) return 'youtube';
-  if (url.includes('twitch')) return 'twitch';
-  if (url.includes('vimeo')) return 'vimeo';
-  if (url.endsWith('.mp4')) return 'mp4';
-  return 'other';
+function detectSourceType(url: string): string {
+  return detectVideoType(url);
 }
 
 
@@ -272,6 +269,23 @@ export default function RoomPage() {
       if (!syncState.url) emitSync(0, false, url);
     } catch { /* ignore */ }
   }, [slug, addMutation, queryClient, emitPlaylistUpdate, syncState.url, emitSync]);
+
+  // ── Auto-load a video URL shared via the PWA Share Target ─────────────────
+  // When the user tapped "شاهد في غرفة" from the home share banner, we stored
+  // the video URL in sessionStorage.  Once the DJ is confirmed by the server
+  // (isDJ=true) and the room has no active video, auto-add it to the playlist
+  // and start playing — exactly as if the DJ had pasted the URL manually.
+  const sharedVideoConsumedRef = useRef(false);
+  useEffect(() => {
+    if (!isDJ || syncState.url || sharedVideoConsumedRef.current) return;
+    try {
+      const shared = sessionStorage.getItem('lrmtv_shared_video_url');
+      if (!shared) return;
+      sessionStorage.removeItem('lrmtv_shared_video_url');
+      sharedVideoConsumedRef.current = true;
+      handleAddVideo(shared, shared);
+    } catch { /* ignore */ }
+  }, [isDJ, syncState.url, handleAddVideo]);
 
   useEffect(() => {
     setBgImage(
