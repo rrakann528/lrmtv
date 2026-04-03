@@ -18,6 +18,16 @@
   "launch_handler": {
     "client_mode": "navigate-existing"
   },
+  "share_target": {
+    "action": "/home",
+    "method": "GET",
+    "enctype": "application/x-www-form-urlencoded",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  },
   "icons": [
     {
       "src": "/favicon-16.png",

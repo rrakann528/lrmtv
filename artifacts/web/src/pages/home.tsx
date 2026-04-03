@@ -12,6 +12,7 @@ import { NotifBanner } from '@/components/notif-banner';
 import { useQuery } from '@tanstack/react-query';
 import { useUserSocket } from '@/hooks/use-user-socket';
 import { useI18n, LANGUAGES } from '@/lib/i18n';
+import { extractUrlFromText } from '@/lib/detect-video-type';
 
 type Tab = 'rooms' | 'friends' | 'groups' | 'profile';
 
@@ -65,6 +66,16 @@ export default function HomePage() {
   const [activeTab, setActiveTab] = useState<Tab>(
     tabParam && validTabs.includes(tabParam) ? tabParam : 'rooms'
   );
+
+  // Web Share Target: when a user shares a video URL to LrmTV from another app,
+  // the browser appends ?url=...&text=...&title=... to /home (see manifest.json share_target).
+  // We extract the shared URL and pass it down to RoomsTab so it can show a quick-create banner.
+  const sharedUrl = (() => {
+    const directUrl = params.get('url');
+    if (directUrl) return directUrl.trim();
+    const text = params.get('text') || params.get('title') || '';
+    return text ? (extractUrlFromText(text) ?? '') : '';
+  })();
 
   // React to URL ?tab= changes (e.g. from push notification navigation)
   useEffect(() => {
@@ -190,7 +201,7 @@ export default function HomePage() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
           >
-            {activeTab === 'rooms'   && <RoomsTab kickedRooms={kickedRooms} />}
+            {activeTab === 'rooms'   && <RoomsTab kickedRooms={kickedRooms} sharedUrl={sharedUrl} />}
             {activeTab === 'friends' && <FriendsTab acceptedToast={acceptedToast} onDismissAcceptedToast={() => setAcceptedToast(null)} />}
             {activeTab === 'groups'  && <GroupsTab />}
             {activeTab === 'profile' && (

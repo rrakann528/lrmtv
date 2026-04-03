@@ -279,7 +279,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       setCorsChecking(true);
 
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 3000); // 3 s max wait
+      const timer = setTimeout(() => controller.abort(), 5000); // 5 s max wait (slow mobile networks)
 
       let resolvedUrl = proxyUrl;
       // Use GET+Range instead of HEAD: some CDNs respond with CORS headers

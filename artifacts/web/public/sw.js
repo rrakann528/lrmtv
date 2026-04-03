@@ -1,16 +1,17 @@
-/* Service Worker v9 — LrmTV PWA
+/* Service Worker v10 — LrmTV PWA
  *
  * Caching strategy:
  *  • JS / CSS (content-hashed)  → cache-first   (safe forever — hash changes on update)
- *  • Google Fonts               → cache-first   (stale-ok, font files rarely change)
+ *  • Google Fonts               → stale-while-revalidate
  *  • Images / icons / SVG       → cache-first   (7 days max)
  *  • HTML pages (navigation)    → network-first (always fresh index.html → correct chunk hashes)
  *  • API requests               → network-only  (never cache dynamic data)
- *  • Stream segments (.m3u8/.ts) → network-only (live data, huge, never cache)
+ *  • Stream segments (.m3u8/.ts/.mpd) → network-only (live data)
+ *  • Range requests             → network-only  (native video needs byte-range support)
  */
 
-const CACHE_STATIC  = 'lrmtv-static-v9';
-const CACHE_PAGES   = 'lrmtv-pages-v9';
+const CACHE_STATIC  = 'lrmtv-static-v10';
+const CACHE_PAGES   = 'lrmtv-pages-v10';
 
 const PRECACHE = [
   '/',
@@ -18,6 +19,9 @@ const PRECACHE = [
   '/manifest.json',
   '/icon-192.svg',
   '/icon-512.svg',
+  '/icon-192.png',
+  '/icon-512.png',
+  '/opengraph.jpg',
 ];
 
 /* ─── Install: precache the app shell ─────────────────────────────────────── */
@@ -50,10 +54,17 @@ self.addEventListener('fetch', e => {
   // Only handle GET requests
   if (req.method !== 'GET') return;
 
+  // ── Never cache: range requests (needed for native <video> seeking) ────────
+  // Browsers send byte-range requests to the video server. If the SW intercepts
+  // these and tries to clone/cache the partial response, Safari and Chrome both
+  // get confused and the video stalls or fails to seek.
+  if (req.headers.get('range')) return;
+
   // ── Never cache: API, sockets, streams ────────────────────────────────────
   if (
     url.pathname.startsWith('/api/') ||
     url.pathname.endsWith('.m3u8') ||
+    url.pathname.endsWith('.m3u') ||
     url.pathname.endsWith('.ts') ||
     url.pathname.endsWith('.mpd') ||
     url.pathname.includes('/socket.io/') ||
@@ -61,6 +72,12 @@ self.addEventListener('fetch', e => {
   ) {
     return; // fall through to network
   }
+
+  // ── Skip cross-origin requests we don't know about ────────────────────────
+  // Only handle our own origin + known CDNs (fonts, proxy worker)
+  const isSameOrigin = url.origin === self.location.origin;
+  const isFonts = url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com';
+  if (!isSameOrigin && !isFonts) return;
 
   // ── Cache-first: hashed JS / CSS (Vite injects hash into filename) ────────
   if (
@@ -70,7 +87,7 @@ self.addEventListener('fetch', e => {
       url.pathname.endsWith('.woff2') ||
       url.pathname.endsWith('.woff')
     )) ||
-    url.hostname === 'fonts.gstatic.com'   // font binary files
+    url.hostname === 'fonts.gstatic.com'
   ) {
     e.respondWith(
       caches.open(CACHE_STATIC).then(async cache => {
@@ -90,6 +107,7 @@ self.addEventListener('fetch', e => {
     url.pathname.endsWith('.png') ||
     url.pathname.endsWith('.jpg') ||
     url.pathname.endsWith('.webp') ||
+    url.pathname.endsWith('.ico') ||
     url.pathname === '/manifest.json'
   ) {
     e.respondWith(
@@ -124,8 +142,6 @@ self.addEventListener('fetch', e => {
   }
 
   // ── Network-first: HTML navigation requests ───────────────────────────────
-  // Always fetch fresh index.html so the browser gets the latest JS chunk hashes.
-  // Only fall back to cache when the network is truly unavailable (offline).
   if (req.mode === 'navigate' || req.headers.get('accept')?.includes('text/html')) {
     e.respondWith(
       caches.open(CACHE_PAGES).then(async cache => {
@@ -134,7 +150,6 @@ self.addEventListener('fetch', e => {
           if (res.ok) cache.put(req, res.clone());
           return res;
         } catch {
-          // Offline fallback
           return (await cache.match(req)) ?? await cache.match('/') ?? offlinePage();
         }
       })
@@ -175,10 +190,8 @@ self.addEventListener('notificationclick', e => {
   const origin = self.location.origin;
   e.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
-      // Find any open window on the same origin
       const existing = list.find(c => c.url.startsWith(origin));
       if (existing) {
-        // Navigate the existing window to the target URL and focus it
         existing.navigate(full).catch(() => {});
         return existing.focus();
       }

@@ -268,7 +268,7 @@ function RoomCard({ room, banned, onEnter }: {
   );
 }
 
-export function RoomsTab({ kickedRooms: kickedRoomsProp = [] }: { kickedRooms?: string[] }) {
+export function RoomsTab({ kickedRooms: kickedRoomsProp = [], sharedUrl = '' }: { kickedRooms?: string[]; sharedUrl?: string }) {
   const [, setLocation] = useLocation();
   const { user } = useAuth();
   const qc = useQueryClient();
@@ -280,6 +280,7 @@ export function RoomsTab({ kickedRooms: kickedRoomsProp = [] }: { kickedRooms?: 
   const [bannedRooms, setBannedRooms] = useState<string[]>([]);
   const [kickedMsg, setKickedMsg] = useState<string | null>(null);
   const [createErr, setCreateErr] = useState('');
+  const [sharedUrlDismissed, setSharedUrlDismissed] = useState(false);
 
   // Merge real-time kicked rooms (via socket) into the banned list
   const allBannedRooms = Array.from(new Set([...bannedRooms, ...kickedRoomsProp]));
@@ -346,6 +347,52 @@ export function RoomsTab({ kickedRooms: kickedRoomsProp = [] }: { kickedRooms?: 
 
   return (
     <div className="flex flex-col h-full">
+
+      {/* ── Web Share Target banner ── */}
+      <AnimatePresence>
+        {sharedUrl && !sharedUrlDismissed && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="mx-4 mt-3 px-4 py-3 rounded-2xl border flex flex-col gap-2"
+            style={{ background: 'rgba(6,182,212,0.08)', borderColor: 'rgba(6,182,212,0.3)' }}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-foreground mb-0.5">رابط تم مشاركته</p>
+                <p className="text-xs text-muted-foreground truncate">{sharedUrl}</p>
+              </div>
+              <button
+                onClick={() => setSharedUrlDismissed(true)}
+                className="text-muted-foreground hover:text-foreground shrink-0 mt-0.5"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <button
+              onClick={() => {
+                setSharedUrlDismissed(true);
+                // If the shared URL is an LrmTV room link → navigate directly
+                const roomMatch = sharedUrl.match(/\/room\/([a-z0-9-]+)/i);
+                if (roomMatch) {
+                  setLocation('/room/' + roomMatch[1]);
+                  return;
+                }
+                // It's a video URL → store it so the room page can auto-load it,
+                // then pre-fill the join code field to guide the user
+                try { sessionStorage.setItem('lrmtv_shared_video_url', sharedUrl); } catch {}
+                setJoinCode(sharedUrl);
+              }}
+              className="w-full py-2.5 rounded-xl text-sm font-semibold text-white transition hover:opacity-90 active:scale-[0.98] flex items-center justify-center gap-2"
+              style={{ background: 'linear-gradient(90deg, #06B6D4, #8B5CF6)' }}
+            >
+              <Play className="w-4 h-4" />
+              شاهد هذا الرابط في غرفة
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Kicked banner */}
       <AnimatePresence>
