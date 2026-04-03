@@ -1073,6 +1073,29 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
       }
     }, [playing]);
 
+    // When browser blocks even muted autoplay, wait for any user interaction
+    // anywhere on the page then retry — viewers have no play button to click.
+    useEffect(() => {
+      if (!autoplayBlocked) return;
+      const retry = () => {
+        const v = videoRef.current;
+        if (!v) return;
+        v.muted = true;
+        v.play().then(() => {
+          setMutedForAutoplay(true);
+          setAutoplayBlocked(false);
+        }).catch(() => {});
+      };
+      document.addEventListener('click', retry, { once: true });
+      document.addEventListener('touchstart', retry, { once: true });
+      document.addEventListener('keydown', retry, { once: true });
+      return () => {
+        document.removeEventListener('click', retry);
+        document.removeEventListener('touchstart', retry);
+        document.removeEventListener('keydown', retry);
+      };
+    }, [autoplayBlocked]);
+
     // Loading timeout — fires once per src/retryKey; if video never plays within 20 s → show error
     useEffect(() => {
       if (!src) return;
