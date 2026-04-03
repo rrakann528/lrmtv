@@ -6,3 +6,9 @@ id = "kcWzby4tVjOaRPsx2mOcq"
 uri = "file://attached_assets/generated_videos/lrmtv-promo-final.mp4"
 type = "video"
 title = "LrmTV - إعلان ترويجي (16 ثانية)"
+
+[[outputs]]
+id = "-wjEP1OUwy-kLQOsn-50H"
+uri = "file://attached_assets/generated_videos/lrmtv-ad-branded.mp4"
+type = "video"
+title = "LrmTV - إعلان Branded (18 ثانية)"
