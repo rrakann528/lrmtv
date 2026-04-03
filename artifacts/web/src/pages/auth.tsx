@@ -378,7 +378,14 @@ export default function AuthPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => { setOtp(['', '', '', '', '', '']); setOtpError(''); setUser(null); setStep('form'); logout().catch(() => {}); }}
+                    onClick={async () => {
+                      await apiFetch('/auth/me', { method: 'DELETE' }).catch(() => {});
+                      setOtp(['', '', '', '', '', '']);
+                      setOtpError('');
+                      setUser(null);
+                      setStep('form');
+                      logout().catch(() => {});
+                    }}
                     className="flex items-center justify-center gap-1 text-sm text-white/30 hover:text-white/60 transition mx-auto"
                   >
                     <X size={14} />
