@@ -416,6 +416,11 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
       setActiveAudioTrack(0);
 
       if (reconnTimerRef.current) { clearTimeout(reconnTimerRef.current); reconnTimerRef.current = null; }
+      // Reset seek-failure state on every new src so stale targets from a previous
+      // video don't get applied to the incoming one (would seek the new video to a
+      // wrong position and show a black screen until the buffer fills).
+      if (seekFailTimerRef.current) { clearTimeout(seekFailTimerRef.current); seekFailTimerRef.current = null; }
+      lastLocalSeekRef.current = null;
 
       readyFiredRef.current = false;
       isLiveRef.current = false;
