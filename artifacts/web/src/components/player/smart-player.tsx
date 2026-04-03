@@ -166,6 +166,11 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
     // Mirror of the playing prop so onReady can read the latest value without stale closure
     const playingRef = useRef(playing);
     useEffect(() => { playingRef.current = playing; }, [playing]);
+    // Tracks the last user-initiated seek target so we can return it from
+    // getCurrentTime even if the underlying video restarted to 0 (servers that
+    // don't support HTTP Range requests). This prevents the room heartbeat from
+    // seeing time=0 and looping: seek → restart → time=0 → seek again.
+    const lastSeekTargetRef = useRef<{ time: number; ts: number } | null>(null);
     // ReactPlayer playback tracking
     const [rpCurrentTime, setRpCurrentTime] = useState(0);
     const [rpDuration, setRpDuration] = useState(0);
@@ -316,6 +321,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       setAutoplayBlocked(false);
       setRpBuffering(false);
       if (rpBufferingTimerRef.current) { clearTimeout(rpBufferingTimerRef.current); rpBufferingTimerRef.current = null; }
+      lastSeekTargetRef.current = null;
       lastSkippedRef.current = null;
       setSponsorSegments([]);
       pendingPlayRef.current = false;
@@ -384,18 +390,19 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
 
     const directSeek = useCallback((t: number) => {
       if (!canControl) return;
-      // For HTML5 "other" type videos, show a buffering spinner while seeking.
-      // Many direct-link servers don't support HTTP Range requests, so the seek
-      // may take time to complete or may restart the video from the beginning.
       if (videoType === 'html5') {
+        // Record the seek target so getCurrentTime() can return it even if the
+        // underlying video resets to 0 (server without Range-request support).
+        lastSeekTargetRef.current = { time: t, ts: Date.now() };
+        // Show buffering spinner with a short debounce
         if (rpBufferingTimerRef.current) clearTimeout(rpBufferingTimerRef.current);
         rpBufferingTimerRef.current = setTimeout(() => setRpBuffering(true), 300);
       }
       reactPlayerRef.current?.seekTo(t, 'seconds');
-      // Emit the seek event with the INTENDED time immediately.
-      // We do NOT rely on ReactPlayer's onSeek callback because for servers that
-      // don't support HTTP Range requests, the video resets to 0 and ReactPlayer
-      // would fire onSeek(0) — which would broadcast time=0 to the whole room.
+      // Emit with the INTENDED time immediately. We do NOT rely on ReactPlayer's
+      // onSeek callback because servers without Range support cause the video to
+      // restart at 0, making ReactPlayer fire onSeek(0) which would broadcast
+      // time=0 to the entire room and break everyone's sync.
       onSeek?.(t);
       resetOverlayTimer();
     }, [canControl, videoType, onSeek, resetOverlayTimer]);
@@ -436,7 +443,17 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       getCurrentTime: () => {
         if (isHls) return hlsPlayerRef.current?.getCurrentTime() ?? 0;
         if (!ready || !reactPlayerRef.current) return 0;
-        return reactPlayerRef.current.getCurrentTime() || 0;
+        const actual = reactPlayerRef.current.getCurrentTime() || 0;
+        // If the video has reset to 0 after a seek (server doesn't support Range
+        // requests), return the intended target time for up to 8 seconds.
+        // This prevents the room heartbeat from seeing 0 and triggering an infinite
+        // seek-restart loop. Once the video actually progresses past ~5 s of the
+        // target the ref is cleared (see onProgress handler below).
+        const target = lastSeekTargetRef.current;
+        if (target && actual < 1 && target.time > 5 && Date.now() - target.ts < 8_000) {
+          return target.time;
+        }
+        return actual;
       },
       seekTo: (time: number) => {
         if (isHls) { hlsPlayerRef.current?.seekTo(time); return; }
@@ -877,7 +894,36 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
           onPlay={() => { setAutoplayBlocked(false); setError(null); onPlay?.(); }}
           onPause={onPause}
           onProgress={({ playedSeconds }) => {
-            setRpCurrentTime(playedSeconds);
+            // For HTML5 videos: if the video reset to 0 after a seek (server without
+            // Range-request support), handle two sub-cases:
+            const target = lastSeekTargetRef.current;
+            if (target && videoType === 'html5') {
+              const elapsed = Date.now() - target.ts;
+              if (playedSeconds < 2 && elapsed < 8_000) {
+                // Case A: video is still buffering / loading from 0 — keep showing
+                // the intended seek time so the UI doesn't snap back to 0.
+                setRpCurrentTime(target.time);
+              } else if (playedSeconds >= 2) {
+                // Case B: video has advanced past 2 s — either seek worked or video
+                // restarted and played through. Accept the actual position.
+                lastSeekTargetRef.current = null;
+                if (rpBufferingTimerRef.current) { clearTimeout(rpBufferingTimerRef.current); rpBufferingTimerRef.current = null; }
+                setRpBuffering(false);
+                setRpCurrentTime(playedSeconds);
+              } else {
+                // Case C: >8 s elapsed and video is still at 0 — seek definitely
+                // failed. Accept position=0 and sync the room to 0 so the heartbeat
+                // doesn't loop forever trying to re-seek to the target.
+                lastSeekTargetRef.current = null;
+                if (rpBufferingTimerRef.current) { clearTimeout(rpBufferingTimerRef.current); rpBufferingTimerRef.current = null; }
+                setRpBuffering(false);
+                setRpCurrentTime(playedSeconds);
+                // Notify the room that seek failed — everyone aligns to 0
+                onSeek?.(0);
+              }
+            } else {
+              setRpCurrentTime(playedSeconds);
+            }
             if (sponsorSkipEnabled && sponsorSegments.length > 0 && isYouTubeUrl(normalizedUrl)) {
               const seg = findActiveSegment(sponsorSegments, playedSeconds);
               if (seg && lastSkippedRef.current !== seg.UUID) {
