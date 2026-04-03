@@ -18,6 +18,7 @@ import { useGetRoom, useAddPlaylistItem, getGetRoomPlaylistQueryKey } from '@wor
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { Button } from '@/components/ui/button';
+import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 
 import ChatPanel from './room/chat-panel';
@@ -246,6 +247,7 @@ export default function RoomPage() {
 
   const queryClient = useQueryClient();
   const addMutation = useAddPlaylistItem();
+  const { toast } = useToast();
 
   const [deleteError, setDeleteError] = useState('');
   const handleDeleteRoom = useCallback(async () => {
@@ -273,8 +275,11 @@ export default function RoomPage() {
       queryClient.invalidateQueries({ queryKey: getGetRoomPlaylistQueryKey(slug) });
       emitPlaylistUpdate('add');
       if (!syncState.url) emitSync(0, false, url);
-    } catch { /* ignore */ }
-  }, [slug, addMutation, queryClient, emitPlaylistUpdate, syncState.url, emitSync]);
+    } catch (err: unknown) {
+      console.error('[handleAddVideo] failed:', { url, sourceType, err });
+      toast({ title: 'فشل إضافة الفيديو', description: String(err), variant: 'destructive', duration: 4000 });
+    }
+  }, [slug, addMutation, queryClient, emitPlaylistUpdate, syncState.url, emitSync, toast]);
 
   // ── Auto-load a video URL shared via the PWA Share Target ─────────────────
   // When the user tapped "شاهد في غرفة" from the home share banner, we stored
