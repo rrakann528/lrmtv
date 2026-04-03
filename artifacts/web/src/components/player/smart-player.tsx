@@ -788,9 +788,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
                       <div className="min-w-0 text-right">
                         <p className="text-[11px] font-semibold text-white/80 leading-none">{n.username}</p>
                         <p className={`text-[10px] mt-0.5 leading-none ${n.type === 'join' ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          {n.type === 'join'
-                            ? (lang === 'ar' ? 'دخل الغرفة' : 'joined')
-                            : (lang === 'ar' ? 'غادر الغرفة' : 'left')}
+                          {n.type === 'join' ? t('joinedRoom') : t('leftRoom')}
                         </p>
                       </div>
                     </motion.div>
@@ -1367,9 +1365,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
                 <div className="min-w-0 text-right">
                   <p className="text-[11px] font-semibold text-white/80 leading-none">{n.username}</p>
                   <p className={`text-[10px] mt-0.5 leading-none ${n.type === 'join' ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {n.type === 'join'
-                      ? (lang === 'ar' ? 'دخل الغرفة' : 'joined')
-                      : (lang === 'ar' ? 'غادر الغرفة' : 'left')}
+                    {n.type === 'join' ? t('joinedRoom') : t('leftRoom')}
                   </p>
                 </div>
               </motion.div>
