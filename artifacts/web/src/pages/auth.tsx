@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth, apiFetch, writeToken } from '@/hooks/use-auth';
 import { useLocation, useSearch } from 'wouter';
-import { Eye, EyeOff, Loader2, Mail, CheckCircle2, Globe, KeyRound } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Mail, CheckCircle2, Globe, KeyRound, X } from 'lucide-react';
 import { useI18n, LANGUAGES } from '@/lib/i18n';
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -368,13 +368,21 @@ export default function AuthPage() {
                   </button>
                 </form>
 
-                <div className="text-center">
+                <div className="text-center flex flex-col gap-2">
                   <button
                     onClick={resendOtp}
                     disabled={resendCooldown > 0}
                     className="text-sm text-cyan-400 hover:text-cyan-300 disabled:text-white/30 transition"
                   >
                     {resendCooldown > 0 ? `${t('authResendIn')} ${resendCooldown}${t('authSecondsSuffix')}` : t('authResendCode')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setOtp(['', '', '', '', '', '']); setOtpError(''); setStep('form'); }}
+                    className="flex items-center justify-center gap-1 text-sm text-white/30 hover:text-white/60 transition mx-auto"
+                  >
+                    <X size={14} />
+                    {t('cancel')}
                   </button>
                 </div>
               </div>
