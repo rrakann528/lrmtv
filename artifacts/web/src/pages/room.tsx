@@ -32,8 +32,14 @@ import { detectVideoType } from '@/lib/detect-video-type';
 
 import YoutubeSearch from '@/components/youtube-search';
 
-function detectSourceType(url: string): string {
-  return detectVideoType(url);
+function detectSourceType(url: string): 'youtube' | 'vimeo' | 'twitch' | 'mp4' | 'm3u8' | 'other' {
+  const t = detectVideoType(url);
+  if (t === 'youtube')  return 'youtube';
+  if (t === 'vimeo')    return 'vimeo';
+  if (t === 'twitch')   return 'twitch';
+  if (t === 'hls')      return 'm3u8';
+  if (t === 'html5')    return 'mp4';
+  return 'other';
 }
 
 
