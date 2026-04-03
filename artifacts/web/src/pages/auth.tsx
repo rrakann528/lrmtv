@@ -21,7 +21,7 @@ function GoogleIcon() {
 type Step = 'form' | 'otp' | 'forgot-email' | 'forgot-otp' | 'forgot-newpass';
 
 export default function AuthPage() {
-  const { user, loading, setUser } = useAuth();
+  const { user, loading, setUser, logout } = useAuth();
   const { t, lang, setLang, dir } = useI18n();
   const [, setLocation] = useLocation();
   const search = useSearch();
@@ -378,7 +378,7 @@ export default function AuthPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => { setOtp(['', '', '', '', '', '']); setOtpError(''); setStep('form'); }}
+                    onClick={() => { setOtp(['', '', '', '', '', '']); setOtpError(''); setUser(null); setStep('form'); logout().catch(() => {}); }}
                     className="flex items-center justify-center gap-1 text-sm text-white/30 hover:text-white/60 transition mx-auto"
                   >
                     <X size={14} />
