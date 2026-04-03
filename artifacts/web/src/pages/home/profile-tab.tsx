@@ -1,8 +1,8 @@
 import { useState, useRef, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
-import { Edit3, LogOut, Save, X, Bell, BellOff, Shield, Camera, Trash2 } from 'lucide-react';
+import { Edit3, LogOut, Save, X, Bell, BellOff, Shield, Camera, Trash2, AlertTriangle } from 'lucide-react';
 import { Avatar } from '@/components/avatar';
-import { useAuth } from '@/hooks/use-auth';
+import { useAuth, apiFetch } from '@/hooks/use-auth';
 import { usePush } from '@/hooks/use-push';
 import { useI18n, LANGUAGES } from '@/lib/i18n';
 import { useLocation } from 'wouter';
@@ -19,6 +19,9 @@ export function ProfileTab() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleting, setDeleting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -298,6 +301,68 @@ export function ProfileTab() {
           {t('logout')}
         </motion.button>
 
+        <motion.button
+          whileTap={{ scale: 0.97 }}
+          onClick={() => { setShowDeleteDialog(true); setDeleteConfirmText(''); }}
+          className="w-full flex items-center justify-center gap-2 py-2.5 bg-transparent border border-red-900/30 text-red-700/60 hover:text-red-500 hover:border-red-700/50 rounded-2xl font-medium text-xs mt-2 transition"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+          {t('deleteAccount')}
+        </motion.button>
+
+        {showDeleteDialog && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4">
+            <div className="bg-[#111827] border border-red-900/30 rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl">
+              <div className="flex items-center gap-3 text-red-400">
+                <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+                <h3 className="font-bold text-base">{t('deleteAccount')}</h3>
+              </div>
+              <p className="text-sm text-white/60 leading-relaxed">{t('deleteAccountWarning')}</p>
+              <div className="space-y-2">
+                <p className="text-xs text-white/40">{t('deleteAccountConfirm')}</p>
+                <input
+                  value={deleteConfirmText}
+                  onChange={e => setDeleteConfirmText(e.target.value)}
+                  placeholder="DELETE"
+                  dir="ltr"
+                  className="w-full bg-black/40 border border-red-900/30 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-red-500 text-center tracking-widest font-mono"
+                />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowDeleteDialog(false)}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-medium bg-white/5 text-white/60 hover:bg-white/10 transition"
+                >
+                  <X className="w-4 h-4 inline mr-1" />
+                  {t('leave')}
+                </button>
+                <button
+                  disabled={deleteConfirmText !== 'DELETE' || deleting}
+                  onClick={async () => {
+                    if (deleteConfirmText !== 'DELETE') return;
+                    setDeleting(true);
+                    try {
+                      await apiFetch('/api/auth/me', { method: 'DELETE' });
+                      await logout();
+                      setLocation('/');
+                    } catch {
+                      setError(t('saveError'));
+                      setShowDeleteDialog(false);
+                    } finally {
+                      setDeleting(false);
+                    }
+                  }}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-red-600 text-white disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+                >
+                  {deleting
+                    ? <><div className="w-3.5 h-3.5 border-2 border-white/40 border-t-transparent rounded-full animate-spin" />{t('deleting')}</>
+                    : <><Trash2 className="w-3.5 h-3.5" />{t('deleteAccountBtn')}</>}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="flex items-center justify-center flex-wrap gap-3 mt-6 text-xs text-muted-foreground">
           <button onClick={() => setLocation('/about')} className="hover:text-foreground transition">
             {t('about') || 'عن الموقع'}
@@ -313,6 +378,10 @@ export function ProfileTab() {
           <span className="text-white/20">·</span>
           <button onClick={() => setLocation('/privacy')} className="hover:text-foreground transition">
             {t('privacy')}
+          </button>
+          <span className="text-white/20">·</span>
+          <button onClick={() => setLocation('/dmca')} className="hover:text-foreground transition">
+            {t('dmca')}
           </button>
         </div>
       </div>

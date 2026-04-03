@@ -365,6 +365,18 @@ router.patch("/auth/profile", requireAuth, async (req: AuthRequest, res): Promis
   res.json(userPublic(updated));
 });
 
+router.delete("/auth/me", requireAuth, async (req: AuthRequest, res): Promise<void> => {
+  try {
+    const userId = req.userId!;
+    await db.delete(usersTable).where(eq(usersTable.id, userId));
+    res.clearCookie("token", { path: "/" });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[delete-account]", err);
+    res.status(500).json({ error: "خطأ في حذف الحساب" });
+  }
+});
+
 router.post("/auth/avatar-upload", requireAuth, avatarUpload.single("file"), async (req: AuthRequest, res): Promise<void> => {
   try {
     if (!req.file) { res.status(400).json({ error: "No file" }); return; }

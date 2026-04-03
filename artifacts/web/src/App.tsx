@@ -6,6 +6,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { I18nProvider } from "@/lib/i18n";
 import PwaInstallBanner from "@/components/pwa-install-banner";
 import InviteBanner from "@/components/invite-banner";
+import { CookieConsent } from "@/components/cookie-consent";
 import { useAuth } from "@/hooks/use-auth";
 
 const LandingPage = lazy(() => import("@/pages/landing"));
@@ -18,6 +19,7 @@ const AboutPage   = lazy(() => import("@/pages/about"));
 const FAQPage     = lazy(() => import("@/pages/faq"));
 const AdminPage   = lazy(() => import("@/pages/admin"));
 const NotFound    = lazy(() => import("@/pages/not-found"));
+const DmcaPage    = lazy(() => import("@/pages/dmca"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -152,6 +154,7 @@ function Router() {
         <Route path="/privacy"    component={PrivacyPage} />
         <Route path="/about"      component={AboutPage} />
         <Route path="/faq"        component={FAQPage} />
+        <Route path="/dmca"       component={DmcaPage} />
         <Route path="/admin"      component={() => <VerifiedRoute component={AdminPage} />} />
         <Route component={NotFound} />
       </Switch>
@@ -170,6 +173,7 @@ function App() {
             <InviteBanner />
             <Router />
           </WouterRouter>
+          <CookieConsent />
           <Toaster />
         </I18nProvider>
       </QueryClientProvider>
