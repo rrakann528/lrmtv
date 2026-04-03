@@ -4,7 +4,7 @@ import { useI18n } from '@/lib/i18n';
 
 const APP_NAME = 'LrmTV';
 const DOMAIN = 'lrmtv.sbs';
-const DMCA_EMAIL = 'dmca@lrmtv.sbs';
+const DMCA_EMAIL = 'support@lrmtv.sbs';
 const LAST_UPDATED = 'April 3, 2026';
 
 export default function DmcaPage() {
