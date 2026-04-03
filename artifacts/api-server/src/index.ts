@@ -1,7 +1,16 @@
 import { createServer } from "http";
+import * as Sentry from "@sentry/node";
 import app from "./app";
 import { initSocketServer } from "./lib/socket";
 import { runMigrations } from "@workspace/db";
+
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV || "development",
+    tracesSampleRate: 0.1,
+  });
+}
 
 // ── Startup env checks ─────────────────────────────────────────────────────────
 const port = Number(process.env["PORT"]) || 8080;

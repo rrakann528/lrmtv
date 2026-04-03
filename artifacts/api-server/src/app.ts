@@ -1,4 +1,5 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
+import * as Sentry from "@sentry/node";
 import compression from "compression";
 import cors from "cors";
 import cookieParser from "cookie-parser";
@@ -163,6 +164,11 @@ if (process.env.NODE_ENV === "production" && existsSync(frontendDist)) {
   app.use((_req, res) => {
     res.status(404).json({ error: "المسار غير موجود" });
   });
+}
+
+// ── Sentry error handler (must be before custom error handler) ─────────────────
+if (process.env.SENTRY_DSN) {
+  Sentry.setupExpressErrorHandler(app);
 }
 
 // ── Error handler ──────────────────────────────────────────────────────────────

@@ -12,6 +12,7 @@
   "dependencies": {
     "@google-cloud/storage": "^7.19.0",
     "@sendgrid/mail": "^8.1.6",
+    "@sentry/node": "^10.47.0",
     "@types/compression": "^1.8.1",
     "@types/multer": "^2.1.0",
     "@workspace/api-zod": "workspace:*",
