@@ -87,11 +87,15 @@ export default function UsersPanel({
               <div className="flex items-center gap-3 min-w-0">
                 {/* Avatar */}
                 <button
-                  className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white shadow relative shrink-0"
-                  style={{ backgroundColor: generateColorFromString(user.username) }}
+                  className="w-10 h-10 rounded-full relative shrink-0"
                   onClick={() => !isYou && onUserClick?.(user.username, user.userId)}
                 >
-                  {(user.displayName || user.username).substring(0, 2).toUpperCase()}
+                  {user.avatarUrl
+                    ? <img src={user.avatarUrl} alt={user.displayName || user.username} className="w-10 h-10 rounded-full object-cover" />
+                    : <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white shadow" style={{ backgroundColor: user.avatarColor || generateColorFromString(user.username) }}>
+                        {(user.displayName || user.username).substring(0, 2).toUpperCase()}
+                      </div>
+                  }
                   <div className="absolute bottom-0 end-0 w-3 h-3 bg-green-500 border-2 border-[#1a1a1a] rounded-full" />
                 </button>
 
@@ -152,11 +156,13 @@ export default function UsersPanel({
               {/* Title */}
               <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
                 <div className="flex items-center gap-3">
-                  <div
-                    className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white shrink-0"
-                    style={{ backgroundColor: generateColorFromString(adminSheetUser.username) }}
-                  >
-                    {adminSheetUser.username.substring(0, 2).toUpperCase()}
+                  <div className="w-9 h-9 rounded-full shrink-0 overflow-hidden">
+                    {adminSheetUser.avatarUrl
+                      ? <img src={adminSheetUser.avatarUrl} alt={adminSheetUser.displayName || adminSheetUser.username} className="w-full h-full object-cover" />
+                      : <div className="w-full h-full flex items-center justify-center text-sm font-bold text-white" style={{ backgroundColor: adminSheetUser.avatarColor || generateColorFromString(adminSheetUser.username) }}>
+                          {(adminSheetUser.displayName || adminSheetUser.username).substring(0, 2).toUpperCase()}
+                        </div>
+                    }
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-white">

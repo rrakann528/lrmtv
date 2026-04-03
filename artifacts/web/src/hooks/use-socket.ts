@@ -8,6 +8,8 @@ export interface RoomUser {
   userId?: number;
   username: string;
   displayName: string;
+  avatarUrl?: string | null;
+  avatarColor?: string | null;
   isDJ: boolean;
   isAdmin: boolean;
   isMuted: boolean;

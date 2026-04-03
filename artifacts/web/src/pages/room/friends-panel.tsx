@@ -36,7 +36,17 @@ interface FriendsPanelProps {
   myUsername: string;
 }
 
-function Avatar({ username, color, size = 36 }: { username: string; color?: string; size?: number }) {
+function Avatar({ username, color, avatarUrl, size = 36 }: { username: string; color?: string; avatarUrl?: string | null; size?: number }) {
+  if (avatarUrl) {
+    return (
+      <img
+        src={avatarUrl}
+        alt={username}
+        className="rounded-full object-cover shrink-0"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
   return (
     <div
       className="rounded-full flex items-center justify-center font-bold text-white shrink-0"
@@ -152,8 +162,8 @@ export default function FriendsPanel({ userId, roomSlug, roomName, socket: _sock
             <p className="text-white/40 text-[11px] font-medium mb-2 px-1">طلبات الصداقة</p>
             {pending.map(f => (
               <div key={f.id} className="flex items-center gap-3 p-3 rounded-xl bg-white/5 mb-2">
-                <Avatar username={f.username} color={f.avatarColor} />
-                <span className="flex-grow text-white text-sm font-medium">{f.username}</span>
+                <Avatar username={f.username} color={f.avatarColor} avatarUrl={f.avatarUrl} />
+                <span className="flex-grow text-white text-sm font-medium">{f.displayName || f.username}</span>
                 <button onClick={() => respond(f.friendshipId, 'accept')} className="p-1.5 rounded-lg bg-green-500/20 text-green-400 hover:bg-green-500/30 transition">
                   <Check className="w-4 h-4" />
                 </button>
@@ -175,14 +185,14 @@ export default function FriendsPanel({ userId, roomSlug, roomName, socket: _sock
               return (
                 <div key={f.id} className="mb-2 rounded-xl bg-white/5 overflow-hidden">
                   <div className="flex items-center gap-3 p-3">
-                    <Avatar username={f.username} color={f.avatarColor} size={34} />
+                    <Avatar username={f.username} color={f.avatarColor} avatarUrl={f.avatarUrl} size={34} />
 
                     <button
                       className="flex-grow text-sm font-medium text-start text-white hover:text-primary transition"
                       onClick={() => setDmFriend(f)}
                     >
                       <span className="flex items-center gap-2">
-                        {f.username}
+                        {f.displayName || f.username}
                         {inRoom && (
                           <span className="w-1.5 h-1.5 rounded-full bg-green-400 shrink-0" title="في الغرفة" />
                         )}
