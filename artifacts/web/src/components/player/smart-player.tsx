@@ -172,6 +172,9 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
     const [rpVolume, setRpVolume] = useState(1);
     const [rpMuted, setRpMuted] = useState(false);
     const [mutedAutoplay, setMutedAutoplay] = useState(false);
+    // Buffering state for HTML5 "other" type videos (shown during seek/load)
+    const [rpBuffering, setRpBuffering] = useState(false);
+    const rpBufferingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // ── YouTube mute sync: after every render where rpMuted changes, push state
     // directly to the IFrame API. ReactPlayer's own prop handling can race with
@@ -311,6 +314,8 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       setError(null);
       setReady(false);
       setAutoplayBlocked(false);
+      setRpBuffering(false);
+      if (rpBufferingTimerRef.current) { clearTimeout(rpBufferingTimerRef.current); rpBufferingTimerRef.current = null; }
       lastSkippedRef.current = null;
       setSponsorSegments([]);
       pendingPlayRef.current = false;
@@ -379,10 +384,21 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
 
     const directSeek = useCallback((t: number) => {
       if (!canControl) return;
+      // For HTML5 "other" type videos, show a buffering spinner while seeking.
+      // Many direct-link servers don't support HTTP Range requests, so the seek
+      // may take time to complete or may restart the video from the beginning.
+      if (videoType === 'html5') {
+        if (rpBufferingTimerRef.current) clearTimeout(rpBufferingTimerRef.current);
+        rpBufferingTimerRef.current = setTimeout(() => setRpBuffering(true), 300);
+      }
       reactPlayerRef.current?.seekTo(t, 'seconds');
+      // Emit the seek event with the INTENDED time immediately.
+      // We do NOT rely on ReactPlayer's onSeek callback because for servers that
+      // don't support HTTP Range requests, the video resets to 0 and ReactPlayer
+      // would fire onSeek(0) — which would broadcast time=0 to the whole room.
       onSeek?.(t);
       resetOverlayTimer();
-    }, [canControl, onSeek, resetOverlayTimer]);
+    }, [canControl, videoType, onSeek, resetOverlayTimer]);
 
     const toggleReactPlayerFullscreen = useCallback(async () => {
       const el = containerRef.current;
@@ -551,6 +567,48 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       ro.observe(container);
       return () => ro.disconnect();
     }, [rpVideoFit, isHls, ready]);
+
+    // ── HTML5 buffering indicator — hook into the video element's native events ──
+    // ReactPlayer doesn't expose a buffering/waiting prop, so we subscribe to the
+    // underlying <video> element events once the player is ready.
+    useEffect(() => {
+      if (isHls || videoType !== 'html5') return;
+      if (!ready) return;
+      const video = (() => {
+        try {
+          const ip = reactPlayerRef.current?.getInternalPlayer();
+          if (ip instanceof HTMLVideoElement) return ip;
+        } catch {}
+        return null;
+      })();
+      if (!video) return;
+
+      const showBuf = () => {
+        if (rpBufferingTimerRef.current) return;
+        rpBufferingTimerRef.current = setTimeout(() => {
+          rpBufferingTimerRef.current = null;
+          setRpBuffering(true);
+        }, 400);
+      };
+      const hideBuf = () => {
+        if (rpBufferingTimerRef.current) { clearTimeout(rpBufferingTimerRef.current); rpBufferingTimerRef.current = null; }
+        setRpBuffering(false);
+      };
+
+      video.addEventListener('waiting', showBuf);
+      video.addEventListener('stalled', showBuf);
+      video.addEventListener('canplay', hideBuf);
+      video.addEventListener('playing', hideBuf);
+
+      return () => {
+        video.removeEventListener('waiting', showBuf);
+        video.removeEventListener('stalled', showBuf);
+        video.removeEventListener('canplay', hideBuf);
+        video.removeEventListener('playing', hideBuf);
+        if (rpBufferingTimerRef.current) { clearTimeout(rpBufferingTimerRef.current); rpBufferingTimerRef.current = null; }
+      };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isHls, videoType, ready]);
 
     // ── PWA / tab-switch recovery: resume ReactPlayer (YouTube/Twitch) ─────────
     useEffect(() => {
@@ -831,7 +889,6 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
             }
           }}
           onDuration={(d) => setRpDuration(d)}
-          onSeek={onSeek}
           onReady={() => {
             setError(null);
             setReady(true);
@@ -872,6 +929,22 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
             },
           }}
         />
+
+        {/* Buffering spinner for HTML5 "other" type videos */}
+        <AnimatePresence>
+          {rpBuffering && !error && videoType === 'html5' && (
+            <motion.div
+              key="rp-buffering"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none"
+            >
+              <span className="w-10 h-10 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Tap-catcher: when controls are hidden, tap anywhere to show them */}
         {!showOverlay && !error && (
