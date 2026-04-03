@@ -18,7 +18,6 @@ const AboutPage   = lazy(() => import("@/pages/about"));
 const FAQPage     = lazy(() => import("@/pages/faq"));
 const AdminPage   = lazy(() => import("@/pages/admin"));
 const NotFound    = lazy(() => import("@/pages/not-found"));
-const PromoPage   = lazy(() => import("@/components/video/VideoTemplate"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -154,7 +153,6 @@ function Router() {
         <Route path="/about"      component={AboutPage} />
         <Route path="/faq"        component={FAQPage} />
         <Route path="/admin"      component={() => <VerifiedRoute component={AdminPage} />} />
-        <Route path="/promo"      component={PromoPage} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>
