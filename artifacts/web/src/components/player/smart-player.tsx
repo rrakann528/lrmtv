@@ -444,13 +444,17 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
         if (isHls) return hlsPlayerRef.current?.getCurrentTime() ?? 0;
         if (!ready || !reactPlayerRef.current) return 0;
         const actual = reactPlayerRef.current.getCurrentTime() || 0;
-        // If the video has reset to 0 after a seek (server doesn't support Range
-        // requests), return the intended target time for up to 8 seconds.
-        // This prevents the room heartbeat from seeing 0 and triggering an infinite
-        // seek-restart loop. Once the video actually progresses past ~5 s of the
-        // target the ref is cleared (see onProgress handler below).
+        // If the video has reset to 0 after a seek (server without Range-request
+        // support), return the intended target time so the room heartbeat doesn't
+        // see time=0 and trigger an infinite re-seek loop.
+        // The ref stays active until:
+        //  a) onProgress detects the video playing past 2 s (seek worked), OR
+        //  b) onProgress emits onSeek(0) after 9 s (seek failed → align room to 0)
+        //  c) A new seek overwrites the ref
+        // We use a generous 30-second window here so the heartbeat is always
+        // blocked for the full duration of the onProgress failure-detection period.
         const target = lastSeekTargetRef.current;
-        if (target && actual < 1 && target.time > 5 && Date.now() - target.ts < 8_000) {
+        if (target && actual < 2 && target.time > 5 && Date.now() - target.ts < 30_000) {
           return target.time;
         }
         return actual;
@@ -458,6 +462,11 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       seekTo: (time: number) => {
         if (isHls) { hlsPlayerRef.current?.seekTo(time); return; }
         if (!ready || !reactPlayerRef.current) return;
+        // For html5 type, record the seek target so getCurrentTime() can mask a
+        // potential time=0 reset while the heartbeat-loop prevention is active.
+        if (videoType === 'html5' && time > 5) {
+          lastSeekTargetRef.current = { time, ts: Date.now() };
+        }
         reactPlayerRef.current.seekTo(time, 'seconds');
       },
       play: () => {
@@ -586,8 +595,9 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
     }, [rpVideoFit, isHls, ready]);
 
     // ── HTML5 buffering indicator — hook into the video element's native events ──
-    // ReactPlayer doesn't expose a buffering/waiting prop, so we subscribe to the
-    // underlying <video> element events once the player is ready.
+    // Subscribe to the underlying <video> element events once the player is ready.
+    // We listen to `seeking` (immediate spinner) and `seeked`/`playing`/`canplay`
+    // (hide spinner) so the user always gets visual feedback during seeks.
     useEffect(() => {
       if (isHls || videoType !== 'html5') return;
       if (!ready) return;
@@ -600,7 +610,12 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       })();
       if (!video) return;
 
-      const showBuf = () => {
+      // `seeking` fires immediately when currentTime is set — show spinner right away
+      const onSeeking = () => {
+        if (rpBufferingTimerRef.current) { clearTimeout(rpBufferingTimerRef.current); rpBufferingTimerRef.current = null; }
+        setRpBuffering(true);
+      };
+      const showBufDelayed = () => {
         if (rpBufferingTimerRef.current) return;
         rpBufferingTimerRef.current = setTimeout(() => {
           rpBufferingTimerRef.current = null;
@@ -612,16 +627,20 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
         setRpBuffering(false);
       };
 
-      video.addEventListener('waiting', showBuf);
-      video.addEventListener('stalled', showBuf);
-      video.addEventListener('canplay', hideBuf);
-      video.addEventListener('playing', hideBuf);
+      video.addEventListener('seeking',  onSeeking);
+      video.addEventListener('waiting',  showBufDelayed);
+      video.addEventListener('stalled',  showBufDelayed);
+      video.addEventListener('seeked',   hideBuf);
+      video.addEventListener('canplay',  hideBuf);
+      video.addEventListener('playing',  hideBuf);
 
       return () => {
-        video.removeEventListener('waiting', showBuf);
-        video.removeEventListener('stalled', showBuf);
-        video.removeEventListener('canplay', hideBuf);
-        video.removeEventListener('playing', hideBuf);
+        video.removeEventListener('seeking',  onSeeking);
+        video.removeEventListener('waiting',  showBufDelayed);
+        video.removeEventListener('stalled',  showBufDelayed);
+        video.removeEventListener('seeked',   hideBuf);
+        video.removeEventListener('canplay',  hideBuf);
+        video.removeEventListener('playing',  hideBuf);
         if (rpBufferingTimerRef.current) { clearTimeout(rpBufferingTimerRef.current); rpBufferingTimerRef.current = null; }
       };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -894,36 +913,22 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
           onPlay={() => { setAutoplayBlocked(false); setError(null); onPlay?.(); }}
           onPause={onPause}
           onProgress={({ playedSeconds }) => {
-            // For HTML5 videos: if the video reset to 0 after a seek (server without
-            // Range-request support), handle two sub-cases:
+            // For HTML5 videos: manage the seek-target override so getCurrentTime()
+            // stays accurate even when the underlying video restarted from 0.
             const target = lastSeekTargetRef.current;
             if (target && videoType === 'html5') {
-              const elapsed = Date.now() - target.ts;
-              if (playedSeconds < 2 && elapsed < 8_000) {
-                // Case A: video is still buffering / loading from 0 — keep showing
-                // the intended seek time so the UI doesn't snap back to 0.
-                setRpCurrentTime(target.time);
-              } else if (playedSeconds >= 2) {
-                // Case B: video has advanced past 2 s — either seek worked or video
-                // restarted and played through. Accept the actual position.
+              if (playedSeconds > 2) {
+                // Video is making real progress — clear the override
                 lastSeekTargetRef.current = null;
-                if (rpBufferingTimerRef.current) { clearTimeout(rpBufferingTimerRef.current); rpBufferingTimerRef.current = null; }
-                setRpBuffering(false);
-                setRpCurrentTime(playedSeconds);
-              } else {
-                // Case C: >8 s elapsed and video is still at 0 — seek definitely
-                // failed. Accept position=0 and sync the room to 0 so the heartbeat
-                // doesn't loop forever trying to re-seek to the target.
+              } else if (Date.now() - target.ts > 9_000) {
+                // 9 s elapsed and video is still at 0 — seek definitely failed.
+                // Notify the room so everyone aligns to position 0 (ends the loop).
                 lastSeekTargetRef.current = null;
-                if (rpBufferingTimerRef.current) { clearTimeout(rpBufferingTimerRef.current); rpBufferingTimerRef.current = null; }
-                setRpBuffering(false);
-                setRpCurrentTime(playedSeconds);
-                // Notify the room that seek failed — everyone aligns to 0
                 onSeek?.(0);
               }
-            } else {
-              setRpCurrentTime(playedSeconds);
+              // Always show the actual position in the UI
             }
+            setRpCurrentTime(playedSeconds);
             if (sponsorSkipEnabled && sponsorSegments.length > 0 && isYouTubeUrl(normalizedUrl)) {
               const seg = findActiveSegment(sponsorSegments, playedSeconds);
               if (seg && lastSkippedRef.current !== seg.UUID) {
@@ -934,7 +939,13 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
               }
             }
           }}
-          onDuration={(d) => setRpDuration(d)}
+          onDuration={(d) => {
+            // Guard: never let a 0 / NaN / Infinity duration overwrite a valid one.
+            // ReactPlayer can fire onDuration(0) or onDuration(NaN) while the
+            // video is loading new bytes after a seek — this would hide the
+            // progress bar entirely. Only accept a positive, finite value.
+            if (d > 0 && isFinite(d)) setRpDuration(d);
+          }}
           onReady={() => {
             setError(null);
             setReady(true);
