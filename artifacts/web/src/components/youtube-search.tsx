@@ -1,8 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Search, Link as LinkIcon, Plus, Loader2, X, Youtube, FileVideo, CheckCircle, AlertCircle } from 'lucide-react';
+import { Search, Link as LinkIcon, Plus, Loader2, X, Youtube } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
-import { markM3u8Owned } from '@/lib/m3u8-owned';
 
 interface YTResult {
   videoId: string;
@@ -18,8 +17,7 @@ interface Props {
   lang?: string;
 }
 
-type Mode = 'search' | 'url' | 'm3u8';
-type M3u8Status = 'idle' | 'uploading' | 'success' | 'error';
+type Mode = 'search' | 'url';
 
 export default function YoutubeSearch({ onAdd, isAdding, lang = 'en' }: Props) {
   const { t } = useI18n();
@@ -30,12 +28,6 @@ export default function YoutubeSearch({ onAdd, isAdding, lang = 'en' }: Props) {
   const [loading, setLoading]   = useState(false);
   const [open, setOpen]         = useState(false);
   const [error, setError]       = useState<string | null>(null);
-
-  // M3U8 state
-  const [m3u8Status, setM3u8Status] = useState<M3u8Status>('idle');
-  const [m3u8Msg, setM3u8Msg]       = useState<string>('');
-  const [dragging, setDragging]     = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef   = useRef<HTMLDivElement>(null);
@@ -90,58 +82,6 @@ export default function YoutubeSearch({ onAdd, isAdding, lang = 'en' }: Props) {
     setUrlInput('');
   };
 
-  const handleM3u8File = useCallback(async (file: File) => {
-    if (!file.name.endsWith('.m3u8') && !file.name.endsWith('.m3u')) {
-      setM3u8Status('error');
-      setM3u8Msg(t('m3u8InvalidFile'));
-      return;
-    }
-    setM3u8Status('uploading');
-    setM3u8Msg(t('m3u8Uploading'));
-    try {
-      const content = await file.text();
-      if (!content.includes('#EXTM3U')) {
-        setM3u8Status('error');
-        setM3u8Msg(t('m3u8InvalidFile'));
-        return;
-      }
-      const res = await fetch(`${BASE}api/m3u8/upload`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ content }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body?.error ?? 'Upload failed');
-      }
-      const { id } = await res.json() as { id: string };
-      markM3u8Owned(id);
-      const streamUrl = `${window.location.origin}/api/m3u8/${id}`;
-      const title = file.name.replace(/\.(m3u8|m3u)$/i, '') || t('m3u8Title');
-      setM3u8Status('success');
-      setM3u8Msg(t('m3u8Success'));
-      await onAdd(streamUrl, title);
-      setTimeout(() => { setM3u8Status('idle'); setM3u8Msg(''); }, 2500);
-    } catch {
-      setM3u8Status('error');
-      setM3u8Msg(t('m3u8Error'));
-    }
-  }, [BASE, lang, onAdd]);
-
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setDragging(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) handleM3u8File(file);
-  };
-
-  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) handleM3u8File(file);
-    e.target.value = '';
-  };
-
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
@@ -158,9 +98,7 @@ export default function YoutubeSearch({ onAdd, isAdding, lang = 'en' }: Props) {
     setQuery('');
     setUrlInput('');
     setResults([]);
-    setM3u8Status('idle');
-    setM3u8Msg('');
-    if (m !== 'm3u8') setTimeout(() => inputRef.current?.focus(), 50);
+    setTimeout(() => inputRef.current?.focus(), 50);
   };
 
   return (
@@ -192,19 +130,6 @@ export default function YoutubeSearch({ onAdd, isAdding, lang = 'en' }: Props) {
         >
           <LinkIcon className="w-3.5 h-3.5" />
           {t('directUrl')}
-        </button>
-        <button
-          type="button"
-          onClick={() => switchMode('m3u8')}
-          className={cn(
-            'flex-1 flex items-center justify-center gap-1.5 h-6 rounded-lg text-[11px] font-medium transition-colors',
-            mode === 'm3u8'
-              ? 'bg-emerald-600/80 text-white'
-              : 'bg-white/5 text-white/40 hover:text-white/70 hover:bg-white/10',
-          )}
-        >
-          <FileVideo className="w-3.5 h-3.5" />
-          {t('m3u8Upload')}
         </button>
       </div>
 
@@ -261,61 +186,6 @@ export default function YoutubeSearch({ onAdd, isAdding, lang = 'en' }: Props) {
             {isAdding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
           </button>
         </form>
-      )}
-
-      {/* M3U8 upload mode */}
-      {mode === 'm3u8' && (
-        <div>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".m3u8,.m3u"
-            className="hidden"
-            onChange={handleFileInput}
-          />
-          <div
-            role="button"
-            tabIndex={0}
-            onClick={() => m3u8Status !== 'uploading' && fileInputRef.current?.click()}
-            onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && m3u8Status !== 'uploading' && fileInputRef.current?.click()}
-            onDragOver={e => { e.preventDefault(); setDragging(true); }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={handleDrop}
-            className={cn(
-              'w-full h-16 rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-1 cursor-pointer transition-colors select-none',
-              dragging
-                ? 'border-emerald-500 bg-emerald-500/10'
-                : m3u8Status === 'success'
-                ? 'border-emerald-600/50 bg-emerald-600/10'
-                : m3u8Status === 'error'
-                ? 'border-red-500/50 bg-red-500/10'
-                : 'border-white/10 bg-white/5 hover:border-emerald-500/50 hover:bg-white/10',
-              m3u8Status === 'uploading' && 'cursor-wait pointer-events-none',
-            )}
-          >
-            {m3u8Status === 'uploading' && (
-              <Loader2 className="w-5 h-5 text-emerald-400 animate-spin" />
-            )}
-            {m3u8Status === 'success' && (
-              <CheckCircle className="w-5 h-5 text-emerald-400" />
-            )}
-            {m3u8Status === 'error' && (
-              <AlertCircle className="w-5 h-5 text-red-400" />
-            )}
-            {m3u8Status === 'idle' && (
-              <FileVideo className="w-5 h-5 text-white/30" />
-            )}
-            <span className={cn(
-              'text-[11px] text-center px-2',
-              m3u8Status === 'success' ? 'text-emerald-300'
-              : m3u8Status === 'error'  ? 'text-red-300'
-              : m3u8Status === 'uploading' ? 'text-emerald-300'
-              : 'text-white/40',
-            )}>
-              {m3u8Status === 'idle' ? t('m3u8DropHere') : m3u8Msg}
-            </span>
-          </div>
-        </div>
       )}
 
       {/* Error (search mode) */}

@@ -31,12 +31,11 @@ import { isFullscreenActive } from '@/lib/fullscreen';
 
 import YoutubeSearch from '@/components/youtube-search';
 
-function detectSourceType(url: string): 'youtube' | 'vimeo' | 'twitch' | 'mp4' | 'm3u8' | 'other' {
+function detectSourceType(url: string): 'youtube' | 'vimeo' | 'twitch' | 'mp4' | 'other' {
   if (url.includes('youtube') || url.includes('youtu.be')) return 'youtube';
   if (url.includes('twitch')) return 'twitch';
   if (url.includes('vimeo')) return 'vimeo';
   if (url.endsWith('.mp4')) return 'mp4';
-  if (url.endsWith('.m3u8')) return 'm3u8';
   return 'other';
 }
 

@@ -35,7 +35,7 @@ interface PlaylistPanelProps {
 
 function sourceIcon(sourceType: string) {
   if (sourceType === 'youtube')  return '▶ YouTube';
-  if (sourceType === 'hls' || sourceType === 'm3u8') return '📡 HLS';
+  if (sourceType === 'hls') return '📡 HLS';
   if (sourceType === 'twitch')   return '🟣 Twitch';
   if (sourceType === 'vimeo')    return '🎬 Vimeo';
   return `🎵 ${sourceType}`;
