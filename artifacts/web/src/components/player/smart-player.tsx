@@ -153,7 +153,6 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
 
     const [error, setError] = useState<string | null>(null);
     const [ready, setReady] = useState(false);
-    const [autoplayBlocked, setAutoplayBlocked] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [showOverlay, setShowOverlay] = useState(true);
@@ -310,7 +309,6 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
     useEffect(() => {
       setError(null);
       setReady(false);
-      setAutoplayBlocked(false);
       lastSkippedRef.current = null;
       setSponsorSegments([]);
       pendingPlayRef.current = false;
@@ -599,10 +597,8 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       }
       const e = err as { name?: string } | null;
       if (e?.name === 'NotAllowedError' || (typeof err === 'string' && err.toLowerCase().includes('not allowed'))) {
-        // Autoplay blocked → show "Press to Watch" button so user can start with a gesture
         setRpMuted(true);
         setMutedAutoplay(true);
-        setAutoplayBlocked(true);
         return;
       }
       // Generic YouTube errors (2=bad param, 5=html5, 100=not found) — try muted autoplay
@@ -736,38 +732,6 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
           </div>
         )}
 
-        {/* "Press to Watch" overlay — shown when browser blocks autoplay entirely */}
-        <AnimatePresence>
-          {autoplayBlocked && !error && (
-            <motion.div
-              key="autoplay-blocked-overlay"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-              onClick={() => {
-                setAutoplayBlocked(false);
-                setRpMuted(true);
-                setMutedAutoplay(true);
-                // Must play inside user gesture — call YouTube IFrame API directly
-                try {
-                  const ip = reactPlayerRef.current?.getInternalPlayer() as any;
-                  if (ip?.playVideo) ip.playVideo();
-                } catch {}
-              }}
-            >
-              <div className="flex flex-col items-center gap-3 select-none">
-                <div className="w-16 h-16 rounded-full bg-white/10 border border-white/20 flex items-center justify-center backdrop-blur">
-                  <Play className="w-7 h-7 text-white fill-white translate-x-0.5" />
-                </div>
-                <span className="text-white font-semibold text-base">
-                  {lang === 'ar' ? 'اضغط للمشاهدة' : 'Tap to watch'}
-                </span>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
         <AnimatePresence>
           {mutedAutoplay && !error && (
             <motion.div
@@ -818,7 +782,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
           volume={rpMuted ? 0 : rpVolume}
           muted={rpMuted}
           playsinline
-          onPlay={() => { setAutoplayBlocked(false); setError(null); onPlay?.(); }}
+          onPlay={() => { setError(null); onPlay?.(); }}
           onPause={onPause}
           onProgress={({ playedSeconds }) => {
             setRpCurrentTime(playedSeconds);

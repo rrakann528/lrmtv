@@ -1175,24 +1175,6 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           </div>
         )}
 
-        {autoplayBlocked && !error && !statusMsg && (
-          <div
-            className="absolute inset-0 flex items-center justify-center bg-black/60 z-20 cursor-pointer"
-            onClick={() => {
-              setAutoplayBlocked(false);
-              const v = videoRef.current;
-              if (v) { v.muted = false; v.play().catch(() => {}); }
-              onPlay?.();
-            }}
-          >
-            <div className="text-center space-y-3">
-              <div className="w-20 h-20 rounded-full bg-white/20 backdrop-blur flex items-center justify-center mx-auto border border-white/30">
-                <Play className="w-10 h-10 text-white fill-white" />
-              </div>
-              <p className="text-white/80 text-sm">{t('tapToPlay')}</p>
-            </div>
-          </div>
-        )}
 
 
         {/* eslint-disable-next-line */}
