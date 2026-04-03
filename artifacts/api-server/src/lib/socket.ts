@@ -127,7 +127,7 @@ interface RoomState {
   isFrozen: boolean;
 }
 
-const EMPTY_ROOM_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const EMPTY_ROOM_TTL_MS = 3 * 60 * 1000; // 3 minutes
 
 async function deleteRoomFromDb(slug: string) {
   try {
@@ -149,6 +149,18 @@ async function deleteRoomFromDb(slug: string) {
 
 async function cleanupOrphanedRooms() {
   try {
+    // ── Pass 1: In-memory rooms with 0 users and no delete timer ─────────────
+    // Edge cases (kick + disconnect race, server restart mid-timer, etc.) can
+    // leave a room in the `rooms` map with nobody in it and no scheduled deletion.
+    // Catch them here so they don't linger indefinitely.
+    for (const [slug, state] of rooms.entries()) {
+      if (state.users.size === 0 && !state.deleteTimer) {
+        console.log(`[Room] Cleanup: scheduling deletion of empty in-memory room: ${slug}`);
+        scheduleRoomDeletion(slug);
+      }
+    }
+
+    // ── Pass 2: DB rooms not tracked in memory at all ─────────────────────────
     const activeSlugs = Array.from(rooms.keys());
     const dbRooms = activeSlugs.length > 0
       ? await db.select({ id: roomsTable.id, slug: roomsTable.slug })
@@ -519,8 +531,9 @@ export function initSocketServer(httpServer: HttpServer): Server {
 
   // Delete DB rooms that have no active users (orphaned since last restart)
   setTimeout(cleanupOrphanedRooms, 5000);
-  // Periodic cleanup every 10 minutes for rooms that appear in DB but have no active users
-  setInterval(cleanupOrphanedRooms, EMPTY_ROOM_TTL_MS);
+  // Periodic cleanup: runs every 2 minutes to catch edge-case empty rooms
+  // (rooms in memory with 0 users and no delete timer) and DB-only orphans.
+  setInterval(cleanupOrphanedRooms, 2 * 60_000);
 
   io.on("connection", (socket: Socket) => {
     // ── Per-IP connection limit ──────────────────────────────────────────────
