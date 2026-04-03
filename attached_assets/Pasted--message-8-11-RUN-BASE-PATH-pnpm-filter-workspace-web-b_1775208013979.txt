@@ -1,0 +1,35 @@
+{
+  "message": "[ 8/11] RUN BASE_PATH=/ pnpm --filter @workspace/web build",
+  "timestamp": "2026-04-03T09:11:38.154694493Z",
+  "severity": "error",
+  "children": [
+    {
+      "message": "\n> @workspace/web@0.0.0 build /app/artifacts/web\n> vite build --config vite.config.ts\n\n",
+      "timestamp": "2026-04-03T09:12:03.675622133Z"
+    },
+    {
+      "message": "vite v7.3.1 building client environment for production...\n",
+      "timestamp": "2026-04-03T09:12:04.262380234Z"
+    },
+    {
+      "message": "transforming...\n",
+      "timestamp": "2026-04-03T09:12:04.41909Z"
+    },
+    {
+      "message": "✓ 2187 modules transformed.\n",
+      "timestamp": "2026-04-03T09:12:09.095116362Z"
+    },
+    {
+      "message": "✗ Build failed in 4.79s\n",
+      "timestamp": "2026-04-03T09:12:09.103144948Z"
+    },
+    {
+      "message": "error during build:\n[vite:load-fallback] Could not load /app/artifacts/web/src/lib/m3u8-owned (imported by src/components/player/smart-player.tsx): ENOENT: no such file or directory, open '/app/artifacts/web/src/lib/m3u8-owned'\n    at async open (node:internal/fs/promises:637:25)\n    at async Object.readFile (node:internal/fs/promises:1249:14)\n    at async Object.handler (file:///app/node_modules/.pnpm/vite@7.3.1_@types+node@25.3.5_jiti@2.6.1_lightningcss@1.31.1_tsx@4.21.0_yaml@2.8.2/node_modules/vite/dist/node/chunks/config.js:33169:21)\n    at async PluginDriver.hookFirstAndGetPlugin (file:///app/node_modules/.pnpm/rollup@4.59.0/node_modules/rollup/dist/es/shared/node-entry.js:22453:28)\n    at async file:///app/node_modules/.pnpm/rollup@4.59.0/node_modules/rollup/dist/es/shared/node-entry.js:21445:33\n    at async Queue.work (file:///app/node_modules/.pnpm/rollup@4.59.0/node_modules/rollup/dist/es/shared/node-entry.js:22681:32)\n",
+      "timestamp": "2026-04-03T09:12:09.103238228Z"
+    },
+    {
+      "message": "/app/artifacts/web:\n ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @workspace/web@0.0.0 build: `vite build --config vite.config.ts`\nExit status 1\n",
+      "timestamp": "2026-04-03T09:12:09.164376357Z"
+    }
+  ]
+}

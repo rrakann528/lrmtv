@@ -7,7 +7,6 @@ import React, {
   useCallback,
 } from 'react';
 import Hls from 'hls.js';
-import type { LoaderCallbacks, LoaderConfiguration, LoaderContext } from 'hls.js';
 import { Play, AlertTriangle, RotateCcw, Loader2 } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 import { onFullscreenChange } from '@/lib/fullscreen';
@@ -77,105 +76,6 @@ export interface SubtitleSyncPayload {
   from: string;
 }
 
-// ── Relay loader: host fetches segments from CDN and relays to server;
-// viewers pull cached segments from server instead of CDN (bypasses CORS/IP block) ──
-function buildRelayLoader(m3u8Id: string, isOwner: boolean, apiOrigin: string) {
-  const DefaultLoader = Hls.DefaultConfig.loader as unknown as new (config: object) => {
-    load(ctx: LoaderContext, cfg: LoaderConfiguration, cbs: LoaderCallbacks<LoaderContext>): void;
-    abort(): void;
-    destroy(): void;
-  };
-
-  return class RelayLoader extends DefaultLoader {
-    private ctrl: AbortController | null = null;
-
-    load(
-      context: LoaderContext,
-      config: LoaderConfiguration,
-      callbacks: LoaderCallbacks<LoaderContext>,
-    ) {
-      const url = context.url as string;
-      const type = (context as { type?: string }).type;
-      const isSegment = type === 'frag' || type === 'initSegment';
-
-      if (!isSegment) {
-        super.load(context, config, callbacks);
-        return;
-      }
-
-      if (isOwner) {
-        const origSuccess = callbacks.onSuccess;
-        const patched: LoaderCallbacks<LoaderContext> = {
-          ...callbacks,
-          onSuccess: (response, stats, ctx, nd) => {
-            try {
-              const ab = response.data as ArrayBuffer;
-              if (ab && ab.byteLength > 0) {
-                const bytes = new Uint8Array(ab);
-                let bin = '';
-                const CHUNK = 8192;
-                for (let i = 0; i < bytes.byteLength; i += CHUNK) {
-                  bin += String.fromCharCode(...(bytes.slice(i, i + CHUNK) as unknown as number[]));
-                }
-                const b64 = btoa(bin);
-                fetch(`${apiOrigin}/api/m3u8/${m3u8Id}/relay`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  credentials: 'include',
-                  body: JSON.stringify({ url, data: b64 }),
-                }).catch(() => {});
-              }
-            } catch { /* relay failure must never break playback */ }
-            origSuccess(response, stats, ctx, nd);
-          },
-        };
-        super.load(context, config, patched);
-      } else {
-        this.ctrl = new AbortController();
-        const { signal } = this.ctrl;
-        const relayUrl = `${apiOrigin}/api/m3u8/${m3u8Id}/relay?url=${encodeURIComponent(url)}`;
-
-        fetch(relayUrl, { signal })
-          .then(async (res) => {
-            if (!res.ok) throw new Error('miss');
-            const ab = await res.arrayBuffer();
-            const now = performance.now();
-            const stats = {
-              aborted: false, loaded: ab.byteLength, total: ab.byteLength,
-              retry: 0, trequest: now, tfirst: now, tload: now,
-              bwEstimate: ab.byteLength * 8 / 0.1,
-              chunkCount: 1,
-              loading: { start: now, first: now, end: now },
-              parsing: { start: 0, end: 0 },
-              buffering: { start: 0, first: 0, end: 0 },
-            } as unknown as Parameters<LoaderCallbacks<LoaderContext>['onSuccess']>[1];
-            callbacks.onSuccess(
-              { data: ab, url, redirected: false } as Parameters<LoaderCallbacks<LoaderContext>['onSuccess']>[0],
-              stats, context, null,
-            );
-          })
-          .catch((err: Error) => {
-            if (err?.name === 'AbortError') {
-              callbacks.onAbort?.({} as Parameters<NonNullable<LoaderCallbacks<LoaderContext>['onAbort']>>[0], context, null);
-            } else {
-              super.load(context, config, callbacks);
-            }
-          });
-      }
-    }
-
-    abort() {
-      this.ctrl?.abort();
-      try { super.abort(); } catch { /* */ }
-    }
-
-    destroy() {
-      this.ctrl?.abort();
-      try { super.destroy(); } catch { /* */ }
-    }
-  };
-}
-
 interface HlsPlayerProps {
   src: string;
   playing: boolean;
@@ -205,10 +105,6 @@ interface HlsPlayerProps {
   isLiveHint?: boolean;
   /** Fired after the manifest loads and live/VOD status is determined */
   onIsLive?: (isLive: boolean) => void;
-  /** M3U8 UUID for relay mode. Set when playing an uploaded M3U8 via /api/m3u8/:id */
-  relayM3u8Id?: string;
-  /** True when this client uploaded the M3U8 (becomes the segment relay host) */
-  isRelayOwner?: boolean;
 }
 
 export interface HlsPlayerHandle {
@@ -240,8 +136,6 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
       externalSubtitle,
       isLiveHint = false,
       onIsLive,
-      relayM3u8Id,
-      isRelayOwner = false,
     },
     ref,
   ) => {
@@ -644,11 +538,6 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         nudgeMaxRetry: isProxiedStream ? 15 : 10,
         nudgeOffset:   0.1,
 
-        // Relay loader: host relays CDN segments to server; viewers pull from server
-        ...(relayM3u8Id
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          ? { fLoader: buildRelayLoader(relayM3u8Id, isRelayOwner, window.location.origin) as any }
-          : {}),
       };
 
       const loadViaNative = () => {
