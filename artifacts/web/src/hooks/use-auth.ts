@@ -112,10 +112,10 @@ export function useAuth() {
   }, []);
 
   const logout = useCallback(async () => {
-    await apiFetch('/auth/logout', { method: 'POST' });
     writeCache(null);
     writeToken(null);
     setUserState(null);
+    apiFetch('/auth/logout', { method: 'POST' }).catch(() => {});
   }, []);
 
   const updateProfile = useCallback(async (updates: {
