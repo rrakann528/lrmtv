@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "kcWzby4tVjOaRPsx2mOcq"
+uri = "file://attached_assets/generated_videos/lrmtv-promo-final.mp4"
+type = "video"
+title = "LrmTV - إعلان ترويجي (16 ثانية)"
