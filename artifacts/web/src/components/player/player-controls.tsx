@@ -144,13 +144,20 @@ export default function PlayerControls({
   const rafRef = useRef<number>(0);
   const lastTouchTimeRef = useRef(0);
   const settingsRef = useRef<HTMLDivElement>(null);
+  // Remembers the last valid duration so the progress bar and time display never
+  // disappear during engine fallbacks (e.g. HLS.js → native) where video.duration
+  // briefly becomes NaN while the new source is loading.
+  const lastValidDurationRef = useRef(0);
 
   useEffect(() => {
     const tick = () => {
       const v = videoRef.current;
       if (v) {
         setCurrentTime(v.currentTime);
-        setDuration(isNaN(v.duration) ? 0 : v.duration);
+        const d = isNaN(v.duration) || !isFinite(v.duration) ? 0 : v.duration;
+        if (d > 0) lastValidDurationRef.current = d;
+        // Use last known duration as floor so the bar/timer never vanish mid-transition
+        setDuration(lastValidDurationRef.current || d);
       }
       rafRef.current = requestAnimationFrame(tick);
     };

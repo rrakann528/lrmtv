@@ -468,7 +468,23 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
       // When called from canplay (HLS path), startPosition has already positioned the player correctly,
       // so we only seek if we are actually more than 4 seconds away from the target.
       const signalReady = () => {
-        if (cancelled || readyFiredRef.current) return;
+        if (cancelled) return;
+        if (readyFiredRef.current) {
+          // ── FALLBACK path ──────────────────────────────────────────────────
+          // readyFiredRef is already true, meaning the primary engine (e.g. HLS.js)
+          // already fired onReady. This call is coming from the fallback engine
+          // (e.g. native <video> after HLS.js fatal error during a seek).
+          // The fallback reset video.currentTime to 0 — restore the intended seek
+          // target so the user doesn't see a jump back to the beginning.
+          if (!isLiveRef.current && video) {
+            const seekTarget = lastLocalSeekRef.current;
+            if (seekTarget && seekTarget.time > 5 && video.currentTime < 2 && Date.now() - seekTarget.ts < 30_000) {
+              video.currentTime = seekTarget.time;
+              // video.currentTime is set; onSeeked will fire and broadcast the position.
+            }
+          }
+          return;
+        }
         readyFiredRef.current = true;
         const targetTime = initialTimeRef.current;
         const currentPos = video?.currentTime ?? 0;
@@ -1289,7 +1305,8 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
               }
             }
 
-            // Successful seek: update the ref and broadcast.
+            // Successful seek: cancel any pending failure timer, update the ref, broadcast.
+            if (seekFailTimerRef.current) { clearTimeout(seekFailTimerRef.current); seekFailTimerRef.current = null; }
             if (t > 1) lastLocalSeekRef.current = { time: t, ts: Date.now() };
             onSeek?.(t);
           }}
