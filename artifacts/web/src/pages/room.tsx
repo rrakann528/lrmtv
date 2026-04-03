@@ -185,15 +185,15 @@ export default function RoomPage() {
     };
   }, [socket, isFullscreen, username, addRoomNotif]);
 
-  const hasVideo = !!syncState.currentVideo;
+  const hasVideo = !!syncState.url;
   const bgMediaInfo = React.useMemo(() => ({
     title: roomName || room?.name || 'LrmTV',
     artist: 'LrmTV',
   }), [roomName, room?.name]);
 
   const bgCallbacks = React.useMemo(() => ({
-    onPlay: () => { if (canControl) emitSync(true); },
-    onPause: () => { if (canControl) emitSync(false); },
+    onPlay: () => { if (canControl) emitSync(playerRef.current?.getCurrentTime() ?? syncState.time, true, syncState.url); },
+    onPause: () => { if (canControl) emitSync(playerRef.current?.getCurrentTime() ?? syncState.time, false, syncState.url); },
     onSeekBackward: () => {
       if (!canControl) return;
       const t = playerRef.current?.getCurrentTime() ?? 0;
@@ -206,7 +206,7 @@ export default function RoomPage() {
       playerRef.current?.seekTo(t + 10);
       emitSeek(t + 10);
     },
-  }), [canControl, emitSync, emitSeek]);
+  }), [canControl, emitSync, emitSeek, syncState.time, syncState.url]);
 
   useBackgroundAlive(hasVideo, bgMediaInfo, bgCallbacks);
 

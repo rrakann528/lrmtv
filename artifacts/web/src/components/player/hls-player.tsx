@@ -256,7 +256,7 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         }, 500);
       } else {
         // Native Safari AudioTrackList: enable selected, disable others
-        const nativeTracks = (videoRef.current as unknown as { audioTracks?: AudioTrackList & { [i: number]: { label: string; language: string; enabled: boolean } } })?.audioTracks;
+        const nativeTracks = (videoRef.current as unknown as { audioTracks?: { length: number; [i: number]: { label: string; language: string; enabled: boolean } } })?.audioTracks;
         if (nativeTracks) {
           for (let i = 0; i < nativeTracks.length; i++) {
             nativeTracks[i].enabled = i === id;
@@ -896,7 +896,7 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
               // We delay slightly so the browser has time to expose all tracks after loadedmetadata.
               setTimeout(() => {
                 if (cancelled) return;
-                const nativeTracks = (video as unknown as { audioTracks?: AudioTrackList & { [i: number]: { label: string; language: string; enabled: boolean } } }).audioTracks;
+                const nativeTracks = (video as unknown as { audioTracks?: { length: number; [i: number]: { label: string; language: string; enabled: boolean } } }).audioTracks;
                 if (nativeTracks && nativeTracks.length > 1) {
                   const aTracks: AudioTrack[] = [];
                   for (let i = 0; i < nativeTracks.length; i++) {
