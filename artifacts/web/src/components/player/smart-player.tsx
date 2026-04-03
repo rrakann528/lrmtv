@@ -245,7 +245,12 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       ? (videoType === 'hls' || videoType === 'dash')
       : (videoType === 'hls' || videoType === 'dash' || videoType === 'html5'));
 
-    const proxyUrl = `https://lrmtv-proxy.rrakann528.workers.dev/?url=${encodeURIComponent(normalizedUrl)}`;
+    // For HLS/m3u8 streams, use the API server proxy which rewrites segment URLs
+    // inside the manifest so HLS.js can fetch them correctly through the proxy.
+    // For other types (mp4, html5), use the lightweight CF Worker proxy.
+    const proxyUrl = isHls
+      ? `/api/proxy/stream?url=${encodeURIComponent(normalizedUrl)}`
+      : `https://lrmtv-proxy.rrakann528.workers.dev/?url=${encodeURIComponent(normalizedUrl)}`;
 
     // ── Smart proxy resolution ────────────────────────────────────────────────
     // Player is hidden (corsChecking=true) until the CORS HEAD check resolves.
@@ -282,12 +287,12 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       const timer = setTimeout(() => controller.abort(), 5000); // 5 s max wait (slow mobile networks)
 
       let resolvedUrl = proxyUrl;
-      // Use GET+Range instead of HEAD: some CDNs respond with CORS headers
-      // to GET but block HEAD entirely, causing false "proxy needed" results.
+      // Use a simple GET without special headers — avoids CORS preflight on iOS
+      // Safari which sometimes rejects OPTIONS responses from CDNs. Any 2xx/3xx/4xx
+      // response (even partial) confirms the server sends CORS headers → direct OK.
       fetch(normalizedUrl, {
         method: 'GET',
         mode: 'cors',
-        headers: { Range: 'bytes=0-1' },
         signal: controller.signal,
       })
         .then((res) => {
