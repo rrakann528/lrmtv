@@ -207,6 +207,14 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
     const playingRef = useRef(playing);
     useEffect(() => { playingRef.current = playing; }, [playing]);
 
+    // Tracks the most-recent seek target (time + timestamp) so we can detect failed seeks.
+    // When the browser fires `seeked` with currentTime=0 right after a seek to a large
+    // position (server dropped the segment, iOS native fallback, etc.), we must NOT
+    // broadcast time=0 to the room — that would pull everyone back to the start.
+    const lastLocalSeekRef = useRef<{ time: number; ts: number } | null>(null);
+    // Timer to emit the final "failed seek" position after waiting for the browser to settle.
+    const seekFailTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
     // Quality change handler — uses loadLevel (not currentLevel) for seamless transition.
     // hls.currentLevel triggers immediateLevelSwitch() which flushes the buffer → black screen.
     // hls.loadLevel switches at the next segment boundary without flushing → no black screen.
@@ -320,8 +328,25 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
     }, []);
 
     useImperativeHandle(ref, () => ({
-      getCurrentTime: () => videoRef.current?.currentTime ?? 0,
-      seekTo: (time: number) => { if (videoRef.current) videoRef.current.currentTime = time; },
+      getCurrentTime: () => {
+        const v = videoRef.current;
+        if (!v) return 0;
+        const actual = v.currentTime || 0;
+        // If a seek to a large time is in-flight and the video briefly shows 0,
+        // return the intended target so the room heartbeat doesn't see 0 and
+        // trigger an infinite re-seek loop (same technique as smart-player.tsx).
+        const target = lastLocalSeekRef.current;
+        if (target && actual < 2 && target.time > 5 && Date.now() - target.ts < 30_000) {
+          return target.time;
+        }
+        return actual;
+      },
+      seekTo: (time: number) => {
+        if (videoRef.current) {
+          if (time > 1) lastLocalSeekRef.current = { time, ts: Date.now() };
+          videoRef.current.currentTime = time;
+        }
+      },
       play: () => {
         const v = videoRef.current;
         if (!v) return;
@@ -1042,6 +1067,7 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         cancelled = true;
         if (bufferingTimerRef.current) { clearTimeout(bufferingTimerRef.current); bufferingTimerRef.current = null; }
         if (reconnTimerRef.current) { clearTimeout(reconnTimerRef.current); reconnTimerRef.current = null; }
+        if (seekFailTimerRef.current) { clearTimeout(seekFailTimerRef.current); seekFailTimerRef.current = null; }
         if (stallWatchdog) { clearInterval(stallWatchdog); stallWatchdog = null; }
         video.removeEventListener('durationchange', onDurationChange);
         video.removeEventListener('canplay',  onCanPlay);
@@ -1133,6 +1159,19 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
       else onFocusChat();
     }, [isFullscreen, onFocusChat]);
 
+    // Intercepts seek calls that originate from PlayerControls (user clicking the
+    // progress bar or skip buttons) so we can record the intended target time
+    // BEFORE the native seeked event fires. This is needed to protect onSeeked
+    // from treating an immediate failed-seek (currentTime=0) as a real broadcast.
+    const handleSeekFromControls = useCallback((t: number) => {
+      if (t > 1) lastLocalSeekRef.current = { time: t, ts: Date.now() };
+      if (seekFailTimerRef.current) {
+        clearTimeout(seekFailTimerRef.current);
+        seekFailTimerRef.current = null;
+      }
+      onSeek?.(t);
+    }, [onSeek]);
+
     const statusLabel: Record<string, { en: string; ar: string }> = {
       'hls-direct':   { en: 'Loading…', ar: 'جاري التحميل…' },
       dash:           { en: 'Loading…', ar: 'جاري التحميل…' },
@@ -1213,9 +1252,9 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
             const video = videoRef.current;
             if (!video) return;
             const t = video.currentTime;
+
             // For live streams: if the player jumped back to 0 or near-start after
-            // a failed seek, snap to the live edge instead of broadcasting time=0
-            // which would reset everyone's playback.
+            // a failed seek, snap to the live edge instead of broadcasting time=0.
             if (isLiveRef.current && t < 1) {
               const hls = hlsRef.current;
               const edge = hls?.liveSyncPosition;
@@ -1224,6 +1263,34 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
                 return;
               }
             }
+
+            // For VOD: guard against a "failed seek reset" where the browser fires
+            // a second seeked event with currentTime=0 after the segment request
+            // fails (common with CDN-proxied HLS, time-limited tokens, iOS native).
+            // If we broadcast 0 here, every room member jumps back to the start.
+            if (!isLiveRef.current && t < 2) {
+              const lastSeek = lastLocalSeekRef.current;
+              if (lastSeek && lastSeek.time > 5 && Date.now() - lastSeek.ts < 20_000) {
+                // Clear any previous failure timer, then start a fresh one.
+                if (seekFailTimerRef.current) clearTimeout(seekFailTimerRef.current);
+                seekFailTimerRef.current = setTimeout(() => {
+                  seekFailTimerRef.current = null;
+                  if (!readyFiredRef.current) return;
+                  const v = videoRef.current;
+                  if (!v) return;
+                  // If the video is still near 0 after waiting, accept the failure
+                  // and sync everyone to the actual current position.
+                  if (v.currentTime < 2) {
+                    lastLocalSeekRef.current = null;
+                    onSeek?.(v.currentTime);
+                  }
+                }, 10_000);
+                return; // don't broadcast the erroneous 0
+              }
+            }
+
+            // Successful seek: update the ref and broadcast.
+            if (t > 1) lastLocalSeekRef.current = { time: t, ts: Date.now() };
             onSeek?.(t);
           }}
         />
@@ -1259,7 +1326,7 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           customSubtitleLabel={customSubtitleLabel}
           onPlay={onPlay ?? (() => {})}
           onPause={onPause ?? (() => {})}
-          onSeek={onSeek ?? (() => {})}
+          onSeek={handleSeekFromControls}
           onSubtitleChange={handleSubtitleChange}
           onSearchSubtitles={() => setShowSubtitleSearch(true)}
           onToggleChat={handleToggleChat}
