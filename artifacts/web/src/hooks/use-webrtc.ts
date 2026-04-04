@@ -243,6 +243,15 @@ export function useWebRTC(socket: Socket | null, localStream: MediaStream | null
     });
   }, []);
 
+  const removeVideoSenders = useCallback(() => {
+    peersRef.current.forEach((peer) => {
+      const videoSenders = peer.pc.getSenders().filter(s => s.track?.kind === 'video');
+      videoSenders.forEach(sender => {
+        peer.pc.removeTrack(sender);
+      });
+    });
+  }, []);
+
   useEffect(() => {
     return () => {
       peersRef.current.forEach((peer) => peer.pc.close());
@@ -250,5 +259,5 @@ export function useWebRTC(socket: Socket | null, localStream: MediaStream | null
     };
   }, []);
 
-  return { remoteStreams, remoteVideoStreams, callPeer, callAllPeers, hangUp, replaceTrack };
+  return { remoteStreams, remoteVideoStreams, callPeer, callAllPeers, hangUp, replaceTrack, removeVideoSenders };
 }

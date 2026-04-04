@@ -107,7 +107,7 @@ export default function RoomPage() {
   const [relayStream, setRelayStream] = useState<MediaStream | null>(null);
   const [isRelaying, setIsRelaying] = useState(false);
 
-  const { remoteStreams, remoteVideoStreams, callAllPeers, hangUp } = useWebRTC(socket, localStream, relayStream);
+  const { remoteStreams, remoteVideoStreams, callAllPeers, hangUp, removeVideoSenders } = useWebRTC(socket, localStream, relayStream);
 
   const isDJ       = you?.isDJ || you?.isAdmin || false;
   const isAdmin    = you?.isAdmin || false;
@@ -403,6 +403,7 @@ export default function RoomPage() {
 
   const handleToggleRelay = useCallback(() => {
     if (isRelaying) {
+      removeVideoSenders();
       if (relayStream) {
         relayStream.getTracks().forEach(t => t.stop());
         setRelayStream(null);
@@ -421,7 +422,7 @@ export default function RoomPage() {
         }
       }
     }
-  }, [isRelaying, relayStream, socket, users, you, callAllPeers]);
+  }, [isRelaying, relayStream, socket, users, you, callAllPeers, removeVideoSenders]);
 
   useEffect(() => {
     if (localStream && users.length > 1) {
@@ -659,32 +660,35 @@ export default function RoomPage() {
               </div>
             )}
 
+            {/* Relay video from DJ (WebRTC) — inside player container */}
+            {!isDJ && remoteVideoStreams.size > 0 && (() => {
+              const entries = Array.from(remoteVideoStreams.entries());
+              const [, videoStream] = entries[0];
+              const hasActiveTracks = videoStream.getVideoTracks().some(t => t.readyState === 'live');
+              if (!hasActiveTracks) return null;
+              return (
+                <div className="absolute inset-0 z-20 bg-black">
+                  <video
+                    autoPlay
+                    playsInline
+                    muted={false}
+                    ref={el => { if (el && el.srcObject !== videoStream) el.srcObject = videoStream; }}
+                    className="w-full h-full object-contain"
+                  />
+                  <div className="absolute top-2 start-2 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-600/80 backdrop-blur text-white text-[11px] font-bold z-10">
+                    <Radio className="w-3 h-3 animate-pulse" />
+                    بث مباشر
+                  </div>
+                </div>
+              );
+            })()}
+
           </div>
 
           {/* Audio-only remote streams */}
           {Array.from(remoteStreams.entries()).map(([socketId, stream]) => (
             <audio key={socketId} autoPlay playsInline ref={el => { if (el) el.srcObject = stream; }} style={{ display: 'none' }} />
           ))}
-
-          {/* Relay video from DJ (WebRTC) */}
-          {!isDJ && remoteVideoStreams.size > 0 && (() => {
-            const [, videoStream] = Array.from(remoteVideoStreams.entries())[0];
-            return (
-              <div className="absolute inset-0 z-20 bg-black">
-                <video
-                  autoPlay
-                  playsInline
-                  muted={false}
-                  ref={el => { if (el && el.srcObject !== videoStream) el.srcObject = videoStream; }}
-                  className="w-full h-full object-contain"
-                />
-                <div className="absolute top-2 start-2 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-600/80 backdrop-blur text-white text-[11px] font-bold z-10">
-                  <Radio className="w-3 h-3 animate-pulse" />
-                  بث مباشر
-                </div>
-              </div>
-            );
-          })()}
         </div>
 
         {/* ── Chat / Playlist / Users panel ───────────────────────── */}

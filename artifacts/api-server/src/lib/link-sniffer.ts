@@ -185,6 +185,25 @@ function findChromiumPath(): string {
   return "chromium";
 }
 
+const USER_AGENTS = [
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0",
+];
+
+function randomUA(): string {
+  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+}
+
+const STEALTH_SCRIPT = `
+  Object.defineProperty(navigator, 'webdriver', { get: () => false });
+  Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+  Object.defineProperty(navigator, 'languages', { get: () => ['ar', 'en-US', 'en'] });
+  window.chrome = { runtime: {} };
+`;
+
 async function launchBrowser(): Promise<Browser> {
   const execPath = findChromiumPath();
   console.log(`[link-sniffer] launching browser: ${execPath}`);
@@ -205,6 +224,7 @@ async function launchBrowser(): Promise<Browser> {
       "--no-zygote",
       "--single-process",
       "--disable-features=VizDisplayCompositor",
+      "--disable-blink-features=AutomationControlled",
     ],
   });
 }
@@ -245,9 +265,8 @@ export async function sniffVideoUrls(
     const page = await browser.newPage();
 
     await page.setViewport({ width: 1280, height: 720 });
-    await page.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-    );
+    await page.setUserAgent(randomUA());
+    await page.evaluateOnNewDocument(STEALTH_SCRIPT);
 
     await page.setRequestInterception(true);
 
