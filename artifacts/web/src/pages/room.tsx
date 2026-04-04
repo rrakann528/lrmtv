@@ -416,13 +416,18 @@ export default function RoomPage() {
         setRelayStream(stream);
         setIsRelaying(true);
         socket?.emit('relay-mode', { active: true });
-        const others = users.filter(u => u.socketId !== you?.socketId).map(u => u.socketId);
-        if (others.length > 0) {
-          setTimeout(() => callAllPeers(others), 300);
-        }
       }
     }
-  }, [isRelaying, relayStream, socket, users, you, callAllPeers, removeVideoSenders]);
+  }, [isRelaying, relayStream, socket, removeVideoSenders]);
+
+  useEffect(() => {
+    if (!relayStream || !isRelaying) return;
+    const others = users.filter(u => u.socketId !== you?.socketId).map(u => u.socketId);
+    if (others.length > 0) {
+      const timer = setTimeout(() => callAllPeers(others), 200);
+      return () => clearTimeout(timer);
+    }
+  }, [relayStream, isRelaying, users, you, callAllPeers]);
 
   useEffect(() => {
     if (localStream && users.length > 1) {

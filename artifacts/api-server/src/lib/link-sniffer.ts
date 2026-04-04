@@ -170,6 +170,21 @@ function detectQuality(url: string): string | undefined {
 let activeSessions = 0;
 const MAX_CONCURRENT = 3;
 const activeRoomSessions = new Set<string>();
+const activeBrowsers = new Map<string, { browser: Browser; startedAt: number }>();
+const MAX_BROWSER_AGE_MS = 60_000;
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [roomSlug, entry] of activeBrowsers) {
+    if (now - entry.startedAt > MAX_BROWSER_AGE_MS) {
+      console.warn(`[link-sniffer] orphan cleanup: killing stale browser room=${roomSlug} age=${now - entry.startedAt}ms`);
+      try { entry.browser.close(); } catch {}
+      activeBrowsers.delete(roomSlug);
+      activeRoomSessions.delete(roomSlug);
+      activeSessions = Math.max(0, activeSessions - 1);
+    }
+  }
+}, 30_000);
 
 const CHROMIUM_CANDIDATES = [
   process.env.CHROMIUM_PATH,
@@ -262,6 +277,7 @@ export async function sniffVideoUrls(
 
   try {
     browser = await launchBrowser();
+    activeBrowsers.set(roomSlug, { browser, startedAt: Date.now() });
     const page = await browser.newPage();
 
     await page.setViewport({ width: 1280, height: 720 });
@@ -426,6 +442,7 @@ export async function sniffVideoUrls(
   } finally {
     activeSessions--;
     activeRoomSessions.delete(roomSlug);
+    activeBrowsers.delete(roomSlug);
     if (browser) {
       try {
         await browser.close();
