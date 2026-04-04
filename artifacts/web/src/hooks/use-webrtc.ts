@@ -24,15 +24,20 @@ export function useWebRTC(socket: Socket | null, localStream: MediaStream | null
   const [remoteVideoStreams, setRemoteVideoStreams] = useState<Map<string, MediaStream>>(new Map());
 
   const updateRemoteStreams = useCallback(() => {
-    const audioStreams = new Map<string, MediaStream>();
+    const audioOnlyStreams = new Map<string, MediaStream>();
     const videoStreams = new Map<string, MediaStream>();
     peersRef.current.forEach((peer, id) => {
-      const hasVideo = peer.remoteStream.getVideoTracks().length > 0;
-      const hasAudio = peer.remoteStream.getAudioTracks().length > 0;
-      if (hasAudio) audioStreams.set(id, peer.remoteStream);
-      if (hasVideo) videoStreams.set(id, peer.remoteStream);
+      const videoTracks = peer.remoteStream.getVideoTracks().filter(t => t.readyState === 'live');
+      const audioTracks = peer.remoteStream.getAudioTracks().filter(t => t.readyState === 'live');
+      const hasVideo = videoTracks.length > 0;
+      const hasAudio = audioTracks.length > 0;
+      if (hasVideo) {
+        videoStreams.set(id, peer.remoteStream);
+      } else if (hasAudio) {
+        audioOnlyStreams.set(id, peer.remoteStream);
+      }
     });
-    setRemoteStreams(new Map(audioStreams));
+    setRemoteStreams(new Map(audioOnlyStreams));
     setRemoteVideoStreams(new Map(videoStreams));
   }, []);
 

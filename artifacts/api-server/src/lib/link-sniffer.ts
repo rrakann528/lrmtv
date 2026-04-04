@@ -186,6 +186,17 @@ setInterval(() => {
   }
 }, 30_000);
 
+export function abortRoomSession(roomSlug: string): void {
+  const entry = activeBrowsers.get(roomSlug);
+  if (entry) {
+    console.log(`[link-sniffer] aborting session for room=${roomSlug} on disconnect`);
+    try { entry.browser.close(); } catch {}
+    activeBrowsers.delete(roomSlug);
+    activeRoomSessions.delete(roomSlug);
+    activeSessions = Math.max(0, activeSessions - 1);
+  }
+}
+
 const CHROMIUM_CANDIDATES = [
   process.env.CHROMIUM_PATH,
   "/usr/bin/chromium-browser",
@@ -287,6 +298,18 @@ export async function sniffVideoUrls(
     await page.setRequestInterception(true);
 
     const foundUrls = new Map<string, { url: string; contentType?: string }>();
+    let earlyHit = false;
+
+    const checkEarlyHit = () => {
+      if (earlyHit) return;
+      const hasHighValue = Array.from(foundUrls.keys()).some(
+        u => u.includes(".m3u8") || u.includes(".mpd")
+      );
+      if (hasHighValue) {
+        earlyHit = true;
+        console.log(`[link-sniffer] early hit room=${roomSlug} — high-value URL found, will resolve shortly`);
+      }
+    };
 
     page.on("request", (request) => {
       const resourceType = request.resourceType();
@@ -314,6 +337,7 @@ export async function sniffVideoUrls(
 
       if (isVideoUrl(reqUrl)) {
         foundUrls.set(reqUrl, { url: reqUrl });
+        checkEarlyHit();
       }
 
       request.continue();
@@ -325,92 +349,106 @@ export async function sniffVideoUrls(
 
       if (isVideoContentType(ct) || isVideoUrl(respUrl)) {
         foundUrls.set(respUrl, { url: respUrl, contentType: ct });
+        checkEarlyHit();
       }
     });
 
-    await page.goto(targetUrl, {
+    const navigationPromise = page.goto(targetUrl, {
       waitUntil: "networkidle2",
       timeout: timeoutMs - 5000,
+    }).catch(() => {});
+
+    const earlyResolvePromise = new Promise<void>((resolve) => {
+      const check = setInterval(() => {
+        if (earlyHit) { clearInterval(check); resolve(); }
+      }, 500);
+      setTimeout(() => { clearInterval(check); resolve(); }, timeoutMs - 5000);
     });
 
-    const pageVideoUrls = await page.evaluate(() => {
-      const urls: string[] = [];
-      document.querySelectorAll("video, source, iframe").forEach((el) => {
-        const src =
-          el.getAttribute("src") ||
-          el.getAttribute("data-src") ||
-          el.getAttribute("data-lazy-src");
-        if (src) urls.push(src);
-      });
-      document.querySelectorAll("a[href]").forEach((el) => {
-        const href = el.getAttribute("href") || "";
-        if (
-          href.includes(".mp4") ||
-          href.includes(".m3u8") ||
-          href.includes(".mkv")
-        ) {
-          urls.push(href);
-        }
-      });
+    await Promise.race([navigationPromise, earlyResolvePromise]);
 
-      const scripts = document.querySelectorAll("script");
-      scripts.forEach((script) => {
-        const text = script.textContent || "";
-        const urlMatches = text.match(
-          /https?:\/\/[^\s"'<>]+\.(mp4|m3u8|mpd|mkv|webm)[^\s"'<>]*/gi
-        );
-        if (urlMatches) urls.push(...urlMatches);
-      });
-      return urls;
-    });
+    if (!earlyHit) {
+      const pageVideoUrls = await page.evaluate(() => {
+        const urls: string[] = [];
+        document.querySelectorAll("video, source, iframe").forEach((el) => {
+          const src =
+            el.getAttribute("src") ||
+            el.getAttribute("data-src") ||
+            el.getAttribute("data-lazy-src");
+          if (src) urls.push(src);
+        });
+        document.querySelectorAll("a[href]").forEach((el) => {
+          const href = el.getAttribute("href") || "";
+          if (
+            href.includes(".mp4") ||
+            href.includes(".m3u8") ||
+            href.includes(".mkv")
+          ) {
+            urls.push(href);
+          }
+        });
 
-    for (const u of pageVideoUrls) {
-      try {
-        const abs = new URL(u, targetUrl).href;
-        if (isVideoUrl(abs) || abs.includes(".m3u8") || abs.includes(".mp4")) {
-          foundUrls.set(abs, { url: abs });
-        }
-      } catch {}
-    }
+        const scripts = document.querySelectorAll("script");
+        scripts.forEach((script) => {
+          const text = script.textContent || "";
+          const urlMatches = text.match(
+            /https?:\/\/[^\s"'<>]+\.(mp4|m3u8|mpd|mkv|webm)[^\s"'<>]*/gi
+          );
+          if (urlMatches) urls.push(...urlMatches);
+        });
+        return urls;
+      }).catch(() => [] as string[]);
 
-    const iframes = await page.$$("iframe");
-    for (const iframe of iframes.slice(0, 3)) {
-      try {
-        const src = await iframe.evaluate((el) => el.src);
-        if (!src || src === "about:blank") continue;
-
-        const frame = await iframe.contentFrame();
-        if (!frame) continue;
-
-        const iframeVideoUrls = await frame
-          .evaluate(() => {
-            const urls: string[] = [];
-            document.querySelectorAll("video, source").forEach((el) => {
-              const s = el.getAttribute("src") || el.getAttribute("data-src");
-              if (s) urls.push(s);
-            });
-            const scripts = document.querySelectorAll("script");
-            scripts.forEach((script) => {
-              const text = script.textContent || "";
-              const matches = text.match(
-                /https?:\/\/[^\s"'<>]+\.(mp4|m3u8|mpd|mkv|webm)[^\s"'<>]*/gi
-              );
-              if (matches) urls.push(...matches);
-            });
-            return urls;
-          })
-          .catch(() => [] as string[]);
-
-        for (const u of iframeVideoUrls) {
-          try {
-            const abs = new URL(u, src).href;
+      for (const u of pageVideoUrls) {
+        try {
+          const abs = new URL(u, targetUrl).href;
+          if (isVideoUrl(abs) || abs.includes(".m3u8") || abs.includes(".mp4")) {
             foundUrls.set(abs, { url: abs });
+          }
+        } catch {}
+      }
+
+      if (!earlyHit) {
+        const iframes = await page.$$("iframe");
+        for (const iframe of iframes.slice(0, 3)) {
+          try {
+            const src = await iframe.evaluate((el) => el.src);
+            if (!src || src === "about:blank") continue;
+
+            const frame = await iframe.contentFrame();
+            if (!frame) continue;
+
+            const iframeVideoUrls = await frame
+              .evaluate(() => {
+                const urls: string[] = [];
+                document.querySelectorAll("video, source").forEach((el) => {
+                  const s = el.getAttribute("src") || el.getAttribute("data-src");
+                  if (s) urls.push(s);
+                });
+                const scripts = document.querySelectorAll("script");
+                scripts.forEach((script) => {
+                  const text = script.textContent || "";
+                  const matches = text.match(
+                    /https?:\/\/[^\s"'<>]+\.(mp4|m3u8|mpd|mkv|webm)[^\s"'<>]*/gi
+                  );
+                  if (matches) urls.push(...matches);
+                });
+                return urls;
+              })
+              .catch(() => [] as string[]);
+
+            for (const u of iframeVideoUrls) {
+              try {
+                const abs = new URL(u, src).href;
+                foundUrls.set(abs, { url: abs });
+              } catch {}
+            }
           } catch {}
         }
-      } catch {}
+      }
     }
 
-    if (foundUrls.size === 0) {
+    if (foundUrls.size === 0 && !earlyHit) {
       await new Promise((r) => setTimeout(r, 3000));
     }
 
@@ -424,7 +462,7 @@ export async function sniffVideoUrls(
       .sort((a, b) => b.score - a.score)
       .slice(0, 10);
 
-    console.log(`[link-sniffer] done room=${roomSlug} found=${results.length} duration=${Date.now() - startTime}ms`);
+    console.log(`[link-sniffer] done room=${roomSlug} found=${results.length} earlyHit=${earlyHit} duration=${Date.now() - startTime}ms`);
 
     return {
       success: results.length > 0,
