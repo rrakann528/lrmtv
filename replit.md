@@ -105,20 +105,27 @@ artifacts-monorepo/
 
 ---
 
-## HLS Fallback Chain (مرحلتان — Server Proxy)
+## HLS Fallback Chain (3 مراحل)
 
 ```
 S1 HLS.js مباشر (CORS مفتوح → يشتغل فوراً)
-  → S2 /api/proxy/stream (CORS محظور → يمر الكل عبر السيرفر: manifest + segments)
-    → Native <video> (iOS Safari فقط — لا يدعم HLS.js)
-      → Error (فشل تحميل البث)
+  → S2 CF Worker proxy (lrmtv-proxy.rrakann528.workers.dev — مجاني، edge network)
+    → S3 Server proxy (/api/proxy/stream — Railway fallback)
+      → Native <video> (iOS Safari فقط)
+        → Error
 ```
 
-**كيف يعمل `/api/proxy/stream`:**
-1. يستقبل `?url=` المشفّر
-2. يحذف Origin/Referer headers عند الطلب للـ workers.dev
-3. يجلب الـ manifest → يُعيد كتابة كل الروابط (segments + sub-manifests) لتمر عبر نفس endpoint
-4. Segments: تُبث بـ pipe مباشر (streaming — لا تُحمَّل في RAM)
+**CF Worker (`cf-worker/worker.js`) — `lrmtv-proxy.rrakann528.workers.dev`:**
+- يعيد كتابة manifest + segments عبر CF Worker
+- يتجنّب إرسال Referer لـ workers.dev (تُحظر)
+- mode=full: manifest + segments / mode=segment: segment فقط / mode=video: MP4
+- 10M طلب مجاني/شهر — صفر تكلفة على Railway
+- VITE_CF_PROXY_URL=`https://lrmtv-proxy.rrakann528.workers.dev` (مضبوط في `.env`)
+
+**Server proxy (`/api/proxy/stream`) — fallback فقط:**
+- يُستخدم لو CF Worker فشل
+- Pipe مباشر للـ segments (لا RAM overhead)
+- يحذف Referer/Origin لـ workers.dev تلقائياً
 
 ## Page Browser (استخراج فيديو من صفحات)
 

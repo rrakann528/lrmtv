@@ -12,7 +12,14 @@ const BASE_HEADERS = {
   'Accept-Encoding': 'identity',
 };
 
+function isWorkersDev(url) {
+  try { return new URL(url).hostname.includes('.workers.dev'); } catch { return false; }
+}
+
 function candidateReferers(targetUrl) {
+  // workers.dev blocks requests that include Referer — only try without
+  if (isWorkersDev(targetUrl)) return [''];
+
   const parsed = new URL(targetUrl);
   const candidates = [
     '',

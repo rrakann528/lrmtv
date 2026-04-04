@@ -943,9 +943,15 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         const canNativeHls = video.canPlayType('application/vnd.apple.mpegurl') !== '';
         const isIosSafari = /iPad|iPhone|iPod/.test(navigator.userAgent) && !Hls.isSupported();
 
-        const manifestProxyUrl = `/api/proxy/stream?url=${encodeURIComponent(src)}`;
+        // CF Worker proxy (free, edge network, no Railway bandwidth)
+        const cfWorkerBase = import.meta.env.VITE_CF_PROXY_URL as string | undefined;
+        const cfProxyUrl = cfWorkerBase
+          ? `${cfWorkerBase.replace(/\/$/, '')}/?url=${encodeURIComponent(src)}&mode=full`
+          : null;
+        // Server-side proxy fallback (Railway)
+        const serverProxyUrl = `/api/proxy/stream?url=${encodeURIComponent(src)}`;
 
-        const tryManifestProxy = () => {
+        const tryServerProxy = () => {
           if (cancelled || !Hls.isSupported()) {
             if (canNativeHls) {
               s2_native(() => { setStatusMsg(null); setError('unsupported'); }, 20_000);
@@ -956,16 +962,38 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
           }
           destroyAll();
           setStatusMsg('hls-direct');
-          const hlsProxy = makeHls(() => {
+          const hlsServer = makeHls(() => {
             if (canNativeHls) {
               s2_native(() => { setStatusMsg(null); setError('unsupported'); }, 20_000);
             } else {
               setStatusMsg(null); setError('unsupported');
             }
           });
-          hlsRef.current = hlsProxy;
-          hlsProxy.loadSource(manifestProxyUrl);
-          hlsProxy.attachMedia(video);
+          hlsRef.current = hlsServer;
+          hlsServer.loadSource(serverProxyUrl);
+          hlsServer.attachMedia(video);
+        };
+
+        const tryManifestProxy = () => {
+          if (cancelled || !Hls.isSupported()) {
+            if (canNativeHls) {
+              s2_native(() => { setStatusMsg(null); setError('unsupported'); }, 20_000);
+            } else {
+              setStatusMsg(null); setError('unsupported');
+            }
+            return;
+          }
+          // Prefer CF Worker (free + fast) — fallback to server proxy
+          if (cfProxyUrl) {
+            destroyAll();
+            setStatusMsg('hls-direct');
+            const hlsCf = makeHls(() => tryServerProxy());
+            hlsRef.current = hlsCf;
+            hlsCf.loadSource(cfProxyUrl);
+            hlsCf.attachMedia(video);
+          } else {
+            tryServerProxy();
+          }
         };
 
         if (Hls.isSupported()) {
