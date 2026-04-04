@@ -943,7 +943,7 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         const canNativeHls = video.canPlayType('application/vnd.apple.mpegurl') !== '';
         const isIosSafari = /iPad|iPhone|iPod/.test(navigator.userAgent) && !Hls.isSupported();
 
-        const manifestProxyUrl = `/api/proxy/manifest?url=${encodeURIComponent(src)}`;
+        const manifestProxyUrl = `/api/proxy/stream?url=${encodeURIComponent(src)}`;
 
         const tryManifestProxy = () => {
           if (cancelled || !Hls.isSupported()) {
