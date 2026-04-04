@@ -283,6 +283,15 @@ export function getActiveRooms(): { slug: string; userCount: number }[] {
   return Array.from(rooms.entries()).map(([slug, s]) => ({ slug, userCount: s.users.size }));
 }
 
+export function isUserDjInRoom(roomSlug: string, userId: number): boolean {
+  const room = rooms.get(roomSlug);
+  if (!room) return false;
+  for (const [, u] of room.users) {
+    if (u.userId === userId && (u.isDJ || u.isAdmin)) return true;
+  }
+  return false;
+}
+
 export function kickRoom(slug: string): void {
   if (!_io) return;
   _io.to(slug).emit('room-deleted');

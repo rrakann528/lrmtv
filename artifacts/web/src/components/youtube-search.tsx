@@ -17,12 +17,13 @@ interface Props {
   onAdd: (url: string, title: string) => Promise<void> | void;
   isAdding?: boolean;
   lang?: string;
-  isLoggedIn?: boolean;
+  isDj?: boolean;
+  roomSlug?: string;
 }
 
 type Mode = 'search' | 'url' | 'sniff';
 
-export default function YoutubeSearch({ onAdd, isAdding, lang = 'en', isLoggedIn }: Props) {
+export default function YoutubeSearch({ onAdd, isAdding, lang = 'en', isDj, roomSlug }: Props) {
   const { t } = useI18n();
   const [mode, setMode] = useState<Mode>('search');
   const [query, setQuery]   = useState('');
@@ -134,7 +135,7 @@ export default function YoutubeSearch({ onAdd, isAdding, lang = 'en', isLoggedIn
           <LinkIcon className="w-3.5 h-3.5" />
           {t('directUrl')}
         </button>
-        {isLoggedIn && (
+        {isDj && (
           <button
             type="button"
             onClick={() => switchMode('sniff')}
@@ -209,7 +210,7 @@ export default function YoutubeSearch({ onAdd, isAdding, lang = 'en', isLoggedIn
       {/* Sniff mode */}
       {mode === 'sniff' && (
         <Suspense fallback={<div className="flex items-center justify-center py-4"><Loader2 className="w-5 h-5 animate-spin text-white/40" /></div>}>
-          <LinkSniffer onSelectVideo={onAdd} />
+          <LinkSniffer onSelectVideo={onAdd} roomSlug={roomSlug || ''} />
         </Suspense>
       )}
 

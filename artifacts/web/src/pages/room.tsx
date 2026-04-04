@@ -703,7 +703,8 @@ export default function RoomPage() {
                 onAdd={handleAddVideo}
                 isAdding={addMutation.isPending}
                 lang={lang}
-                isLoggedIn={!!authUser}
+                isDj={isDJ}
+                roomSlug={slug}
               />
             </div>
           )}

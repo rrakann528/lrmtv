@@ -13,9 +13,10 @@ interface SniffedUrl {
 
 interface LinkSnifferProps {
   onSelectVideo: (url: string, title: string) => void;
+  roomSlug: string;
 }
 
-export default function LinkSniffer({ onSelectVideo }: LinkSnifferProps) {
+export default function LinkSniffer({ onSelectVideo, roomSlug }: LinkSnifferProps) {
   const [inputUrl, setInputUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<SniffedUrl[]>([]);
@@ -36,7 +37,7 @@ export default function LinkSniffer({ onSelectVideo }: LinkSnifferProps) {
       const res = await apiFetch('/link-sniff', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url, roomSlug }),
       });
 
       const data = await res.json();

@@ -1,7 +1,10 @@
-import { Router, type IRouter, type Request, type Response } from "express";
+import { Router, type IRouter, type Response } from "express";
 import rateLimit from "express-rate-limit";
+import { eq } from "drizzle-orm";
+import { db, roomsTable } from "@workspace/db";
 import { requireAuth, type AuthRequest } from "../middlewares/auth";
 import { sniffVideoUrls, isDomainAllowed } from "../lib/link-sniffer";
+import { isUserDjInRoom } from "../lib/socket";
 
 function isPrivateHost(hostname: string): boolean {
   if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") return true;
@@ -25,10 +28,39 @@ router.post(
   sniffLimiter,
   requireAuth,
   async (req: AuthRequest, res: Response): Promise<void> => {
-    const { url } = req.body as { url?: string };
+    const { url, roomSlug } = req.body as { url?: string; roomSlug?: string };
 
     if (!url || typeof url !== "string") {
       res.status(400).json({ error: "الرابط مطلوب" });
+      return;
+    }
+
+    if (!roomSlug || typeof roomSlug !== "string") {
+      res.status(400).json({ error: "roomSlug مطلوب" });
+      return;
+    }
+
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(401).json({ error: "غير مسجل دخول" });
+      return;
+    }
+
+    let isAuthorized = isUserDjInRoom(roomSlug, userId);
+
+    if (!isAuthorized) {
+      const [room] = await db
+        .select({ creatorUserId: roomsTable.creatorUserId })
+        .from(roomsTable)
+        .where(eq(roomsTable.slug, roomSlug))
+        .limit(1);
+      if (room && room.creatorUserId === userId) {
+        isAuthorized = true;
+      }
+    }
+
+    if (!isAuthorized) {
+      res.status(403).json({ error: "فقط الـ DJ أو المسؤول يمكنه استخدام الاستخراج" });
       return;
     }
 
@@ -45,6 +77,11 @@ router.post(
       return;
     }
 
+    if (isPrivateHost(parsedUrl.hostname)) {
+      res.status(400).json({ error: "رابط غير مسموح به" });
+      return;
+    }
+
     if (!isDomainAllowed(url)) {
       res.status(403).json({
         error: "هذا الموقع غير مدعوم حالياً",
@@ -54,7 +91,7 @@ router.post(
     }
 
     try {
-      const result = await sniffVideoUrls(url, 45000);
+      const result = await sniffVideoUrls(url, roomSlug, 45000);
       res.json(result);
     } catch (err: any) {
       console.error("[link-sniff] error:", err.message);

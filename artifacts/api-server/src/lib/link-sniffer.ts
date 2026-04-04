@@ -1,4 +1,5 @@
 import puppeteer, { type Browser } from "puppeteer-core";
+import * as fs from "fs";
 
 const ALLOWED_DOMAINS = [
   "egybest",
@@ -26,6 +27,8 @@ const ALLOWED_DOMAINS = [
   "koooragoal",
   "yalla-shoot",
 ];
+
+const DOMAIN_TLDS = [".com", ".net", ".org", ".tv", ".me", ".io", ".co", ".xyz"];
 
 const VIDEO_EXTENSIONS = [
   ".mp4",
@@ -78,14 +81,14 @@ const IGNORE_PATTERNS = [
 export function isDomainAllowed(url: string): boolean {
   try {
     const hostname = new URL(url).hostname.toLowerCase();
-    return ALLOWED_DOMAINS.some(
-      (d) => hostname === d || hostname.endsWith(`.${d}`)
-        || hostname === `${d}.com` || hostname.endsWith(`.${d}.com`)
-        || hostname === `${d}.net` || hostname.endsWith(`.${d}.net`)
-        || hostname === `${d}.org` || hostname.endsWith(`.${d}.org`)
-        || hostname === `${d}.tv` || hostname.endsWith(`.${d}.tv`)
-        || hostname === `${d}.me` || hostname.endsWith(`.${d}.me`)
-    );
+    return ALLOWED_DOMAINS.some((d) => {
+      for (const tld of DOMAIN_TLDS) {
+        const full = `${d}${tld}`;
+        if (hostname === full || hostname.endsWith(`.${full}`)) return true;
+      }
+      if (hostname === d || hostname.endsWith(`.${d}`)) return true;
+      return false;
+    });
   } catch {
     return false;
   }
@@ -164,62 +167,53 @@ function detectQuality(url: string): string | undefined {
   return undefined;
 }
 
-let browserInstance: Browser | null = null;
-let browserLaunchPromise: Promise<Browser> | null = null;
 let activeSessions = 0;
 const MAX_CONCURRENT = 3;
+const activeRoomSessions = new Set<string>();
+
+const CHROMIUM_CANDIDATES = [
+  process.env.CHROMIUM_PATH,
+  "/usr/bin/chromium-browser",
+  "/usr/bin/chromium",
+  "/nix/store/qa9cnw4v5xkxyip6mb9kxqfq1z4x2dx1-chromium-138.0.7204.100/bin/chromium",
+];
 
 function findChromiumPath(): string {
-  const paths = [
-    process.env.CHROMIUM_PATH,
-    "/nix/store/qa9cnw4v5xkxyip6mb9kxqfq1z4x2dx1-chromium-138.0.7204.100/bin/chromium",
-  ];
-  for (const p of paths) {
-    if (p) return p;
+  for (const p of CHROMIUM_CANDIDATES) {
+    if (p && fs.existsSync(p)) return p;
   }
   return "chromium";
 }
 
-async function getBrowser(): Promise<Browser> {
-  if (browserInstance && browserInstance.connected) return browserInstance;
-  if (browserLaunchPromise) return browserLaunchPromise;
+async function launchBrowser(): Promise<Browser> {
+  const execPath = findChromiumPath();
+  console.log(`[link-sniffer] launching browser: ${execPath}`);
 
-  browserLaunchPromise = puppeteer
-    .launch({
-      executablePath: findChromiumPath(),
-      headless: true,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-gpu",
-        "--disable-software-rasterizer",
-        "--disable-extensions",
-        "--disable-background-networking",
-        "--disable-sync",
-        "--no-first-run",
-        "--no-zygote",
-        "--single-process",
-        "--disable-features=VizDisplayCompositor",
-      ],
-    })
-    .then((b) => {
-      browserInstance = b;
-      browserLaunchPromise = null;
-      b.on("disconnected", () => {
-        browserInstance = null;
-      });
-      return b;
-    })
-    .catch((err) => {
-      browserLaunchPromise = null;
-      throw err;
-    });
-
-  return browserLaunchPromise;
+  return puppeteer.launch({
+    executablePath: execPath,
+    headless: true,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--disable-software-rasterizer",
+      "--disable-extensions",
+      "--disable-background-networking",
+      "--disable-sync",
+      "--no-first-run",
+      "--no-zygote",
+      "--single-process",
+      "--disable-features=VizDisplayCompositor",
+    ],
+  });
 }
 
-export async function sniffVideoUrls(targetUrl: string, timeoutMs = 45000): Promise<SniffResult> {
+export async function sniffVideoUrls(
+  targetUrl: string,
+  roomSlug: string,
+  timeoutMs = 45000,
+): Promise<SniffResult> {
   const startTime = Date.now();
 
   if (activeSessions >= MAX_CONCURRENT) {
@@ -231,12 +225,24 @@ export async function sniffVideoUrls(targetUrl: string, timeoutMs = 45000): Prom
     };
   }
 
+  if (activeRoomSessions.has(roomSlug)) {
+    return {
+      success: false,
+      urls: [],
+      error: "يوجد عملية استخراج جارية في هذه الغرفة — انتظر قليلاً",
+      duration: Date.now() - startTime,
+    };
+  }
+
   activeSessions++;
-  let page: Awaited<ReturnType<Browser["newPage"]>> | null = null;
+  activeRoomSessions.add(roomSlug);
+  let browser: Browser | null = null;
+
+  console.log(`[link-sniffer] start room=${roomSlug} url=${targetUrl} active=${activeSessions}`);
 
   try {
-    const browser = await getBrowser();
-    page = await browser.newPage();
+    browser = await launchBrowser();
+    const page = await browser.newPage();
 
     await page.setViewport({ width: 1280, height: 720 });
     await page.setUserAgent(
@@ -383,12 +389,15 @@ export async function sniffVideoUrls(targetUrl: string, timeoutMs = 45000): Prom
       .sort((a, b) => b.score - a.score)
       .slice(0, 10);
 
+    console.log(`[link-sniffer] done room=${roomSlug} found=${results.length} duration=${Date.now() - startTime}ms`);
+
     return {
       success: results.length > 0,
       urls: results,
       duration: Date.now() - startTime,
     };
   } catch (err: any) {
+    console.error(`[link-sniffer] error room=${roomSlug}: ${err.message}`);
     return {
       success: false,
       urls: [],
@@ -397,19 +406,12 @@ export async function sniffVideoUrls(targetUrl: string, timeoutMs = 45000): Prom
     };
   } finally {
     activeSessions--;
-    if (page) {
+    activeRoomSessions.delete(roomSlug);
+    if (browser) {
       try {
-        await page.close();
+        await browser.close();
       } catch {}
     }
-  }
-}
-
-export async function closeBrowser(): Promise<void> {
-  if (browserInstance) {
-    try {
-      await browserInstance.close();
-    } catch {}
-    browserInstance = null;
+    console.log(`[link-sniffer] cleanup room=${roomSlug} active=${activeSessions}`);
   }
 }
