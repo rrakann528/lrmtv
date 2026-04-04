@@ -48,7 +48,8 @@ const token = conns[0].settings.access_token;
 - **API codegen**: Orval (from OpenAPI spec)
 - **Build**: esbuild (CJS bundle)
 - **Video**: SmartPlayer — HLS.js, dash.js, react-player (YouTube/Twitch/Vimeo), HTML5, SponsorBlock auto-skip
-- **WebRTC P2P Relay (Kosmi-style)**: No server-side video proxy. DJ's browser plays the video directly, captures via `captureStream()`, and broadcasts P2P to all viewers via WebRTC. Auto-activates for direct m3u8/mp4/other URLs. Server is signaling-only — zero video bandwidth on server. Viewers see the video as a live WebRTC stream from the host
+- **Video Proxy (`/api/proxy/stream`)**: بروكسي خفيف يمرر manifests + segments للروابط المحظورة بـ CORS. Manifests تُعاد كتابتها لتمر عبر البروكسي. Segments تُبث بـ pipe مباشر (لا تُحمَّل بالكامل في الذاكرة). يحظر bot UAs. يدعم Range requests. يُعيد توجيه الـ sub-manifests تلقائياً
+- **WebRTC P2P Relay**: DJ يشغّل الفيديو → `captureStream()` → WebRTC P2P للمشاهدين. يُستخدم مع البروكسي (البروكسي يخدم الـ DJ فقط، المشاهدون يستقبلون من الـ DJ مباشرة)
 - **Real-time**: Socket.io (sync, chat, WebRTC video relay)
 - **State**: Zustand
 - **i18n**: Custom React context — 6 لغات (ar, en, fr, tr, es, id) — مفتاح LS: `lrmtv_lang`
@@ -104,17 +105,20 @@ artifacts-monorepo/
 
 ---
 
-## HLS Fallback Chain (6 مراحل — CF Worker)
+## HLS Fallback Chain (مرحلتان — Server Proxy)
 
 ```
-S1 HLS.js direct
-  → S2 Native HTML5 <video>
-    → S3 CF manifest proxy (CF Worker → manifest فقط)
-      → S4 CF full proxy (كل شيء عبر CF Worker)
-        → S5 CF full + segment rewrite
-          → S6 Native video final (20s timeout — last resort for IP-locked streams)
-            → Error (فشل تحميل البث)
+S1 HLS.js مباشر (CORS مفتوح → يشتغل فوراً)
+  → S2 /api/proxy/stream (CORS محظور → يمر الكل عبر السيرفر: manifest + segments)
+    → Native <video> (iOS Safari فقط — لا يدعم HLS.js)
+      → Error (فشل تحميل البث)
 ```
+
+**كيف يعمل `/api/proxy/stream`:**
+1. يستقبل `?url=` المشفّر
+2. يحذف Origin/Referer headers عند الطلب للـ workers.dev
+3. يجلب الـ manifest → يُعيد كتابة كل الروابط (segments + sub-manifests) لتمر عبر نفس endpoint
+4. Segments: تُبث بـ pipe مباشر (streaming — لا تُحمَّل في RAM)
 
 ## Page Browser (استخراج فيديو من صفحات)
 
@@ -189,13 +193,25 @@ cd cf-worker && npx wrangler deploy
 ```
 ثم حط الرابط في `VITE_CF_PROXY_URL` (مثلاً `https://lrmtv-proxy.username.workers.dev`)
 
-## WebRTC P2P Relay (بدون بروكسي — مثل Kosmi)
+## WebRTC P2P Relay
 
-- السيرفر وظيفته **إشارات فقط (Signaling)** — لا يمر أي فيديو عبره
-- الـ DJ يشغّل الفيديو في متصفحه → `captureStream()` → WebRTC P2P لكل المشاهدين
+- الـ DJ يشغّل الفيديو (عبر البروكسي أو مباشرة) → `captureStream()` → WebRTC P2P لكل المشاهدين
+- السيرفر وظيفته **إشارات فقط (Signaling)** — لا يمر أي فيديو عبره للمشاهدين
 - Auto-relay يفعّل تلقائياً لأي رابط مباشر (m3u8/mp4/other) مع retry حتى 15 محاولة
-- المشاهدين يشوفون البث كـ WebRTC stream مباشر من الـ Host
-- لا حاجة لـ CORS proxy — الفيديو يُشغّل محلياً عند الـ DJ فقط
+
+**تحليل التكلفة على Railway $5/شهر (100 GB egress مجاني ثم $0.10/GB):**
+
+| السيناريو | البروكسي يخدم | Bandwidth/ساعة (100 غرفة × 10 مشاهدين) |
+|---|---|---|
+| **مع P2P (الحالي)** | الـ DJ فقط (1 stream/غرفة) | 100 × 5 Mbps ≈ **225 GB/ساعة** |
+| **بدون P2P** | كل المشاهدين (10 streams/غرفة) | 1000 × 5 Mbps ≈ **2,250 GB/ساعة** |
+
+**النتيجة:** P2P يُقلل ضغط السيرفر 10× — لكن 100 غرفة نشطة ≈ 225 GB/ساعة وهو مكلف جداً على $5.
+
+**التكلفة الواقعية (3-5 غرف نشطة في نفس الوقت):**
+- 3-5 غرف × 5 Mbps = 6.75-11.25 GB/ساعة → ضمن الـ 100 GB/شهر لو الاستخدام معتدل
+
+**سبب تعليق المشاهدين:** الـ DJ يحمّل الفيديو عبر البروكسي (download) + يُشفّر ويرسل عبر WebRTC (upload) في نفس الوقت → يتحمّل الجهاز والاتصال
 
 ---
 
