@@ -1294,6 +1294,18 @@ export function initSocketServer(httpServer: HttpServer): Server {
       });
     });
 
+    socket.on("relay-mode", (data: { active: boolean }) => {
+      if (!currentRoomSlug) return;
+      const roomState = getRoomState(currentRoomSlug);
+      if (!roomState) return;
+      const user = roomState.users.get(socket.id);
+      if (!user?.isAdmin && !user?.isDJ) return;
+      socket.to(currentRoomSlug).emit("relay-mode", {
+        active: data.active,
+        from: user.displayName || user.username,
+      });
+    });
+
     // ── DJ backgrounding / closing — keep room playing ───────────────────────
     socket.on("dj-backgrounding", () => {
       if (!currentRoomSlug) return;

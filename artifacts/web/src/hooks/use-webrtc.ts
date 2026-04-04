@@ -18,16 +18,22 @@ const ICE_SERVERS: RTCConfiguration = {
   ],
 };
 
-export function useWebRTC(socket: Socket | null, localStream: MediaStream | null) {
+export function useWebRTC(socket: Socket | null, localStream: MediaStream | null, relayStream?: MediaStream | null) {
   const peersRef = useRef<Map<string, PeerConnection>>(new Map());
   const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map());
+  const [remoteVideoStreams, setRemoteVideoStreams] = useState<Map<string, MediaStream>>(new Map());
 
   const updateRemoteStreams = useCallback(() => {
-    const streams = new Map<string, MediaStream>();
+    const audioStreams = new Map<string, MediaStream>();
+    const videoStreams = new Map<string, MediaStream>();
     peersRef.current.forEach((peer, id) => {
-      streams.set(id, peer.remoteStream);
+      const hasVideo = peer.remoteStream.getVideoTracks().length > 0;
+      const hasAudio = peer.remoteStream.getAudioTracks().length > 0;
+      if (hasAudio) audioStreams.set(id, peer.remoteStream);
+      if (hasVideo) videoStreams.set(id, peer.remoteStream);
     });
-    setRemoteStreams(new Map(streams));
+    setRemoteStreams(new Map(audioStreams));
+    setRemoteVideoStreams(new Map(videoStreams));
   }, []);
 
   const createPeerConnection = useCallback((targetSocketId: string, initiator: boolean) => {
@@ -48,6 +54,12 @@ export function useWebRTC(socket: Socket | null, localStream: MediaStream | null
     if (localStream) {
       localStream.getTracks().forEach(track => {
         pc.addTrack(track, localStream);
+      });
+    }
+
+    if (relayStream) {
+      relayStream.getTracks().forEach(track => {
+        pc.addTrack(track, relayStream);
       });
     }
 
@@ -106,7 +118,8 @@ export function useWebRTC(socket: Socket | null, localStream: MediaStream | null
     // Initiator with no tracks: manually trigger an offer so the connection is established
     // even before any media is added (e.g., camera-only → later add mic).
     // With tracks, onnegotiationneeded fires automatically.
-    if (initiator && (!localStream || localStream.getTracks().length === 0)) {
+    const totalTracks = (localStream?.getTracks().length ?? 0) + (relayStream?.getTracks().length ?? 0);
+    if (initiator && totalTracks === 0) {
       pc.createOffer()
         .then(offer => pc.setLocalDescription(offer))
         .then(() => {
@@ -123,7 +136,7 @@ export function useWebRTC(socket: Socket | null, localStream: MediaStream | null
     }
 
     return pc;
-  }, [socket, localStream, updateRemoteStreams]);
+  }, [socket, localStream, relayStream, updateRemoteStreams]);
 
   const handleSignal = useCallback(async (data: {
     fromSocketId: string;
@@ -237,5 +250,5 @@ export function useWebRTC(socket: Socket | null, localStream: MediaStream | null
     };
   }, []);
 
-  return { remoteStreams, callPeer, callAllPeers, hangUp, replaceTrack };
+  return { remoteStreams, remoteVideoStreams, callPeer, callAllPeers, hangUp, replaceTrack };
 }

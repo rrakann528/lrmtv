@@ -13,6 +13,7 @@ import adminRouter from "./admin";
 import groupsRouter from "./groups";
 import streamProxyRouter from "./stream-proxy";
 import reportsRouter from "./reports";
+import linkSniffRouter from "./link-sniff";
 
 const router: IRouter = Router();
 
@@ -30,5 +31,6 @@ router.use(adminRouter);
 router.use(groupsRouter);
 router.use(streamProxyRouter);
 router.use(reportsRouter);
+router.use(linkSniffRouter);
 
 export default router;

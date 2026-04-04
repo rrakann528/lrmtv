@@ -73,6 +73,7 @@ export interface SmartPlayerHandle {
   play: () => void;
   pause: () => void;
   getVideoElement: () => HTMLVideoElement | null;
+  captureStream: () => MediaStream | null;
 }
 
 export interface ChatMessage {
@@ -500,6 +501,23 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
           const ip = reactPlayerRef.current?.getInternalPlayer();
           if (ip instanceof HTMLVideoElement) return ip;
         } catch {}
+        return null;
+      },
+      captureStream: () => {
+        try {
+          let videoEl: HTMLVideoElement | null = null;
+          if (isHls) {
+            videoEl = hlsPlayerRef.current?.getVideoElement() ?? null;
+          } else {
+            const ip = reactPlayerRef.current?.getInternalPlayer();
+            if (ip instanceof HTMLVideoElement) videoEl = ip;
+          }
+          if (videoEl && typeof (videoEl as any).captureStream === 'function') {
+            return (videoEl as any).captureStream() as MediaStream;
+          }
+        } catch (err) {
+          console.warn('[captureStream] failed:', err);
+        }
         return null;
       },
     }));

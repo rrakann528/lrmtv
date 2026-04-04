@@ -49,7 +49,8 @@ const token = conns[0].settings.access_token;
 - **Build**: esbuild (CJS bundle)
 - **Video**: SmartPlayer — HLS.js, dash.js, react-player (YouTube/Twitch/Vimeo), HTML5, SponsorBlock auto-skip
 - **Shared Browser (Kosmi-style)**: DJ opens Playwright browser → screencast frames broadcast to ALL room users via Socket.IO → everyone sees the same browser view. No URL extraction or HLS proxy needed.
-- **Real-time**: Socket.io (sync, chat, WebRTC)
+- **Link Sniffer**: Puppeteer-core + system Chromium (network interception for video URLs)
+- **Real-time**: Socket.io (sync, chat, WebRTC video relay)
 - **State**: Zustand
 - **i18n**: Custom React context — 6 لغات (ar, en, fr, tr, es, id) — مفتاح LS: `lrmtv_lang`
 
@@ -307,6 +308,8 @@ cd cf-worker && npx wrangler deploy
 | `toggle-lock` | قفل/فتح التحكم |
 | `grant-dj` | منح صلاحية DJ |
 | `request-sync` | المستخدم يطلب إعادة المزامنة |
+| `relay-mode` | DJ يبث الفيديو عبر WebRTC (active: bool) |
+| `link-sniff` | POST — استخراج روابط فيديو من صفحة بث |
 
 ---
 
@@ -387,7 +390,8 @@ cd cf-worker && npx wrangler deploy
 
 ## ملاحظات مهمة
 
-1. **P2P والـ Relay تم إزالتهم بالكامل** — المشغل يعتمد على سلسلة fallback مباشرة فقط
+1. **WebRTC Video Relay**: DJ يقدر يبث الفيديو مباشرة للمشاهدين عبر WebRTC (زر "بث" في الهيدر) — مفيد للبث المحلي أو المحتوى المقفل جغرافياً
+2. **Link Sniffer (استخراج)**: Puppeteer يفتح صفحة بث ويستخرج روابط الفيديو تلقائياً — مدعوم: EgyBest, Shahid4u, FaselHD, MyCima, Akwam, ArabSeed, يلا شوت وغيرها — ملفات: `link-sniffer.ts`, `link-sniff.ts`, `link-sniffer.tsx`
 2. **Ads removed**: لا يوجد أي كود إعلانات في المشروع
 3. **DB Indexes**: `idx_chat_room_created` (chat_messages), `idx_rooms_creator` (rooms), `idx_dm_sender/receiver/pair` (direct_messages), `idx_friendships_addressee`
 4. **N+1 fix**: `/friends/conversations` uses `DISTINCT ON` + single unread COUNT query instead of per-friend loops

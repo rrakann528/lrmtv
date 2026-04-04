@@ -1,7 +1,9 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Search, Link as LinkIcon, Plus, Loader2, X, Youtube } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback, lazy, Suspense } from 'react';
+import { Search, Link as LinkIcon, Plus, Loader2, X, Youtube, Scan } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
+
+const LinkSniffer = lazy(() => import('./link-sniffer'));
 
 interface YTResult {
   videoId: string;
@@ -15,11 +17,12 @@ interface Props {
   onAdd: (url: string, title: string) => Promise<void> | void;
   isAdding?: boolean;
   lang?: string;
+  isLoggedIn?: boolean;
 }
 
-type Mode = 'search' | 'url';
+type Mode = 'search' | 'url' | 'sniff';
 
-export default function YoutubeSearch({ onAdd, isAdding, lang = 'en' }: Props) {
+export default function YoutubeSearch({ onAdd, isAdding, lang = 'en', isLoggedIn }: Props) {
   const { t } = useI18n();
   const [mode, setMode] = useState<Mode>('search');
   const [query, setQuery]   = useState('');
@@ -131,6 +134,21 @@ export default function YoutubeSearch({ onAdd, isAdding, lang = 'en' }: Props) {
           <LinkIcon className="w-3.5 h-3.5" />
           {t('directUrl')}
         </button>
+        {isLoggedIn && (
+          <button
+            type="button"
+            onClick={() => switchMode('sniff')}
+            className={cn(
+              'flex-1 flex items-center justify-center gap-1.5 h-6 rounded-lg text-[11px] font-medium transition-colors',
+              mode === 'sniff'
+                ? 'bg-purple-600/80 text-white'
+                : 'bg-white/5 text-white/40 hover:text-white/70 hover:bg-white/10',
+            )}
+          >
+            <Scan className="w-3.5 h-3.5" />
+            استخراج
+          </button>
+        )}
       </div>
 
       {/* Search mode */}
@@ -186,6 +204,13 @@ export default function YoutubeSearch({ onAdd, isAdding, lang = 'en' }: Props) {
             {isAdding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
           </button>
         </form>
+      )}
+
+      {/* Sniff mode */}
+      {mode === 'sniff' && (
+        <Suspense fallback={<div className="flex items-center justify-center py-4"><Loader2 className="w-5 h-5 animate-spin text-white/40" /></div>}>
+          <LinkSniffer onSelectVideo={onAdd} />
+        </Suspense>
       )}
 
       {/* Error (search mode) */}
