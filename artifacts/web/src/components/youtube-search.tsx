@@ -148,7 +148,7 @@ export default function YoutubeSearch({ onAdd, onSniffAdd, isAdding, lang = 'en'
             )}
           >
             <Scan className="w-3.5 h-3.5" />
-            استخراج
+            المتصفح الذكي
           </button>
         )}
       </div>

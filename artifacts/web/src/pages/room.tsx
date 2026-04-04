@@ -445,6 +445,16 @@ export default function RoomPage() {
   }, [relayStream, isRelaying, users, you, callAllPeers]);
 
   useEffect(() => {
+    if (!isDJ || !isCurrentUsingProxy || isRelaying) return;
+    const stream = playerRef.current?.captureStream();
+    if (stream && stream.getTracks().length > 0) {
+      setRelayStream(stream);
+      setIsRelaying(true);
+      socket?.emit('relay-mode', { active: true });
+    }
+  }, [isDJ, isCurrentUsingProxy, isRelaying, socket]);
+
+  useEffect(() => {
     if (localStream && users.length > 1) {
       const others = users.filter(u => u.socketId !== you?.socketId).map(u => u.socketId);
       if (others.length > 0) callAllPeers(others);
