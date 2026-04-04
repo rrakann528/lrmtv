@@ -1,34 +1,6 @@
 import puppeteer, { type Browser } from "puppeteer-core";
 import * as fs from "fs";
-
-const ALLOWED_DOMAINS = [
-  "egybest",
-  "shahid4u",
-  "faselhd",
-  "mycima",
-  "cimaclub",
-  "cimalek",
-  "akwam",
-  "arabseed",
-  "wecima",
-  "movizland",
-  "cima4u",
-  "egy.best",
-  "shahed4u",
-  "yallashoot",
-  "koora",
-  "kooralive",
-  "yalla-shoot",
-  "yallalive",
-  "beinmatch",
-  "as-goal",
-  "livehd7",
-  "kora-online",
-  "koooragoal",
-  "yalla-shoot",
-];
-
-const DOMAIN_TLDS = [".com", ".net", ".org", ".tv", ".me", ".io", ".co", ".xyz"];
+import * as net from "net";
 
 const VIDEO_EXTENSIONS = [
   ".mp4",
@@ -40,6 +12,9 @@ const VIDEO_EXTENSIONS = [
   ".flv",
   ".mov",
   ".mpd",
+  ".f4v",
+  ".ogv",
+  ".3gp",
 ];
 
 const VIDEO_CONTENT_TYPES = [
@@ -48,6 +23,8 @@ const VIDEO_CONTENT_TYPES = [
   "application/vnd.apple.mpegurl",
   "application/dash+xml",
   "application/octet-stream",
+  "binary/octet-stream",
+  "application/vnd.ms-sstr+xml",
 ];
 
 const IGNORE_PATTERNS = [
@@ -78,27 +55,28 @@ const IGNORE_PATTERNS = [
   ".ttf",
 ];
 
-export function isDomainAllowed(url: string): boolean {
-  try {
-    const hostname = new URL(url).hostname.toLowerCase();
-    return ALLOWED_DOMAINS.some((d) => {
-      for (const tld of DOMAIN_TLDS) {
-        const full = `${d}${tld}`;
-        if (hostname === full || hostname.endsWith(`.${full}`)) return true;
-      }
-      if (hostname === d || hostname.endsWith(`.${d}`)) return true;
-      return false;
-    });
-  } catch {
+function isPrivateIp(hostname: string): boolean {
+  if (hostname === "localhost") return true;
+  if (net.isIPv4(hostname)) {
+    const parts = hostname.split(".").map(Number);
+    if (parts[0] === 127) return true;
+    if (parts[0] === 10) return true;
+    if (parts[0] === 192 && parts[1] === 168) return true;
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+    if (parts[0] === 169 && parts[1] === 254) return true;
+    if (parts[0] === 0) return true;
+    if (hostname === "255.255.255.255") return true;
+    if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true;
     return false;
   }
-}
-
-function isPrivateIp(hostname: string): boolean {
-  if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") return true;
-  if (hostname.startsWith("10.") || hostname.startsWith("192.168.") || hostname.startsWith("172.")) return true;
-  if (hostname.startsWith("169.254.")) return true;
-  if (hostname.startsWith("0.") || hostname === "0.0.0.0") return true;
+  if (net.isIPv6(hostname)) {
+    const lower = hostname.toLowerCase();
+    if (lower === "::1") return true;
+    if (lower.startsWith("fe80:")) return true;
+    if (lower.startsWith("fc") || lower.startsWith("fd")) return true;
+    if (lower === "::") return true;
+    return false;
+  }
   return false;
 }
 
@@ -109,7 +87,7 @@ function isVideoUrl(url: string): boolean {
     const idx = lower.indexOf(ext);
     if (idx === -1) return false;
     const afterExt = lower[idx + ext.length];
-    return !afterExt || afterExt === "?" || afterExt === "&" || afterExt === "#";
+    return !afterExt || afterExt === "?" || afterExt === "&" || afterExt === "#" || afterExt === "/";
   });
 }
 
@@ -133,7 +111,7 @@ function scoreUrl(url: string): number {
   if (lower.includes("embed")) score += 2;
   if (lower.includes("stream")) score += 2;
   if (lower.includes("cdn")) score += 1;
-  if (lower.includes("ad") && !lower.includes("load")) score -= 5;
+  if (lower.includes("ad") && !lower.includes("load") && !lower.includes("download")) score -= 5;
   return score;
 }
 
@@ -153,7 +131,7 @@ function detectType(url: string): "m3u8" | "mp4" | "mpd" | "other" {
   const lower = url.toLowerCase();
   if (lower.includes(".m3u8")) return "m3u8";
   if (lower.includes(".mpd")) return "mpd";
-  if (lower.includes(".mp4") || lower.includes(".webm") || lower.includes(".mkv")) return "mp4";
+  if (lower.includes(".mp4") || lower.includes(".webm") || lower.includes(".mkv") || lower.includes(".f4v")) return "mp4";
   return "other";
 }
 
@@ -210,11 +188,14 @@ function findChromiumPath(): string {
 }
 
 const USER_AGENTS = [
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15",
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:137.0) Gecko/20100101 Firefox/137.0",
+  "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:137.0) Gecko/20100101 Firefox/137.0",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36 Edg/136.0.0.0",
 ];
 
 function randomUA(): string {
@@ -222,10 +203,44 @@ function randomUA(): string {
 }
 
 const STEALTH_SCRIPT = `
-  Object.defineProperty(navigator, 'webdriver', { get: () => false });
-  Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+  Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+  delete navigator.__proto__.webdriver;
+
+  Object.defineProperty(navigator, 'plugins', {
+    get: () => {
+      const p = [
+        { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+        { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' },
+        { name: 'Native Client', filename: 'internal-nacl-plugin', description: '' },
+      ];
+      p.length = 3;
+      return p;
+    },
+  });
+
   Object.defineProperty(navigator, 'languages', { get: () => ['ar', 'en-US', 'en'] });
-  window.chrome = { runtime: {} };
+
+  window.chrome = {
+    app: { isInstalled: false, InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' }, RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' } },
+    runtime: { OnInstalledReason: { CHROME_UPDATE: 'chrome_update', INSTALL: 'install', SHARED_MODULE_UPDATE: 'shared_module_update', UPDATE: 'update' }, OnRestartRequiredReason: { APP_UPDATE: 'app_update', OS_UPDATE: 'os_update', PERIODIC: 'periodic' }, PlatformArch: { ARM: 'arm', MIPS: 'mips', MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64' }, PlatformNaclArch: { ARM: 'arm', MIPS: 'mips', MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64' }, PlatformOs: { ANDROID: 'android', CROS: 'cros', LINUX: 'linux', MAC: 'mac', OPENBSD: 'openbsd', WIN: 'win' }, RequestUpdateCheckStatus: { NO_UPDATE: 'no_update', THROTTLED: 'throttled', UPDATE_AVAILABLE: 'update_available' }, connect: function() {}, sendMessage: function() {} },
+  };
+
+  const origQuery = window.navigator.permissions.query;
+  window.navigator.permissions.query = (params) =>
+    params.name === 'notifications'
+      ? Promise.resolve({ state: Notification.permission })
+      : origQuery(params);
+
+  Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 0 });
+  Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
+  Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
+
+  const getParameter = WebGLRenderingContext.prototype.getParameter;
+  WebGLRenderingContext.prototype.getParameter = function(param) {
+    if (param === 37445) return 'Intel Inc.';
+    if (param === 37446) return 'Intel Iris OpenGL Engine';
+    return getParameter.call(this, param);
+  };
 `;
 
 async function launchBrowser(): Promise<Browser> {
@@ -249,6 +264,8 @@ async function launchBrowser(): Promise<Browser> {
       "--single-process",
       "--disable-features=VizDisplayCompositor",
       "--disable-blink-features=AutomationControlled",
+      "--window-size=1920,1080",
+      "--lang=ar,en-US",
     ],
   });
 }
@@ -289,9 +306,19 @@ export async function sniffVideoUrls(
     activeBrowsers.set(roomSlug, { browser, startedAt: Date.now() });
     const page = await browser.newPage();
 
-    await page.setViewport({ width: 1280, height: 720 });
+    await page.setViewport({ width: 1920, height: 1080 });
     await page.setUserAgent(randomUA());
     await page.evaluateOnNewDocument(STEALTH_SCRIPT);
+
+    await page.setExtraHTTPHeaders({
+      'Accept-Language': 'ar,en-US;q=0.9,en;q=0.8',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'none',
+      'Sec-Fetch-User': '?1',
+      'Upgrade-Insecure-Requests': '1',
+    });
 
     await page.setRequestInterception(true);
 
@@ -368,11 +395,14 @@ export async function sniffVideoUrls(
     if (!earlyHit) {
       const pageVideoUrls = await page.evaluate(() => {
         const urls: string[] = [];
-        document.querySelectorAll("video, source, iframe").forEach((el) => {
+        document.querySelectorAll("video, source, iframe, embed, object").forEach((el) => {
           const src =
             el.getAttribute("src") ||
             el.getAttribute("data-src") ||
-            el.getAttribute("data-lazy-src");
+            el.getAttribute("data-lazy-src") ||
+            el.getAttribute("data-url") ||
+            el.getAttribute("data-video-src") ||
+            el.getAttribute("content");
           if (src) urls.push(src);
         });
         document.querySelectorAll("a[href]").forEach((el) => {
@@ -380,7 +410,9 @@ export async function sniffVideoUrls(
           if (
             href.includes(".mp4") ||
             href.includes(".m3u8") ||
-            href.includes(".mkv")
+            href.includes(".mkv") ||
+            href.includes(".mpd") ||
+            href.includes(".webm")
           ) {
             urls.push(href);
           }
@@ -390,17 +422,35 @@ export async function sniffVideoUrls(
         scripts.forEach((script) => {
           const text = script.textContent || "";
           const urlMatches = text.match(
-            /https?:\/\/[^\s"'<>]+\.(mp4|m3u8|mpd|mkv|webm)[^\s"'<>]*/gi
+            /https?:\/\/[^\s"'<>\\]+\.(mp4|m3u8|mpd|mkv|webm|f4v|ts|flv)[^\s"'<>\\]*/gi
           );
           if (urlMatches) urls.push(...urlMatches);
+
+          const srcMatches = text.match(
+            /(?:src|file|url|source|video_url|stream_url|manifest|playlist)\s*[:=]\s*["']?(https?:\/\/[^\s"'<>\\]+)/gi
+          );
+          if (srcMatches) {
+            srcMatches.forEach(m => {
+              const u = m.match(/https?:\/\/[^\s"'<>\\]+/);
+              if (u) urls.push(u[0]);
+            });
+          }
         });
+
+        document.querySelectorAll('meta[property], meta[name]').forEach(meta => {
+          const content = meta.getAttribute('content') || '';
+          if (content.includes('.mp4') || content.includes('.m3u8') || content.includes('.mpd')) {
+            urls.push(content);
+          }
+        });
+
         return urls;
       }).catch(() => [] as string[]);
 
       for (const u of pageVideoUrls) {
         try {
           const abs = new URL(u, targetUrl).href;
-          if (isVideoUrl(abs) || abs.includes(".m3u8") || abs.includes(".mp4")) {
+          if (isVideoUrl(abs) || abs.includes(".m3u8") || abs.includes(".mp4") || abs.includes(".mpd")) {
             foundUrls.set(abs, { url: abs });
           }
         } catch {}
@@ -408,7 +458,7 @@ export async function sniffVideoUrls(
 
       if (!earlyHit) {
         const iframes = await page.$$("iframe");
-        for (const iframe of iframes.slice(0, 3)) {
+        for (const iframe of iframes.slice(0, 5)) {
           try {
             const src = await iframe.evaluate((el) => el.src);
             if (!src || src === "about:blank") continue;
@@ -419,15 +469,15 @@ export async function sniffVideoUrls(
             const iframeVideoUrls = await frame
               .evaluate(() => {
                 const urls: string[] = [];
-                document.querySelectorAll("video, source").forEach((el) => {
-                  const s = el.getAttribute("src") || el.getAttribute("data-src");
+                document.querySelectorAll("video, source, embed, object").forEach((el) => {
+                  const s = el.getAttribute("src") || el.getAttribute("data-src") || el.getAttribute("data-url");
                   if (s) urls.push(s);
                 });
                 const scripts = document.querySelectorAll("script");
                 scripts.forEach((script) => {
                   const text = script.textContent || "";
                   const matches = text.match(
-                    /https?:\/\/[^\s"'<>]+\.(mp4|m3u8|mpd|mkv|webm)[^\s"'<>]*/gi
+                    /https?:\/\/[^\s"'<>\\]+\.(mp4|m3u8|mpd|mkv|webm|f4v|ts)[^\s"'<>\\]*/gi
                   );
                   if (matches) urls.push(...matches);
                 });
@@ -447,7 +497,14 @@ export async function sniffVideoUrls(
     }
 
     if (foundUrls.size === 0 && !earlyHit) {
-      await new Promise((r) => setTimeout(r, 3000));
+      try {
+        await page.evaluate(() => {
+          document.querySelectorAll('button, .play-btn, [class*="play"], [id*="play"]').forEach(el => {
+            if (el instanceof HTMLElement) el.click();
+          });
+        });
+        await new Promise((r) => setTimeout(r, 5000));
+      } catch {}
     }
 
     const results = Array.from(foundUrls.values())
@@ -458,7 +515,7 @@ export async function sniffVideoUrls(
         score: scoreUrl(entry.url),
       }))
       .sort((a, b) => b.score - a.score)
-      .slice(0, 10);
+      .slice(0, 15);
 
     console.log(`[link-sniffer] done room=${roomSlug} found=${results.length} earlyHit=${earlyHit} duration=${Date.now() - startTime}ms`);
 

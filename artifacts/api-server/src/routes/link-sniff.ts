@@ -1,16 +1,54 @@
 import { Router, type IRouter, type Response } from "express";
 import rateLimit from "express-rate-limit";
 import { eq } from "drizzle-orm";
+import * as dns from "dns/promises";
+import * as net from "net";
 import { db, roomsTable } from "@workspace/db";
 import { requireAuth, type AuthRequest } from "../middlewares/auth";
-import { sniffVideoUrls, isDomainAllowed } from "../lib/link-sniffer";
+import { sniffVideoUrls } from "../lib/link-sniffer";
 import { isUserDjInRoom } from "../lib/socket";
 
-function isPrivateHost(hostname: string): boolean {
-  if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") return true;
-  if (hostname.startsWith("10.") || hostname.startsWith("192.168.") || hostname.startsWith("172.")) return true;
-  if (hostname.startsWith("169.254.") || hostname.startsWith("0.") || hostname === "0.0.0.0") return true;
+function isPrivateIpAddr(ip: string): boolean {
+  if (net.isIPv4(ip)) {
+    const parts = ip.split(".").map(Number);
+    if (parts[0] === 127) return true;
+    if (parts[0] === 10) return true;
+    if (parts[0] === 192 && parts[1] === 168) return true;
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+    if (parts[0] === 169 && parts[1] === 254) return true;
+    if (parts[0] === 0) return true;
+    if (ip === "255.255.255.255") return true;
+    if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true;
+    return false;
+  }
+  if (net.isIPv6(ip)) {
+    const lower = ip.toLowerCase();
+    if (lower === "::1") return true;
+    if (lower.startsWith("fe80:")) return true;
+    if (lower.startsWith("fc") || lower.startsWith("fd")) return true;
+    if (lower === "::") return true;
+    return false;
+  }
   return false;
+}
+
+function isPrivateHost(hostname: string): boolean {
+  if (hostname === "localhost") return true;
+  return isPrivateIpAddr(hostname);
+}
+
+async function resolvedToPrivate(hostname: string): Promise<boolean> {
+  if (isPrivateHost(hostname)) return true;
+  if (net.isIP(hostname)) return isPrivateIpAddr(hostname);
+  try {
+    const addresses = await dns.resolve4(hostname).catch(() => [] as string[]);
+    const addresses6 = await dns.resolve6(hostname).catch(() => [] as string[]);
+    const all = [...addresses, ...addresses6];
+    if (all.length === 0) return false;
+    return all.some(isPrivateIpAddr);
+  } catch {
+    return false;
+  }
 }
 
 const router: IRouter = Router();
@@ -77,16 +115,8 @@ router.post(
       return;
     }
 
-    if (isPrivateHost(parsedUrl.hostname)) {
+    if (await resolvedToPrivate(parsedUrl.hostname)) {
       res.status(400).json({ error: "رابط غير مسموح به" });
-      return;
-    }
-
-    if (!isDomainAllowed(url)) {
-      res.status(403).json({
-        error: "هذا الموقع غير مدعوم حالياً",
-        hint: "المواقع المدعومة: EgyBest, Shahid4u, FaselHD, MyCima, Akwam, ArabSeed والمزيد",
-      });
       return;
     }
 
