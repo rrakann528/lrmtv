@@ -102,7 +102,6 @@ export default function RoomPage() {
   const [mediaConfirm, setMediaConfirm] = useState(false);
 
   const playerRef = useRef<SmartPlayerHandle>(null);
-  const [isCurrentUsingProxy, setIsCurrentUsingProxy] = useState<boolean | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [relayStream, setRelayStream] = useState<MediaStream | null>(null);
   const [isRelaying, setIsRelaying] = useState(false);
@@ -435,10 +434,10 @@ export default function RoomPage() {
     const url = syncState.url;
     const srcType = url ? detectSourceType(url) : null;
     const isDirectStream = srcType === 'm3u8' || srcType === 'mp4' || srcType === 'other';
-    if (!isCurrentUsingProxy && !isDirectStream) return;
+    if (!isDirectStream) return;
 
     let attempts = 0;
-    const maxAttempts = 10;
+    const maxAttempts = 15;
     const tryCapture = () => {
       if (isRelaying || attempts >= maxAttempts) return;
       attempts++;
@@ -453,7 +452,7 @@ export default function RoomPage() {
     };
     const timer = setTimeout(tryCapture, 500);
     return () => clearTimeout(timer);
-  }, [isDJ, isCurrentUsingProxy, isRelaying, socket, syncState.url]);
+  }, [isDJ, isRelaying, socket, syncState.url]);
 
   useEffect(() => {
     if (localStream && users.length > 1) {
@@ -658,7 +657,6 @@ export default function RoomPage() {
                   initialTime={syncState.time}
                   isLiveHint={syncState.isLive}
                   onIsLive={emitStreamType}
-                  onUrlResolved={(_url, proxy) => setIsCurrentUsingProxy(proxy)}
                   onReady={() => { readyTimeRef.current = Date.now(); setPlayerReady(true); }}
                   onPlay={handlePlay}
                   onPause={handlePause}
@@ -802,7 +800,6 @@ export default function RoomPage() {
                   canControl={canControl}
                   currentUrl={syncState.url}
                   isPlaying={syncState.playing}
-                  isCurrentUsingProxy={isCurrentUsingProxy}
                   emitSync={emitSync}
                   emitPlaylistUpdate={emitPlaylistUpdate}
                 />

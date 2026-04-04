@@ -114,8 +114,6 @@ interface SmartPlayerProps {
   isLiveHint?: boolean;
   /** Fired when HLS manifest is parsed and live/VOD status is known */
   onIsLive?: (isLive: boolean) => void;
-  /** Fired once the playable URL is resolved — tells parent if stream uses proxy */
-  onUrlResolved?: (url: string, isProxy: boolean) => void;
   sponsorSkipEnabled?: boolean;
   /** User join/leave notifications to show as fullscreen overlays */
   roomNotifications?: RoomEventNotif[];
@@ -142,7 +140,6 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       externalSubtitle,
       isLiveHint = false,
       onIsLive,
-      onUrlResolved,
       sponsorSkipEnabled = true,
       roomNotifications = [],
     },
@@ -233,93 +230,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
     const videoType = detectVideoType(normalizedUrl);
     const isHls = videoType === 'hls';
 
-    // On iOS Safari, direct mp4/html5 video works natively without proxy.
-    const isIosBrowser = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-                         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-
-    // HTTP URLs are always proxied when served from HTTPS — browsers block
-    // mixed-content fetch() entirely, so a CORS check would always fail.
-    const isHttpUrl = normalizedUrl.startsWith('http://');
-
-    // Types that could potentially bypass the proxy if the server allows CORS
-    const mightNeedProxy = isHttpUrl || (isIosBrowser
-      ? (videoType === 'hls' || videoType === 'dash')
-      : (videoType === 'hls' || videoType === 'dash' || videoType === 'html5'));
-
-    // For HLS/m3u8 streams, use the API server proxy which rewrites segment URLs
-    // inside the manifest so HLS.js can fetch them correctly through the proxy.
-    // For other types (mp4, html5), use the lightweight CF Worker proxy.
-    const proxyUrl = isHls
-      ? `/api/proxy/stream?url=${encodeURIComponent(normalizedUrl)}`
-      : `https://lrmtv-proxy.rrakann528.workers.dev/?url=${encodeURIComponent(normalizedUrl)}`;
-
-    // ── Smart proxy resolution ────────────────────────────────────────────────
-    // Player is hidden (corsChecking=true) until the CORS HEAD check resolves.
-    // This guarantees Cast/AirPlay only ever sees ONE video source — never
-    // the proxy first and then the direct URL.
-    const [playableUrl, setPlayableUrl] = useState<string>(
-      mightNeedProxy ? proxyUrl : normalizedUrl
-    );
-    const [corsChecking, setCorsChecking] = useState(mightNeedProxy);
-
-    useEffect(() => {
-      if (!mightNeedProxy) {
-        // YouTube / Twitch / non-proxied — set immediately, no check needed
-        setPlayableUrl(normalizedUrl);
-        setCorsChecking(false);
-        onUrlResolved?.(normalizedUrl, false);
-        return;
-      }
-
-      // HTTP URLs are always blocked by mixed-content policy on an HTTPS page —
-      // skip the CORS check entirely and go straight to proxy.
-      if (isHttpUrl) {
-        setPlayableUrl(proxyUrl);
-        setCorsChecking(false);
-        onUrlResolved?.(proxyUrl, true);
-        return;
-      }
-
-      // Hold playback until we know which URL wins
-      setPlayableUrl(proxyUrl);
-      setCorsChecking(true);
-
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 5000); // 5 s max wait (slow mobile networks)
-
-      let resolvedUrl = proxyUrl;
-      // Use a simple GET without special headers — avoids CORS preflight on iOS
-      // Safari which sometimes rejects OPTIONS responses from CDNs. Any 2xx/3xx/4xx
-      // response (even partial) confirms the server sends CORS headers → direct OK.
-      fetch(normalizedUrl, {
-        method: 'GET',
-        mode: 'cors',
-        signal: controller.signal,
-      })
-        .then((res) => {
-          // Any response (even 4xx/206) means CORS headers were present → direct OK
-          if (res.status < 500) {
-            resolvedUrl = normalizedUrl;
-            setPlayableUrl(normalizedUrl);
-          }
-          // 5xx or unreachable → keep proxy URL already set above
-        })
-        .catch(() => {
-          // NetworkError = CORS blocked or server unreachable → keep proxy
-        })
-        .finally(() => {
-          clearTimeout(timer);
-          // Reveal the player now that we have a definitive URL
-          setCorsChecking(false);
-          onUrlResolved?.(resolvedUrl, resolvedUrl === proxyUrl);
-        });
-
-      return () => {
-        controller.abort();
-        clearTimeout(timer);
-      };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [normalizedUrl]);
+    const playableUrl = normalizedUrl;
 
     useEffect(() => {
       setError(null);
@@ -730,43 +641,9 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       setError('playback');
     }, [videoType, normalizedUrl]);
 
-    // ── HLS: custom player with built-in controls ────────────────────────────
     if (isHls) {
-      // workers.dev URLs only work via native iOS video — no free cloud proxy
-      // can access them. But some workers.dev URLs have open CORS headers and work
-      // directly from the user's browser — let the CORS check run first.
-      // Only show the error AFTER the check confirms proxy is needed (CORS failed).
-      const isWorkersDevUrl = normalizedUrl.includes('.workers.dev');
-      if (isWorkersDevUrl && !isIosBrowser && !corsChecking && playableUrl !== normalizedUrl) {
-        return (
-          <div ref={containerRef} className="absolute inset-0 bg-black flex items-center justify-center">
-            <div className="text-center space-y-3 px-8">
-              <div className="w-14 h-14 rounded-full bg-amber-500/15 flex items-center justify-center mx-auto">
-                <svg xmlns="http://www.w3.org/2000/svg" className="w-7 h-7 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-                  <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-                </svg>
-              </div>
-              <p className="text-white font-semibold text-base">{t('workersDevError')}</p>
-              <p className="text-white/50 text-sm max-w-xs mx-auto leading-relaxed">{t('workersDevErrorDesc')}</p>
-            </div>
-          </div>
-        );
-      }
-
       return (
         <div ref={containerRef} className="absolute inset-0 bg-black">
-          {/* While the CORS check is running, hide the player entirely so
-              Cast/AirPlay only ever sees ONE video source (no proxy→direct switch). */}
-          {corsChecking ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-10">
-              <span className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-              <span className="text-[12px] text-white/60">
-                {lang === 'ar' ? 'جارٍ التحقق من الاتصال…' : 'Checking connection…'}
-              </span>
-            </div>
-          ) : (
-            <>
               <HlsPlayer
                 key={playableUrl}
                 ref={hlsPlayerRef}
@@ -818,8 +695,6 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
                   ))}
                 </AnimatePresence>
               </div>
-            </>
-          )}
         </div>
       );
     }

@@ -48,8 +48,7 @@ const token = conns[0].settings.access_token;
 - **API codegen**: Orval (from OpenAPI spec)
 - **Build**: esbuild (CJS bundle)
 - **Video**: SmartPlayer — HLS.js, dash.js, react-player (YouTube/Twitch/Vimeo), HTML5, SponsorBlock auto-skip
-- **Stream Proxy**: Server-side proxy (`stream-proxy.ts`) rewrites HLS/DASH manifests and proxies segments with correct Referer/Origin headers to bypass CORS restrictions
-- **WebRTC Video Relay**: DJ's browser captures the video player stream via `captureStream()` and broadcasts it P2P to all room viewers. Auto-activates for direct m3u8/mp4/proxy URLs. Viewers see the video as a live stream from the host — no contact with the original source server needed
+- **WebRTC P2P Relay (Kosmi-style)**: No server-side video proxy. DJ's browser plays the video directly, captures via `captureStream()`, and broadcasts P2P to all viewers via WebRTC. Auto-activates for direct m3u8/mp4/other URLs. Server is signaling-only — zero video bandwidth on server. Viewers see the video as a live WebRTC stream from the host
 - **Real-time**: Socket.io (sync, chat, WebRTC video relay)
 - **State**: Zustand
 - **i18n**: Custom React context — 6 لغات (ar, en, fr, tr, es, id) — مفتاح LS: `lrmtv_lang`
@@ -79,9 +78,8 @@ artifacts-monorepo/
 │   │       ├── lib/socket.ts          ← Socket.io events (sync, chat, heartbeat 1.5s)
 │   │       ├── routes/admin.ts        ← 26 admin API endpoints
 │   │       ├── routes/rooms.ts        ← Room CRUD
-│   │       ├── routes/stream-proxy.ts  ← HLS/DASH proxy with m3u8 rewrite (relative URLs)
-│   │       ├── routes/hls-proxy.ts    ← detect + check فقط (البروكسي انتقل لـ CF Worker)
-│   │       └── middlewares/security.ts ← rate limiter (proxy paths exempt)
+│   │       ├── routes/subtitles.ts     ← Subtitle search + proxy (text-only CORS bypass)
+│   │       └── middlewares/security.ts ← rate limiter
 │   └── web/
 │       └── src/
 │           ├── pages/room.tsx         ← Room page + sync logic + "Press to Watch" overlay
@@ -191,12 +189,13 @@ cd cf-worker && npx wrangler deploy
 ```
 ثم حط الرابط في `VITE_CF_PROXY_URL` (مثلاً `https://lrmtv-proxy.username.workers.dev`)
 
-## API Server Proxy (hls-proxy.ts)
+## WebRTC P2P Relay (بدون بروكسي — مثل Kosmi)
 
-- `GET /api/proxy/detect?url=...` — كشف نوع الفيديو (hls/dash/mp4/webm)
-- `GET /api/proxy/check?url=...` — فحص وصول السيرفر للرابط (كشف IP-lock)
-- تم حذف manifest/segment/video من السيرفر — الآن كلها عبر CF Worker
-- **Rate limiter**: مسارات `/proxy/*` و`/auth/me` مُعفاة من حد 300 req/15min
+- السيرفر وظيفته **إشارات فقط (Signaling)** — لا يمر أي فيديو عبره
+- الـ DJ يشغّل الفيديو في متصفحه → `captureStream()` → WebRTC P2P لكل المشاهدين
+- Auto-relay يفعّل تلقائياً لأي رابط مباشر (m3u8/mp4/other) مع retry حتى 15 محاولة
+- المشاهدين يشوفون البث كـ WebRTC stream مباشر من الـ Host
+- لا حاجة لـ CORS proxy — الفيديو يُشغّل محلياً عند الـ DJ فقط
 
 ---
 
@@ -383,8 +382,7 @@ cd cf-worker && npx wrangler deploy
 10. **iOS Safari HLS Fix**: كشف iOS Safari (`!Hls.isSupported()`) → تشغيل native `<video>` مباشرة مع timeout 25 ثانية + `webkit-playsinline` + `preload="auto"`
 11. **PWA Background Keep-Alive**: hook `use-background-alive.ts` — مذبذب Web Audio صامت (يمنع iOS من تعليق التطبيق) + Wake Lock API (يمنع نوم الشاشة) + Media Session API (أزرار التحكم في شاشة القفل)
 12. **Guest Black Screen Fix**: جميع أخطاء `play()` الآن تعرض "اضغط للتشغيل" بدل شاشة سوداء صامتة — يشمل أخطاء native fallback
-13. **Proxy Relative URLs**: `buildProxyBase` في `stream-proxy.ts` يستخدم مسار نسبي `/api/proxy/stream` بدل رابط مطلق يعتمد على headers (أكثر أماناً مع Railway)
-14. **Fullscreen Chat Overflow Fix**: `break-all` + `whitespace-pre-wrap` + `overflow-hidden` على فقاعات الرسائل — النصوص الطويلة تنكسر داخل الفقاعة
+13. **Fullscreen Chat Overflow Fix**: `break-all` + `whitespace-pre-wrap` + `overflow-hidden` على فقاعات الرسائل — النصوص الطويلة تنكسر داخل الفقاعة
 
 ---
 

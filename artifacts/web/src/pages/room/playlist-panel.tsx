@@ -27,8 +27,6 @@ interface PlaylistPanelProps {
   canControl: boolean;
   currentUrl: string | null;
   isPlaying: boolean;
-  /** null = still checking, true = via proxy, false = direct */
-  isCurrentUsingProxy?: boolean | null;
   emitSync: (time: number, playing: boolean, url: string | null) => void;
   emitPlaylistUpdate: (action: string) => void;
 }
@@ -53,7 +51,6 @@ function sourceIcon(sourceType: string) {
 
 export default function PlaylistPanel({
   slug, isDJ, canControl, currentUrl, isPlaying,
-  isCurrentUsingProxy = null,
   emitSync, emitPlaylistUpdate,
 }: PlaylistPanelProps) {
   const { t } = useI18n();
@@ -230,16 +227,6 @@ export default function PlaylistPanel({
                       {sourceIcon(item.sourceType)}
                       {item.addedBy ? ` • ${item.addedBy}` : ''}
                     </p>
-                    {isCurrent && isCurrentUsingProxy !== null && (
-                      <span className={cn(
-                        'text-[9px] font-semibold px-1.5 py-0.5 rounded-full shrink-0',
-                        isCurrentUsingProxy
-                          ? 'bg-amber-500/20 text-amber-400'
-                          : 'bg-emerald-500/20 text-emerald-400',
-                      )}>
-                        {isCurrentUsingProxy ? '⚡ بروكسي' : '✓ مباشر'}
-                      </span>
-                    )}
                   </div>
                 </div>
 

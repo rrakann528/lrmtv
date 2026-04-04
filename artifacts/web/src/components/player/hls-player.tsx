@@ -534,54 +534,40 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
       // because computedTime may overshoot the available segment window.
       const startPos = isLiveHint ? -1 : (initialTimeRef.current > 2 ? initialTimeRef.current : -1);
 
-      const isProxiedStream = src.includes('/api/proxy/stream') || src.includes('lrmtv-proxy.rrakann528.workers.dev');
-      // iOS devices have limited RAM — use smaller buffers to avoid decoder pressure
       const isIosDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
                           (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
       const HLS_CONFIG: Partial<Hls['config']> = {
-        // On iOS, SharedArrayBuffer is unavailable — workers cause silent failures
         enableWorker: !isIosDevice,
         lowLatencyMode: false,
         startPosition: startPos,
-        startFragPrefetch: !isIosDevice, // avoid CPU spike on iOS cold-start
+        startFragPrefetch: !isIosDevice,
 
         liveSyncDurationCount:       2,
         liveMaxLatencyDurationCount: 4,
         maxLiveSyncPlaybackRate:     1.2,
 
-        // Buffer tuning:
-        // - Proxy path: keep buffers moderate so we don't flood the API server with
-        //   hundreds of simultaneous segment requests. 30 s ahead is more than enough
-        //   for smooth playback while keeping server load reasonable.
-        // - iOS: keep small to avoid exhausting mobile RAM.
-        backBufferLength:   isIosDevice ? 5  : (isProxiedStream ? 8  : 20),
-        maxBufferLength:    isIosDevice ? 20 : (isProxiedStream ? 30 : 60),
-        maxMaxBufferLength: isIosDevice ? 40 : (isProxiedStream ? 60 : 120),
+        backBufferLength:   isIosDevice ? 5  : 20,
+        maxBufferLength:    isIosDevice ? 20 : 60,
+        maxMaxBufferLength: isIosDevice ? 40 : 120,
 
-        // Manifest/level retries: generous for proxy (high latency expected).
-        // Fragment retries: proxy path — fail FAST (4 retries, 12 s timeout) so HLS.js
-        // can drop to a lower quality rather than waiting 25 s per failed segment.
-        manifestLoadingMaxRetry:   isProxiedStream ? 3 : 1,
-        manifestLoadingTimeOut:    isProxiedStream ? 15_000 : 6_000,
-        manifestLoadingRetryDelay: isProxiedStream ? 1_000 : 500,
-        levelLoadingMaxRetry:      isProxiedStream ? 4 : 3,
-        levelLoadingTimeOut:       isProxiedStream ? 15_000 : 10_000,
-        levelLoadingRetryDelay:    isProxiedStream ? 1_000 : 500,
-        fragLoadingMaxRetry:       isProxiedStream ? 4 : 5,
-        fragLoadingTimeOut:        isProxiedStream ? 12_000 : 12_000,
-        fragLoadingRetryDelay:     isProxiedStream ? 1_000 : 300,
+        manifestLoadingMaxRetry:   1,
+        manifestLoadingTimeOut:    6_000,
+        manifestLoadingRetryDelay: 500,
+        levelLoadingMaxRetry:      3,
+        levelLoadingTimeOut:       10_000,
+        levelLoadingRetryDelay:    500,
+        fragLoadingMaxRetry:       5,
+        fragLoadingTimeOut:        12_000,
+        fragLoadingRetryDelay:     300,
 
-        // Proxy path: start at the LOWEST quality level (0) so the first segments
-        // are small. ABR will ramp up once it has a bandwidth measurement.
-        // Assume a conservative 350 kbps through the proxy so ABR starts low.
-        startLevel:             isIosDevice ? 0 : (isProxiedStream ? 0 : -1),
-        abrEwmaDefaultEstimate: isIosDevice ? 500_000 : (isProxiedStream ? 350_000 : 2_000_000),
-        abrBandWidthFactor:     isIosDevice ? 0.8 : (isProxiedStream ? 0.7 : 0.9),
-        abrBandWidthUpFactor:   isIosDevice ? 0.5 : (isProxiedStream ? 0.4 : 0.7),
+        startLevel:             isIosDevice ? 0 : -1,
+        abrEwmaDefaultEstimate: isIosDevice ? 500_000 : 2_000_000,
+        abrBandWidthFactor:     isIosDevice ? 0.8 : 0.9,
+        abrBandWidthUpFactor:   isIosDevice ? 0.5 : 0.7,
         testBandwidth:          true,
 
         progressive:   true,
-        nudgeMaxRetry: isProxiedStream ? 15 : 10,
+        nudgeMaxRetry: 10,
         nudgeOffset:   0.1,
 
       };
@@ -858,13 +844,7 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         return hls;
       };
 
-      // ── S-HLS chain: Direct → Native → CF-Manifest → CF-Full ────────────────
-      // Order rationale:
-      //   S1 HLS.js direct  — fastest, best quality switching
-      //   S2 native <video>  — no CORS restriction, works for IP-locked streams on any Safari
-      //   S3 CF manifest     — manifest via CF (CORS headers added), segments direct
-      //   S4 CF full proxy   — everything via CF (for fully CORS-blocked, non-IP-locked streams)
-      //   S5 API server proxy — manifest + segments via our own API (handles HTTP→HTTPS, always available)
+      // ── HLS loading chain: HLS.js direct → native <video> fallback ──────────
       const loadViaHls = () => {
         if (cancelled) return;
 
@@ -961,85 +941,29 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
 
         setStatusMsg('hls-direct');
         const canNativeHls = video.canPlayType('application/vnd.apple.mpegurl') !== '';
-        const isProxied = src.includes('/api/proxy/stream') || src.includes('lrmtv-proxy.rrakann528.workers.dev');
-        // isIosSafari: old iOS where MSE is unavailable — must use native <video>.
-        // iOS 17+ supports MSE so Hls.isSupported() returns true there; we keep HLS.js for those.
         const isIosSafari = /iPad|iPhone|iPod/.test(navigator.userAgent) && !Hls.isSupported();
 
-        // Extract original URL if the src is our proxy wrapper
-        let originalUrl: string | undefined;
-        if (isProxied) {
-          try {
-            const qs = src.includes('?') ? src.slice(src.indexOf('?') + 1) : '';
-            const u = new URLSearchParams(qs).get('url');
-            if (u) originalUrl = u;
-          } catch {}
-        }
-
-        if (isIosSafari && canNativeHls) {
-          // iOS Safari: try the ORIGINAL URL first (same as opening directly in Safari)
-          // If that fails after 15s, fall back to our proxy URL
-          if (originalUrl) {
-            s2_native(() => {
-              if (!cancelled) s2_native(undefined, 25_000);
-            }, 15_000, originalUrl);
-          } else {
-            s2_native(undefined, 25_000);
-          }
-        } else if (isProxied && Hls.isSupported()) {
-          if (originalUrl) {
-            // S1: Try HLS.js directly with the original URL first.
-            // The browser has the correct IP for IP-locked streams (e.g. scdns.io).
-            // If the CDN has CORS headers this succeeds without needing the server proxy.
-            const hlsDirect = makeHls(() => {
-              // S1 failed → S2: native <video> with original URL (no CORS restriction,
-              // works for Safari and for any browser when the CDN accepts direct access).
+        if (Hls.isSupported()) {
+          const hls = makeHls(() => {
+            if (canNativeHls) {
               s2_native(() => {
-                if (cancelled) return;
-                // S2 also failed → S5: fall back to server proxy (handles CORS-only blocked,
-                // non-IP-locked streams where the proxy can fetch freely).
-                destroyAll();
-                setStatusMsg('hls-direct');
-                const hlsProxy = makeHls(() => {
-                  s2_native(undefined, 20_000);
-                });
-                hlsRef.current = hlsProxy;
-                hlsProxy.loadSource(src);
-                hlsProxy.attachMedia(video);
-              }, 15_000, originalUrl);
-            });
-            hlsRef.current = hlsDirect;
-            hlsDirect.loadSource(originalUrl);
-            hlsDirect.attachMedia(video);
-          } else {
-            const hls = makeHls(() => {
-              s2_native(undefined, 20_000);
-            });
-            hlsRef.current = hls;
-            hls.loadSource(src);
-            hls.attachMedia(video);
-          }
-        } else if (canNativeHls) {
-          s2_native(() => {
-            if (cancelled) return;
-            if (Hls.isSupported()) {
-              destroyAll();
-              setStatusMsg('hls-direct');
-              const hls = makeHls(() => { setStatusMsg(null); setError('unsupported'); });
-              hlsRef.current = hls;
-              hls.loadSource(src);
-              hls.attachMedia(video);
+                setStatusMsg(null); setError('unsupported');
+              }, 20_000);
             } else {
               setStatusMsg(null); setError('unsupported');
             }
-          }, 15_000);
-        } else if (Hls.isSupported()) {
-          const hls = makeHls(() => {
-            s2_native(undefined, 20_000);
           });
           hlsRef.current = hls;
           hls.loadSource(src);
           hls.attachMedia(video);
+        } else if (isIosSafari && canNativeHls) {
+          s2_native(() => {
+            setStatusMsg(null); setError('unsupported');
+          }, 25_000);
+        } else if (canNativeHls) {
+          s2_native(() => {
+            setStatusMsg(null); setError('unsupported');
+          }, 15_000);
         } else {
           setStatusMsg(null); setError('unsupported');
         }
