@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, lazy, Suspense } from 
 import { Search, Link as LinkIcon, Plus, Loader2, X, Youtube, Scan } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
+import type { Socket } from 'socket.io-client';
 
 const LinkSniffer = lazy(() => import('./link-sniffer'));
 
@@ -20,11 +21,12 @@ interface Props {
   lang?: string;
   isDj?: boolean;
   roomSlug?: string;
+  socket?: Socket | null;
 }
 
 type Mode = 'search' | 'url' | 'sniff';
 
-export default function YoutubeSearch({ onAdd, onSniffAdd, isAdding, lang = 'en', isDj, roomSlug }: Props) {
+export default function YoutubeSearch({ onAdd, onSniffAdd, isAdding, lang = 'en', isDj, roomSlug, socket }: Props) {
   const { t } = useI18n();
   const [mode, setMode] = useState<Mode>('search');
   const [query, setQuery]   = useState('');
@@ -211,7 +213,7 @@ export default function YoutubeSearch({ onAdd, onSniffAdd, isAdding, lang = 'en'
       {/* Sniff mode */}
       {mode === 'sniff' && (
         <Suspense fallback={<div className="flex items-center justify-center py-4"><Loader2 className="w-5 h-5 animate-spin text-white/40" /></div>}>
-          <LinkSniffer onSelectVideo={onSniffAdd || onAdd} roomSlug={roomSlug || ''} />
+          <LinkSniffer onSelectVideo={onSniffAdd || onAdd} roomSlug={roomSlug || ''} socket={socket} />
         </Suspense>
       )}
 

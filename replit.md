@@ -49,7 +49,8 @@ const token = conns[0].settings.access_token;
 - **Build**: esbuild (CJS bundle)
 - **Video**: SmartPlayer — HLS.js, dash.js, react-player (YouTube/Twitch/Vimeo), HTML5, SponsorBlock auto-skip
 - **Shared Browser (Kosmi-style)**: DJ opens Playwright browser → screencast frames broadcast to ALL room users via Socket.IO → everyone sees the same browser view. No URL extraction or HLS proxy needed.
-- **Link Sniffer**: Puppeteer-core + system Chromium (network interception for video URLs)
+- **Link Sniffer**: Puppeteer-core + system Chromium (network interception for video URLs). Two modes: **Auto** (headless hunt) and **Manual** (Interactive Cloud Browser — CDP screencast streamed to client via Socket.IO, user clicks play manually, server catches video URLs from network traffic, 2-min timeout)
+- **Cloud Browser**: `artifacts/api-server/src/lib/cloud-browser.ts` — authorization via JWT + DJ/admin role check, DNS-based SSRF protection, max 2 concurrent sessions
 - **Real-time**: Socket.io (sync, chat, WebRTC video relay)
 - **State**: Zustand
 - **i18n**: Custom React context — 6 لغات (ar, en, fr, tr, es, id) — مفتاح LS: `lrmtv_lang`

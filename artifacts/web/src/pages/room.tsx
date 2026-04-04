@@ -740,6 +740,7 @@ export default function RoomPage() {
                 lang={lang}
                 isDj={isDJ}
                 roomSlug={slug}
+                socket={socket}
               />
             </div>
           )}
