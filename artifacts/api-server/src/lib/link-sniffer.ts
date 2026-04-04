@@ -1,20 +1,37 @@
-import puppeteer, { type Browser } from "puppeteer-core";
+import puppeteerExtra from "puppeteer-extra";
+import StealthPlugin from "puppeteer-extra-plugin-stealth";
+import type { Browser, Page, Frame } from "puppeteer-core";
 import * as fs from "fs";
 import * as net from "net";
+import * as dns from "dns/promises";
+
+puppeteerExtra.use(StealthPlugin());
+
+const dnsCache = new Map<string, { isPrivate: boolean; ts: number }>();
+const DNS_CACHE_TTL = 30_000;
+
+async function isHostPrivateViadns(hostname: string): Promise<boolean> {
+  if (isPrivateIp(hostname)) return true;
+  if (net.isIP(hostname)) return isPrivateIp(hostname);
+
+  const cached = dnsCache.get(hostname);
+  if (cached && Date.now() - cached.ts < DNS_CACHE_TTL) return cached.isPrivate;
+
+  try {
+    const a4 = await dns.resolve4(hostname).catch(() => [] as string[]);
+    const a6 = await dns.resolve6(hostname).catch(() => [] as string[]);
+    const all = [...a4, ...a6];
+    const result = all.length > 0 && all.some(isPrivateIp);
+    dnsCache.set(hostname, { isPrivate: result, ts: Date.now() });
+    return result;
+  } catch {
+    return false;
+  }
+}
 
 const VIDEO_EXTENSIONS = [
-  ".mp4",
-  ".m3u8",
-  ".ts",
-  ".mkv",
-  ".avi",
-  ".webm",
-  ".flv",
-  ".mov",
-  ".mpd",
-  ".f4v",
-  ".ogv",
-  ".3gp",
+  ".mp4", ".m3u8", ".ts", ".mkv", ".avi", ".webm",
+  ".flv", ".mov", ".mpd", ".f4v", ".ogv", ".3gp",
 ];
 
 const VIDEO_CONTENT_TYPES = [
@@ -28,31 +45,43 @@ const VIDEO_CONTENT_TYPES = [
 ];
 
 const IGNORE_PATTERNS = [
-  "google",
-  "facebook",
-  "doubleclick",
-  "adservice",
-  "analytics",
-  "googletagmanager",
-  "googlesyndication",
-  "adsrvr",
-  "amazon-adsystem",
-  "adnxs",
-  "criteo",
-  "fonts.googleapis",
-  "cdnjs",
-  "jquery",
-  ".css",
-  ".js?",
-  ".png",
-  ".jpg",
-  ".jpeg",
-  ".gif",
-  ".svg",
-  ".ico",
-  ".woff",
-  ".woff2",
-  ".ttf",
+  "google", "facebook", "doubleclick", "adservice",
+  "analytics", "googletagmanager", "googlesyndication",
+  "adsrvr", "amazon-adsystem", "adnxs", "criteo",
+  "fonts.googleapis", "cdnjs", "jquery",
+  ".css", ".js?", ".png", ".jpg", ".jpeg",
+  ".gif", ".svg", ".ico", ".woff", ".woff2", ".ttf",
+];
+
+const PLAY_SELECTORS = [
+  'button[class*="play"]', 'button[id*="play"]',
+  'div[class*="play"]', 'div[id*="play"]',
+  'a[class*="play"]', 'a[id*="play"]',
+  '.play-btn', '.play-button', '.btn-play',
+  '#play', '#player-play', '.vjs-big-play-button',
+  '.plyr__control--overlaid',
+  '[data-plyr="play"]',
+  '.jw-icon-playback', '.jw-display-icon-container',
+  'button[aria-label*="play" i]', 'button[aria-label*="تشغيل"]',
+  'button[title*="play" i]', 'button[title*="Play"]',
+  '.ytp-large-play-button',
+  '[class*="watch"]', '[class*="stream"]',
+  '.overlay-play', '.play-overlay', '.video-play',
+  'svg[class*="play"]',
+  '.btn-watch', '.watch-btn', '[class*="مشاهدة"]',
+  '.play', '#play-btn',
+];
+
+const IFRAME_NAV_SELECTORS = [
+  'iframe[src*="embed"]', 'iframe[src*="player"]',
+  'iframe[src*="stream"]', 'iframe[src*="video"]',
+  'iframe[src*="watch"]', 'iframe[src*="play"]',
+  'iframe[data-src]', 'iframe[data-lazy-src]',
+  'iframe[allowfullscreen]',
+  'iframe[src*="vidstream"]', 'iframe[src*="mycloud"]',
+  'iframe[src*="mixdrop"]', 'iframe[src*="upstream"]',
+  'iframe[src*="dood"]', 'iframe[src*="streamtape"]',
+  'iframe[src*="filemoon"]', 'iframe[src*="voe"]',
 ];
 
 function isPrivateIp(hostname: string): boolean {
@@ -71,10 +100,7 @@ function isPrivateIp(hostname: string): boolean {
   }
   if (net.isIPv6(hostname)) {
     const lower = hostname.toLowerCase();
-    if (lower === "::1") return true;
-    if (lower.startsWith("fe80:")) return true;
-    if (lower.startsWith("fc") || lower.startsWith("fd")) return true;
-    if (lower === "::") return true;
+    if (lower === "::1" || lower.startsWith("fe80:") || lower.startsWith("fc") || lower.startsWith("fd") || lower === "::") return true;
     return false;
   }
   return false;
@@ -82,6 +108,7 @@ function isPrivateIp(hostname: string): boolean {
 
 function isVideoUrl(url: string): boolean {
   const lower = url.toLowerCase();
+  if (lower.startsWith("blob:")) return false;
   if (IGNORE_PATTERNS.some((p) => lower.includes(p))) return false;
   return VIDEO_EXTENSIONS.some((ext) => {
     const idx = lower.indexOf(ext);
@@ -149,7 +176,7 @@ let activeSessions = 0;
 const MAX_CONCURRENT = 3;
 const activeRoomSessions = new Set<string>();
 const activeBrowsers = new Map<string, { browser: Browser; startedAt: number }>();
-const MAX_BROWSER_AGE_MS = 60_000;
+const MAX_BROWSER_AGE_MS = 90_000;
 
 setInterval(() => {
   const now = Date.now();
@@ -202,52 +229,11 @@ function randomUA(): string {
   return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
 }
 
-const STEALTH_SCRIPT = `
-  Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-  delete navigator.__proto__.webdriver;
-
-  Object.defineProperty(navigator, 'plugins', {
-    get: () => {
-      const p = [
-        { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
-        { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' },
-        { name: 'Native Client', filename: 'internal-nacl-plugin', description: '' },
-      ];
-      p.length = 3;
-      return p;
-    },
-  });
-
-  Object.defineProperty(navigator, 'languages', { get: () => ['ar', 'en-US', 'en'] });
-
-  window.chrome = {
-    app: { isInstalled: false, InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' }, RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' } },
-    runtime: { OnInstalledReason: { CHROME_UPDATE: 'chrome_update', INSTALL: 'install', SHARED_MODULE_UPDATE: 'shared_module_update', UPDATE: 'update' }, OnRestartRequiredReason: { APP_UPDATE: 'app_update', OS_UPDATE: 'os_update', PERIODIC: 'periodic' }, PlatformArch: { ARM: 'arm', MIPS: 'mips', MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64' }, PlatformNaclArch: { ARM: 'arm', MIPS: 'mips', MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64' }, PlatformOs: { ANDROID: 'android', CROS: 'cros', LINUX: 'linux', MAC: 'mac', OPENBSD: 'openbsd', WIN: 'win' }, RequestUpdateCheckStatus: { NO_UPDATE: 'no_update', THROTTLED: 'throttled', UPDATE_AVAILABLE: 'update_available' }, connect: function() {}, sendMessage: function() {} },
-  };
-
-  const origQuery = window.navigator.permissions.query;
-  window.navigator.permissions.query = (params) =>
-    params.name === 'notifications'
-      ? Promise.resolve({ state: Notification.permission })
-      : origQuery(params);
-
-  Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 0 });
-  Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
-  Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
-
-  const getParameter = WebGLRenderingContext.prototype.getParameter;
-  WebGLRenderingContext.prototype.getParameter = function(param) {
-    if (param === 37445) return 'Intel Inc.';
-    if (param === 37446) return 'Intel Iris OpenGL Engine';
-    return getParameter.call(this, param);
-  };
-`;
-
 async function launchBrowser(): Promise<Browser> {
   const execPath = findChromiumPath();
-  console.log(`[link-sniffer] launching browser: ${execPath}`);
+  console.log(`[link-sniffer] launching stealth browser: ${execPath}`);
 
-  return puppeteer.launch({
+  return puppeteerExtra.launch({
     executablePath: execPath,
     headless: true,
     args: [
@@ -266,40 +252,371 @@ async function launchBrowser(): Promise<Browser> {
       "--disable-blink-features=AutomationControlled",
       "--window-size=1920,1080",
       "--lang=ar,en-US",
+      "--autoplay-policy=no-user-gesture-required",
     ],
-  });
+  }) as unknown as Browser;
+}
+
+function extractVideoUrlsFromText(text: string): string[] {
+  const urls: string[] = [];
+  const directMatches = text.match(
+    /https?:\/\/[^\s"'<>\\]+\.(mp4|m3u8|mpd|mkv|webm|f4v|ts|flv|mov)[^\s"'<>\\]*/gi
+  );
+  if (directMatches) urls.push(...directMatches);
+
+  const propMatches = text.match(
+    /(?:src|file|url|source|video_url|stream_url|manifest|playlist|hls_url|dash_url|video_link|mp4_url|stream|playback)\s*[:=]\s*["']?(https?:\/\/[^\s"'<>\\,;]+)/gi
+  );
+  if (propMatches) {
+    propMatches.forEach(m => {
+      const u = m.match(/https?:\/\/[^\s"'<>\\,;]+/);
+      if (u) urls.push(u[0]);
+    });
+  }
+
+  const jsonMatches = text.match(
+    /"(?:src|file|url|source|video|stream|hls|dash|mp4|playlist|manifest)"\s*:\s*"(https?:\/\/[^"\\]+)"/gi
+  );
+  if (jsonMatches) {
+    jsonMatches.forEach(m => {
+      const u = m.match(/https?:\/\/[^"\\]+/);
+      if (u) urls.push(u[0]);
+    });
+  }
+
+  return urls;
+}
+
+async function extractFromFrame(frame: Frame, baseUrl: string): Promise<string[]> {
+  try {
+    return await frame.evaluate((base: string) => {
+      const urls: string[] = [];
+
+      document.querySelectorAll("video, source, embed, object, audio").forEach((el) => {
+        const attrs = ["src", "data-src", "data-lazy-src", "data-url", "data-video-src", "data-file", "content"];
+        attrs.forEach(attr => {
+          const val = el.getAttribute(attr);
+          if (val && val.startsWith("http")) urls.push(val);
+        });
+      });
+
+      document.querySelectorAll("a[href]").forEach((el) => {
+        const href = el.getAttribute("href") || "";
+        if (/\.(mp4|m3u8|mkv|mpd|webm|flv|mov)/i.test(href)) {
+          urls.push(href);
+        }
+      });
+
+      document.querySelectorAll("script").forEach((script) => {
+        const text = script.textContent || "";
+        const directMatches = text.match(
+          /https?:\/\/[^\s"'<>\\]+\.(mp4|m3u8|mpd|mkv|webm|f4v|ts|flv|mov)[^\s"'<>\\]*/gi
+        );
+        if (directMatches) urls.push(...directMatches);
+
+        const propMatches = text.match(
+          /(?:src|file|url|source|video_url|stream_url|manifest|playlist|hls_url|dash_url|video_link|mp4_url|stream|playback)\s*[:=]\s*["']?(https?:\/\/[^\s"'<>\\,;]+)/gi
+        );
+        if (propMatches) {
+          propMatches.forEach(m => {
+            const u = m.match(/https?:\/\/[^\s"'<>\\,;]+/);
+            if (u) urls.push(u[0]);
+          });
+        }
+
+        const jsonMatches = text.match(
+          /"(?:src|file|url|source|video|stream|hls|dash|mp4|playlist|manifest)"\s*:\s*"(https?:\/\/[^"\\]+)"/gi
+        );
+        if (jsonMatches) {
+          jsonMatches.forEach(m => {
+            const u = m.match(/https?:\/\/[^"\\]+/);
+            if (u) urls.push(u[0]);
+          });
+        }
+      });
+
+      document.querySelectorAll('meta[property], meta[name]').forEach(meta => {
+        const content = meta.getAttribute('content') || '';
+        if (/\.(mp4|m3u8|mpd)/i.test(content)) {
+          urls.push(content);
+        }
+      });
+
+      const videos = document.querySelectorAll("video");
+      videos.forEach(v => {
+        if (v.src && !v.src.startsWith("blob:")) urls.push(v.src);
+        if (v.currentSrc && !v.currentSrc.startsWith("blob:")) urls.push(v.currentSrc);
+      });
+
+      return urls;
+    }, baseUrl).catch(() => [] as string[]);
+  } catch {
+    return [];
+  }
+}
+
+async function extractBlobSources(page: Page): Promise<string[]> {
+  try {
+    return await page.evaluate(() => {
+      const urls: string[] = [];
+      const videos = document.querySelectorAll("video");
+      videos.forEach(v => {
+        if (v.src && v.src.startsWith("blob:")) {
+          const ms = (v as any).ms_ || (v as any).mediaSource_;
+          if (ms) {
+            const sourceBuffers = ms.sourceBuffers;
+            for (let i = 0; i < sourceBuffers.length; i++) {
+              const sb = sourceBuffers[i];
+              if (sb._url) urls.push(sb._url);
+            }
+          }
+
+          if (v.currentSrc && !v.currentSrc.startsWith("blob:")) {
+            urls.push(v.currentSrc);
+          }
+        }
+      });
+
+      const perfEntries = performance.getEntriesByType("resource") as PerformanceResourceTiming[];
+      perfEntries.forEach(entry => {
+        const name = entry.name.toLowerCase();
+        if (/\.(m3u8|mpd|mp4|ts|webm)/i.test(name) && !name.startsWith("blob:")) {
+          urls.push(entry.name);
+        }
+        if (entry.initiatorType === "video" || entry.initiatorType === "xmlhttprequest" || entry.initiatorType === "fetch") {
+          if (/\.(m3u8|mpd|mp4|ts)/i.test(name)) {
+            urls.push(entry.name);
+          }
+        }
+      });
+
+      return urls;
+    }).catch(() => [] as string[]);
+  } catch {
+    return [];
+  }
+}
+
+async function clickPlayButtons(page: Page): Promise<void> {
+  const selectors = PLAY_SELECTORS.join(", ");
+  try {
+    await page.evaluate((sel: string) => {
+      const elements = document.querySelectorAll(sel);
+      const clicked = new Set<Element>();
+      elements.forEach(el => {
+        if (clicked.size >= 5) return;
+        if (el instanceof HTMLElement && el.offsetParent !== null) {
+          el.click();
+          clicked.add(el);
+        }
+      });
+
+      if (clicked.size === 0) {
+        const allButtons = document.querySelectorAll("button, [role='button']");
+        allButtons.forEach(btn => {
+          if (clicked.size >= 3) return;
+          const text = (btn.textContent || "").toLowerCase();
+          const ariaLabel = (btn.getAttribute("aria-label") || "").toLowerCase();
+          if (text.includes("play") || text.includes("تشغيل") || text.includes("مشاهدة") ||
+              text.includes("watch") || text.includes("شاهد") ||
+              ariaLabel.includes("play") || ariaLabel.includes("تشغيل")) {
+            if (btn instanceof HTMLElement && btn.offsetParent !== null) {
+              btn.click();
+              clicked.add(btn);
+            }
+          }
+        });
+      }
+    }, selectors);
+  } catch {}
+}
+
+async function activateIframeSources(page: Page): Promise<void> {
+  try {
+    await page.evaluate(() => {
+      document.querySelectorAll("iframe[data-src], iframe[data-lazy-src]").forEach(iframe => {
+        const dataSrc = iframe.getAttribute("data-src") || iframe.getAttribute("data-lazy-src");
+        if (dataSrc && !iframe.getAttribute("src")) {
+          iframe.setAttribute("src", dataSrc);
+        }
+      });
+    });
+  } catch {}
+}
+
+async function deepIframeSearch(
+  page: Page,
+  foundUrls: Map<string, { url: string; contentType?: string }>,
+  checkEarlyHit: () => void,
+  targetUrl: string,
+  depth: number = 0,
+): Promise<void> {
+  if (depth > 2) return;
+
+  let frames: Frame[];
+  try {
+    frames = page.frames();
+  } catch { return; }
+
+  for (const frame of frames) {
+    if (frame === page.mainFrame() && depth === 0) continue;
+    try {
+      const frameUrl = frame.url();
+      if (!frameUrl || frameUrl === "about:blank" || frameUrl === "about:srcdoc") continue;
+
+      const urls = await extractFromFrame(frame, frameUrl);
+      for (const u of urls) {
+        try {
+          const abs = new URL(u, frameUrl).href;
+          if (isVideoUrl(abs) || /\.(m3u8|mpd|mp4)/i.test(abs)) {
+            foundUrls.set(abs, { url: abs });
+            checkEarlyHit();
+          }
+        } catch {}
+      }
+
+      try {
+        await frame.evaluate(() => {
+          const btns = document.querySelectorAll('button, [class*="play"], [id*="play"], .vjs-big-play-button, .jw-icon-playback');
+          btns.forEach(b => { if (b instanceof HTMLElement && b.offsetParent !== null) b.click(); });
+        });
+      } catch {}
+    } catch {}
+  }
+}
+
+async function navigateToEmbedIframes(
+  page: Page,
+  browser: Browser,
+  foundUrls: Map<string, { url: string; contentType?: string }>,
+  checkEarlyHit: () => void,
+  timeoutMs: number,
+  deadline: number,
+): Promise<void> {
+  let iframeSrcs: string[] = [];
+  try {
+    iframeSrcs = await page.evaluate((selectors: string[]) => {
+      const srcs: string[] = [];
+      const seen = new Set<string>();
+      selectors.forEach(sel => {
+        document.querySelectorAll(sel).forEach(iframe => {
+          const src = iframe.getAttribute("src") || iframe.getAttribute("data-src") || "";
+          if (src && src.startsWith("http") && !seen.has(src)) {
+            seen.add(src);
+            srcs.push(src);
+          }
+        });
+      });
+      if (srcs.length === 0) {
+        document.querySelectorAll("iframe").forEach(iframe => {
+          const src = iframe.getAttribute("src") || "";
+          if (src && src.startsWith("http") && !seen.has(src)) {
+            seen.add(src);
+            srcs.push(src);
+          }
+        });
+      }
+      return srcs;
+    }, IFRAME_NAV_SELECTORS);
+  } catch {}
+
+  for (const src of iframeSrcs.slice(0, 5)) {
+    if (Date.now() >= deadline) break;
+    if (foundUrls.size > 0 && Array.from(foundUrls.keys()).some(u => /\.(m3u8|mpd)/i.test(u))) break;
+
+    let isPriv = false;
+    try { isPriv = await isHostPrivateViadns(new URL(src).hostname); } catch {}
+    if (isPriv) continue;
+
+    try {
+      const embedPage = await browser.newPage();
+      await embedPage.setViewport({ width: 1920, height: 1080 });
+      await embedPage.setUserAgent(randomUA());
+      await embedPage.setExtraHTTPHeaders({
+        'Accept-Language': 'ar,en-US;q=0.9,en;q=0.8',
+        'Referer': page.url(),
+      });
+
+      await embedPage.setRequestInterception(true);
+      embedPage.on("request", (request) => {
+        const resourceType = request.resourceType();
+        if (["image", "font", "stylesheet"].includes(resourceType)) { request.abort(); return; }
+        const reqUrl = request.url();
+        try {
+          const parsed = new URL(reqUrl);
+          if (!["http:", "https:"].includes(parsed.protocol)) { request.abort(); return; }
+          if (isPrivateIp(parsed.hostname)) { request.abort(); return; }
+        } catch { request.abort(); return; }
+        if (isVideoUrl(reqUrl)) {
+          foundUrls.set(reqUrl, { url: reqUrl });
+          checkEarlyHit();
+        }
+        request.continue();
+      });
+      embedPage.on("response", async (response) => {
+        const respUrl = response.url();
+        const ct = response.headers()["content-type"] || "";
+        if (isVideoContentType(ct) || isVideoUrl(respUrl)) {
+          foundUrls.set(respUrl, { url: respUrl, contentType: ct });
+          checkEarlyHit();
+        }
+      });
+
+      const remainingMs = Math.max(deadline - Date.now(), 5000);
+      await embedPage.goto(src, { waitUntil: "networkidle2", timeout: Math.min(remainingMs, 15000) }).catch(() => {});
+
+      await clickPlayButtons(embedPage);
+      await new Promise(r => setTimeout(r, 3000));
+
+      const embedUrls = await extractFromFrame(embedPage.mainFrame(), src);
+      for (const u of embedUrls) {
+        try {
+          const abs = new URL(u, src).href;
+          if (isVideoUrl(abs) || /\.(m3u8|mpd|mp4)/i.test(abs)) {
+            foundUrls.set(abs, { url: abs });
+            checkEarlyHit();
+          }
+        } catch {}
+      }
+
+      const blobUrls = await extractBlobSources(embedPage);
+      for (const u of blobUrls) {
+        if (isVideoUrl(u) || /\.(m3u8|mpd|mp4|ts)/i.test(u)) {
+          foundUrls.set(u, { url: u });
+          checkEarlyHit();
+        }
+      }
+
+      await deepIframeSearch(embedPage, foundUrls, checkEarlyHit, src, 1);
+
+      await embedPage.close().catch(() => {});
+    } catch {}
+  }
 }
 
 export async function sniffVideoUrls(
   targetUrl: string,
   roomSlug: string,
-  timeoutMs = 45000,
+  timeoutMs = 60000,
 ): Promise<SniffResult> {
   const startTime = Date.now();
 
   if (activeSessions >= MAX_CONCURRENT) {
-    return {
-      success: false,
-      urls: [],
-      error: "الخادم مشغول — حاول بعد قليل",
-      duration: Date.now() - startTime,
-    };
+    return { success: false, urls: [], error: "الخادم مشغول — حاول بعد قليل", duration: 0 };
   }
 
   if (activeRoomSessions.has(roomSlug)) {
-    return {
-      success: false,
-      urls: [],
-      error: "يوجد عملية استخراج جارية في هذه الغرفة — انتظر قليلاً",
-      duration: Date.now() - startTime,
-    };
+    return { success: false, urls: [], error: "يوجد عملية استخراج جارية في هذه الغرفة — انتظر قليلاً", duration: 0 };
   }
 
   activeSessions++;
   activeRoomSessions.add(roomSlug);
   let browser: Browser | null = null;
 
-  console.log(`[link-sniffer] start room=${roomSlug} url=${targetUrl} active=${activeSessions}`);
+  console.log(`[link-sniffer] HUNT START room=${roomSlug} url=${targetUrl} active=${activeSessions}`);
+
+  const deadline = startTime + timeoutMs;
+  const pastDeadline = () => Date.now() >= deadline - 3000;
 
   try {
     browser = await launchBrowser();
@@ -308,8 +625,6 @@ export async function sniffVideoUrls(
 
     await page.setViewport({ width: 1920, height: 1080 });
     await page.setUserAgent(randomUA());
-    await page.evaluateOnNewDocument(STEALTH_SCRIPT);
-
     await page.setExtraHTTPHeaders({
       'Accept-Language': 'ar,en-US;q=0.9,en;q=0.8',
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
@@ -324,6 +639,9 @@ export async function sniffVideoUrls(
 
     const foundUrls = new Map<string, { url: string; contentType?: string }>();
     let earlyHit = false;
+    let networkActivity = Date.now();
+    const blockedHosts = new Set<string>();
+    const allowedHosts = new Set<string>();
 
     const checkEarlyHit = () => {
       if (earlyHit) return;
@@ -332,35 +650,33 @@ export async function sniffVideoUrls(
       );
       if (hasHighValue) {
         earlyHit = true;
-        console.log(`[link-sniffer] early hit room=${roomSlug} — high-value URL found, will resolve shortly`);
+        console.log(`[link-sniffer] EARLY HIT room=${roomSlug} — high-value URL found`);
       }
     };
 
     page.on("request", (request) => {
+      networkActivity = Date.now();
       const resourceType = request.resourceType();
-      if (["image", "font", "stylesheet"].includes(resourceType)) {
-        request.abort();
-        return;
-      }
+      if (["image", "font", "stylesheet"].includes(resourceType)) { request.abort(); return; }
 
       const reqUrl = request.url();
-
       try {
         const parsed = new URL(reqUrl);
-        if (!["http:", "https:"].includes(parsed.protocol)) {
-          request.abort();
-          return;
+        if (!["http:", "https:"].includes(parsed.protocol)) { request.abort(); return; }
+        const host = parsed.hostname;
+        if (isPrivateIp(host)) { request.abort(); return; }
+        if (blockedHosts.has(host)) { request.abort(); return; }
+
+        if (!allowedHosts.has(host) && !net.isIP(host)) {
+          isHostPrivateViadns(host).then(isPriv => {
+            if (isPriv) blockedHosts.add(host);
+            else allowedHosts.add(host);
+          }).catch(() => {});
         }
-        if (isPrivateIp(parsed.hostname)) {
-          request.abort();
-          return;
-        }
-      } catch {
-        request.abort();
-        return;
-      }
+      } catch { request.abort(); return; }
 
       if (isVideoUrl(reqUrl)) {
+        console.log(`[link-sniffer] INTERCEPT [request] ${reqUrl.substring(0, 120)}`);
         foundUrls.set(reqUrl, { url: reqUrl });
         checkEarlyHit();
       }
@@ -369,142 +685,124 @@ export async function sniffVideoUrls(
     });
 
     page.on("response", async (response) => {
+      networkActivity = Date.now();
       const respUrl = response.url();
       const ct = response.headers()["content-type"] || "";
 
       if (isVideoContentType(ct) || isVideoUrl(respUrl)) {
+        console.log(`[link-sniffer] INTERCEPT [response] ct=${ct} ${respUrl.substring(0, 120)}`);
         foundUrls.set(respUrl, { url: respUrl, contentType: ct });
         checkEarlyHit();
       }
     });
 
-    const navigationPromise = page.goto(targetUrl, {
-      waitUntil: "networkidle2",
-      timeout: timeoutMs - 5000,
+    console.log(`[link-sniffer] navigating to ${targetUrl}`);
+    await page.goto(targetUrl, {
+      waitUntil: "domcontentloaded",
+      timeout: 30000,
     }).catch(() => {});
 
-    const earlyResolvePromise = new Promise<void>((resolve) => {
+    console.log(`[link-sniffer] waiting for network idle (min 15s)...`);
+    const MIN_WAIT_MS = 15000;
+    const minWaitEnd = Date.now() + MIN_WAIT_MS;
+
+    await activateIframeSources(page);
+
+    await new Promise<void>(resolve => {
       const check = setInterval(() => {
-        if (earlyHit) { clearInterval(check); resolve(); }
-      }, 500);
-      setTimeout(() => { clearInterval(check); resolve(); }, timeoutMs - 5000);
+        const sinceLastNetwork = Date.now() - networkActivity;
+        const pastMinWait = Date.now() >= minWaitEnd;
+
+        if (pastDeadline()) { clearInterval(check); resolve(); return; }
+        if (earlyHit && pastMinWait) { clearInterval(check); resolve(); return; }
+        if (pastMinWait && sinceLastNetwork > 5000 && foundUrls.size > 0) { clearInterval(check); resolve(); return; }
+      }, 1000);
+      setTimeout(() => { clearInterval(check); resolve(); }, MIN_WAIT_MS);
     });
 
-    await Promise.race([navigationPromise, earlyResolvePromise]);
+    if (!pastDeadline()) {
+      console.log(`[link-sniffer] PHASE: auto-click play buttons`);
+      await clickPlayButtons(page);
+      await new Promise(r => setTimeout(r, 3000));
+    }
 
-    if (!earlyHit) {
-      const pageVideoUrls = await page.evaluate(() => {
-        const urls: string[] = [];
-        document.querySelectorAll("video, source, iframe, embed, object").forEach((el) => {
-          const src =
-            el.getAttribute("src") ||
-            el.getAttribute("data-src") ||
-            el.getAttribute("data-lazy-src") ||
-            el.getAttribute("data-url") ||
-            el.getAttribute("data-video-src") ||
-            el.getAttribute("content");
-          if (src) urls.push(src);
-        });
-        document.querySelectorAll("a[href]").forEach((el) => {
-          const href = el.getAttribute("href") || "";
-          if (
-            href.includes(".mp4") ||
-            href.includes(".m3u8") ||
-            href.includes(".mkv") ||
-            href.includes(".mpd") ||
-            href.includes(".webm")
-          ) {
-            urls.push(href);
-          }
-        });
-
-        const scripts = document.querySelectorAll("script");
-        scripts.forEach((script) => {
-          const text = script.textContent || "";
-          const urlMatches = text.match(
-            /https?:\/\/[^\s"'<>\\]+\.(mp4|m3u8|mpd|mkv|webm|f4v|ts|flv)[^\s"'<>\\]*/gi
-          );
-          if (urlMatches) urls.push(...urlMatches);
-
-          const srcMatches = text.match(
-            /(?:src|file|url|source|video_url|stream_url|manifest|playlist)\s*[:=]\s*["']?(https?:\/\/[^\s"'<>\\]+)/gi
-          );
-          if (srcMatches) {
-            srcMatches.forEach(m => {
-              const u = m.match(/https?:\/\/[^\s"'<>\\]+/);
-              if (u) urls.push(u[0]);
-            });
-          }
-        });
-
-        document.querySelectorAll('meta[property], meta[name]').forEach(meta => {
-          const content = meta.getAttribute('content') || '';
-          if (content.includes('.mp4') || content.includes('.m3u8') || content.includes('.mpd')) {
-            urls.push(content);
-          }
-        });
-
-        return urls;
-      }).catch(() => [] as string[]);
-
+    if (!pastDeadline()) {
+      console.log(`[link-sniffer] PHASE: DOM extraction`);
+      const pageVideoUrls = await extractFromFrame(page.mainFrame(), targetUrl);
       for (const u of pageVideoUrls) {
         try {
           const abs = new URL(u, targetUrl).href;
-          if (isVideoUrl(abs) || abs.includes(".m3u8") || abs.includes(".mp4") || abs.includes(".mpd")) {
+          if (isVideoUrl(abs) || /\.(m3u8|mpd|mp4)/i.test(abs)) {
+            foundUrls.set(abs, { url: abs });
+            checkEarlyHit();
+          }
+        } catch {}
+      }
+    }
+
+    if (!pastDeadline()) {
+      console.log(`[link-sniffer] PHASE: blob detection`);
+      const blobUrls = await extractBlobSources(page);
+      for (const u of blobUrls) {
+        if (isVideoUrl(u) || /\.(m3u8|mpd|mp4|ts)/i.test(u)) {
+          foundUrls.set(u, { url: u });
+          checkEarlyHit();
+        }
+      }
+    }
+
+    if (!pastDeadline()) {
+      console.log(`[link-sniffer] PHASE: deep iframe search (${page.frames().length} frames)`);
+      await deepIframeSearch(page, foundUrls, checkEarlyHit, targetUrl, 0);
+    }
+
+    if (!pastDeadline() && (!earlyHit || foundUrls.size === 0)) {
+      console.log(`[link-sniffer] PHASE: navigate to embed iframes`);
+      await navigateToEmbedIframes(page, browser, foundUrls, checkEarlyHit, 20000, deadline);
+    }
+
+    if (!pastDeadline() && foundUrls.size === 0) {
+      console.log(`[link-sniffer] PHASE: aggressive retry — click + wait`);
+      await clickPlayButtons(page);
+      await page.evaluate(() => {
+        document.querySelectorAll('[class*="server"], [class*="سيرفر"], [class*="quality"], [data-server]').forEach(el => {
+          if (el instanceof HTMLElement) el.click();
+        });
+      }).catch(() => {});
+
+      const waitTime = Math.min(8000, Math.max(deadline - Date.now() - 5000, 2000));
+      await new Promise(r => setTimeout(r, waitTime));
+
+      const retryUrls = await extractFromFrame(page.mainFrame(), targetUrl);
+      for (const u of retryUrls) {
+        try {
+          const abs = new URL(u, targetUrl).href;
+          if (isVideoUrl(abs) || /\.(m3u8|mpd|mp4)/i.test(abs)) {
             foundUrls.set(abs, { url: abs });
           }
         } catch {}
       }
 
-      if (!earlyHit) {
-        const iframes = await page.$$("iframe");
-        for (const iframe of iframes.slice(0, 5)) {
-          try {
-            const src = await iframe.evaluate((el) => el.src);
-            if (!src || src === "about:blank") continue;
-
-            const frame = await iframe.contentFrame();
-            if (!frame) continue;
-
-            const iframeVideoUrls = await frame
-              .evaluate(() => {
-                const urls: string[] = [];
-                document.querySelectorAll("video, source, embed, object").forEach((el) => {
-                  const s = el.getAttribute("src") || el.getAttribute("data-src") || el.getAttribute("data-url");
-                  if (s) urls.push(s);
-                });
-                const scripts = document.querySelectorAll("script");
-                scripts.forEach((script) => {
-                  const text = script.textContent || "";
-                  const matches = text.match(
-                    /https?:\/\/[^\s"'<>\\]+\.(mp4|m3u8|mpd|mkv|webm|f4v|ts)[^\s"'<>\\]*/gi
-                  );
-                  if (matches) urls.push(...matches);
-                });
-                return urls;
-              })
-              .catch(() => [] as string[]);
-
-            for (const u of iframeVideoUrls) {
-              try {
-                const abs = new URL(u, src).href;
-                foundUrls.set(abs, { url: abs });
-              } catch {}
-            }
-          } catch {}
+      if (!pastDeadline()) {
+        await deepIframeSearch(page, foundUrls, checkEarlyHit, targetUrl, 0);
+        const retryBlob = await extractBlobSources(page);
+        for (const u of retryBlob) {
+          if (isVideoUrl(u) || /\.(m3u8|mpd|mp4|ts)/i.test(u)) {
+            foundUrls.set(u, { url: u });
+          }
         }
       }
     }
 
-    if (foundUrls.size === 0 && !earlyHit) {
-      try {
-        await page.evaluate(() => {
-          document.querySelectorAll('button, .play-btn, [class*="play"], [id*="play"]').forEach(el => {
-            if (el instanceof HTMLElement) el.click();
-          });
-        });
-        await new Promise((r) => setTimeout(r, 5000));
-      } catch {}
+    if (!pastDeadline() && foundUrls.size === 0) {
+      console.log(`[link-sniffer] PHASE: final network monitor`);
+      const finalWait = Math.min(10000, Math.max(deadline - Date.now() - 2000, 2000));
+      await new Promise<void>(resolve => {
+        const timeout = setTimeout(resolve, finalWait);
+        const check = setInterval(() => {
+          if (foundUrls.size > 0 || pastDeadline()) { clearInterval(check); clearTimeout(timeout); resolve(); }
+        }, 500);
+      });
     }
 
     const results = Array.from(foundUrls.values())
@@ -515,20 +813,16 @@ export async function sniffVideoUrls(
         score: scoreUrl(entry.url),
       }))
       .sort((a, b) => b.score - a.score)
-      .slice(0, 15);
+      .slice(0, 20);
 
-    console.log(`[link-sniffer] done room=${roomSlug} found=${results.length} earlyHit=${earlyHit} duration=${Date.now() - startTime}ms`);
+    const duration = Date.now() - startTime;
+    console.log(`[link-sniffer] ${results.length > 0 ? '✅' : '❌'} HUNT DONE room=${roomSlug} found=${results.length} duration=${duration}ms`);
 
-    return {
-      success: results.length > 0,
-      urls: results,
-      duration: Date.now() - startTime,
-    };
+    return { success: results.length > 0, urls: results, duration };
   } catch (err: any) {
-    console.error(`[link-sniffer] error room=${roomSlug}: ${err.message}`);
+    console.error(`[link-sniffer] ❌ error room=${roomSlug}: ${err.message}`);
     return {
-      success: false,
-      urls: [],
+      success: false, urls: [],
       error: err.message || "فشل استخراج الروابط",
       duration: Date.now() - startTime,
     };
@@ -536,11 +830,7 @@ export async function sniffVideoUrls(
     activeSessions--;
     activeRoomSessions.delete(roomSlug);
     activeBrowsers.delete(roomSlug);
-    if (browser) {
-      try {
-        await browser.close();
-      } catch {}
-    }
-    console.log(`[link-sniffer] cleanup room=${roomSlug} active=${activeSessions}`);
+    if (browser) { try { await browser.close(); } catch {} }
+    console.log(`[link-sniffer] 🧹 cleanup room=${roomSlug} active=${activeSessions}`);
   }
 }

@@ -121,7 +121,7 @@ router.post(
     }
 
     try {
-      const result = await sniffVideoUrls(url, roomSlug, 45000);
+      const result = await sniffVideoUrls(url, roomSlug, 60000);
       res.json(result);
     } catch (err: any) {
       console.error("[link-sniff] error:", err.message);
