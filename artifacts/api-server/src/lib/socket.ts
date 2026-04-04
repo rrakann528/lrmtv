@@ -4,8 +4,6 @@ import jwt from "jsonwebtoken";
 import { db, chatMessagesTable, roomsTable, playlistItemsTable, roomInvitesTable, usersTable, siteSettingsTable } from "@workspace/db";
 import { eq, and, notInArray, inArray } from "drizzle-orm";
 import { makeSocketThrottle } from "../middlewares/security";
-import { abortRoomSession } from "./link-sniffer";
-import { initCloudBrowser } from "./cloud-browser";
 
 // ── In-memory settings cache (shared across the process) ─────────────────────
 let _settingsMap = new Map<string, string>();
@@ -529,7 +527,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
     },
     path: "/api/socket.io",
     // Protect against large single-event payloads
-    maxHttpBufferSize: 512 * 1024, // 512 KB per event (cloud browser frames)
+    maxHttpBufferSize: 64 * 1024, // 64 KB per event
     // Keep connections alive on mobile networks (NATs drop idle connections after ~30s)
     // pingInterval: how often to send a ping (ms). Default: 25 000.
     // pingTimeout: how long to wait for a pong before considering disconnected. Default: 20 000.
@@ -1454,7 +1452,6 @@ export function initSocketServer(httpServer: HttpServer): Server {
 
         if (state.users.size === 0) {
           stopHeartbeat(state);
-          abortRoomSession(slug);
           scheduleRoomDeletion(slug);
         } else if (user.isAdmin && !state.creatorUserId) {
           const firstUser = state.users.values().next().value;
@@ -1505,8 +1502,6 @@ export function initSocketServer(httpServer: HttpServer): Server {
       handleLeaveRoom();
     });
   });
-
-  initCloudBrowser(io);
 
   return io;
 }

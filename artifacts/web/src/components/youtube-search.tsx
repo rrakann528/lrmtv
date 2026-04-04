@@ -1,10 +1,7 @@
-import React, { useState, useRef, useEffect, useCallback, lazy, Suspense } from 'react';
-import { Search, Link as LinkIcon, Plus, Loader2, X, Youtube, Scan } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Search, Link as LinkIcon, Plus, Loader2, X, Youtube } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
-import type { Socket } from 'socket.io-client';
-
-const LinkSniffer = lazy(() => import('./link-sniffer'));
 
 interface YTResult {
   videoId: string;
@@ -16,17 +13,15 @@ interface YTResult {
 
 interface Props {
   onAdd: (url: string, title: string) => Promise<void> | void;
-  onSniffAdd?: (url: string, title: string) => Promise<void> | void;
   isAdding?: boolean;
   lang?: string;
   isDj?: boolean;
   roomSlug?: string;
-  socket?: Socket | null;
 }
 
-type Mode = 'search' | 'url' | 'sniff';
+type Mode = 'search' | 'url';
 
-export default function YoutubeSearch({ onAdd, onSniffAdd, isAdding, lang = 'en', isDj, roomSlug, socket }: Props) {
+export default function YoutubeSearch({ onAdd, isAdding, lang = 'en', isDj, roomSlug }: Props) {
   const { t } = useI18n();
   const [mode, setMode] = useState<Mode>('search');
   const [query, setQuery]   = useState('');
@@ -110,7 +105,6 @@ export default function YoutubeSearch({ onAdd, onSniffAdd, isAdding, lang = 'en'
 
   return (
     <div ref={containerRef} className="relative">
-      {/* Mode toggle */}
       <div className="flex gap-1 mb-1">
         <button
           type="button"
@@ -138,24 +132,8 @@ export default function YoutubeSearch({ onAdd, onSniffAdd, isAdding, lang = 'en'
           <LinkIcon className="w-3.5 h-3.5" />
           {t('directUrl')}
         </button>
-        {isDj && (
-          <button
-            type="button"
-            onClick={() => switchMode('sniff')}
-            className={cn(
-              'flex-1 flex items-center justify-center gap-1.5 h-6 rounded-lg text-[11px] font-medium transition-colors',
-              mode === 'sniff'
-                ? 'bg-purple-600/80 text-white'
-                : 'bg-white/5 text-white/40 hover:text-white/70 hover:bg-white/10',
-            )}
-          >
-            <Scan className="w-3.5 h-3.5" />
-            المتصفح الذكي
-          </button>
-        )}
       </div>
 
-      {/* Search mode */}
       {mode === 'search' && (
         <form onSubmit={handleSearchSubmit} className="flex gap-2 items-center">
           <div className="relative flex-1">
@@ -187,7 +165,6 @@ export default function YoutubeSearch({ onAdd, onSniffAdd, isAdding, lang = 'en'
         </form>
       )}
 
-      {/* URL mode */}
       {mode === 'url' && (
         <form onSubmit={handleUrlSubmit} className="flex gap-2 items-center">
           <div className="relative flex-1">
@@ -210,19 +187,10 @@ export default function YoutubeSearch({ onAdd, onSniffAdd, isAdding, lang = 'en'
         </form>
       )}
 
-      {/* Sniff mode */}
-      {mode === 'sniff' && (
-        <Suspense fallback={<div className="flex items-center justify-center py-4"><Loader2 className="w-5 h-5 animate-spin text-white/40" /></div>}>
-          <LinkSniffer onSelectVideo={onSniffAdd || onAdd} roomSlug={roomSlug || ''} socket={socket} />
-        </Suspense>
-      )}
-
-      {/* Error (search mode) */}
       {error && mode === 'search' && (
         <p className="text-xs text-red-400 mt-1 px-1">{error}</p>
       )}
 
-      {/* Search results dropdown */}
       {open && results.length > 0 && mode === 'search' && (
         <div className="absolute top-full start-0 end-0 mt-1 z-50 bg-zinc-900/95 backdrop-blur-md border border-white/10 rounded-xl shadow-2xl overflow-hidden max-h-80 overflow-y-auto">
           {results.map((item) => (

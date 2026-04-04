@@ -48,9 +48,8 @@ const token = conns[0].settings.access_token;
 - **API codegen**: Orval (from OpenAPI spec)
 - **Build**: esbuild (CJS bundle)
 - **Video**: SmartPlayer — HLS.js, dash.js, react-player (YouTube/Twitch/Vimeo), HTML5, SponsorBlock auto-skip
-- **Shared Browser (Kosmi-style)**: DJ opens Playwright browser → screencast frames broadcast to ALL room users via Socket.IO → everyone sees the same browser view. No URL extraction or HLS proxy needed.
-- **Link Sniffer**: Puppeteer-core + system Chromium (network interception for video URLs). Two modes: **Auto** (headless hunt) and **Manual** (Interactive Cloud Browser — CDP screencast streamed to client via Socket.IO, user clicks play manually, server catches video URLs from network traffic, 2-min timeout)
-- **Cloud Browser**: `artifacts/api-server/src/lib/cloud-browser.ts` — authorization via JWT + DJ/admin role check, DNS-based SSRF protection, max 2 concurrent sessions
+- **Stream Proxy**: Server-side proxy (`stream-proxy.ts`) rewrites HLS/DASH manifests and proxies segments with correct Referer/Origin headers to bypass CORS restrictions
+- **WebRTC Video Relay**: DJ's browser captures the video player stream via `captureStream()` and broadcasts it P2P to all room viewers. Auto-activates for direct m3u8/mp4/proxy URLs. Viewers see the video as a live stream from the host — no contact with the original source server needed
 - **Real-time**: Socket.io (sync, chat, WebRTC video relay)
 - **State**: Zustand
 - **i18n**: Custom React context — 6 لغات (ar, en, fr, tr, es, id) — مفتاح LS: `lrmtv_lang`

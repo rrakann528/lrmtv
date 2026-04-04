@@ -283,20 +283,6 @@ export default function RoomPage() {
     }
   }, [slug, addMutation, queryClient, emitPlaylistUpdate, syncState.url, emitSync, toast]);
 
-  const handleSniffAddVideo = useCallback(async (url: string, title: string) => {
-    if (!url.trim()) return;
-    const sourceType = detectSourceType(url);
-    const displayTitle = title && title !== url ? title : `Video (${sourceType})`;
-    try {
-      await addMutation.mutateAsync({ slug, data: { url, title: displayTitle, sourceType } });
-      queryClient.invalidateQueries({ queryKey: getGetRoomPlaylistQueryKey(slug) });
-      emitPlaylistUpdate('add');
-      emitSync(0, true, url);
-    } catch (err: unknown) {
-      console.error('[handleSniffAddVideo] failed:', { url, sourceType, err });
-      toast({ title: 'فشل إضافة الفيديو', description: String(err), variant: 'destructive', duration: 4000 });
-    }
-  }, [slug, addMutation, queryClient, emitPlaylistUpdate, emitSync, toast]);
 
   // ── Auto-load a video URL shared via the PWA Share Target ─────────────────
   // When the user tapped "شاهد في غرفة" from the home share banner, we stored
@@ -445,14 +431,29 @@ export default function RoomPage() {
   }, [relayStream, isRelaying, users, you, callAllPeers]);
 
   useEffect(() => {
-    if (!isDJ || !isCurrentUsingProxy || isRelaying) return;
-    const stream = playerRef.current?.captureStream();
-    if (stream && stream.getTracks().length > 0) {
-      setRelayStream(stream);
-      setIsRelaying(true);
-      socket?.emit('relay-mode', { active: true });
-    }
-  }, [isDJ, isCurrentUsingProxy, isRelaying, socket]);
+    if (!isDJ || isRelaying) return;
+    const url = syncState.url;
+    const srcType = url ? detectSourceType(url) : null;
+    const isDirectStream = srcType === 'm3u8' || srcType === 'mp4' || srcType === 'other';
+    if (!isCurrentUsingProxy && !isDirectStream) return;
+
+    let attempts = 0;
+    const maxAttempts = 10;
+    const tryCapture = () => {
+      if (isRelaying || attempts >= maxAttempts) return;
+      attempts++;
+      const stream = playerRef.current?.captureStream();
+      if (stream && stream.getTracks().length > 0) {
+        setRelayStream(stream);
+        setIsRelaying(true);
+        socket?.emit('relay-mode', { active: true });
+      } else {
+        setTimeout(tryCapture, 1000);
+      }
+    };
+    const timer = setTimeout(tryCapture, 500);
+    return () => clearTimeout(timer);
+  }, [isDJ, isCurrentUsingProxy, isRelaying, socket, syncState.url]);
 
   useEffect(() => {
     if (localStream && users.length > 1) {
@@ -735,12 +736,10 @@ export default function RoomPage() {
             <div className="shrink-0 px-2 py-1.5 md:px-3 md:py-2.5 border-b border-white/10">
               <YoutubeSearch
                 onAdd={handleAddVideo}
-                onSniffAdd={handleSniffAddVideo}
                 isAdding={addMutation.isPending}
                 lang={lang}
                 isDj={isDJ}
                 roomSlug={slug}
-                socket={socket}
               />
             </div>
           )}
