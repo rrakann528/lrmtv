@@ -283,6 +283,21 @@ export default function RoomPage() {
     }
   }, [slug, addMutation, queryClient, emitPlaylistUpdate, syncState.url, emitSync, toast]);
 
+  const handleSniffAddVideo = useCallback(async (url: string, title: string) => {
+    if (!url.trim()) return;
+    const sourceType = detectSourceType(url);
+    const displayTitle = title && title !== url ? title : `Video (${sourceType})`;
+    try {
+      await addMutation.mutateAsync({ slug, data: { url, title: displayTitle, sourceType } });
+      queryClient.invalidateQueries({ queryKey: getGetRoomPlaylistQueryKey(slug) });
+      emitPlaylistUpdate('add');
+      emitSync(0, true, url);
+    } catch (err: unknown) {
+      console.error('[handleSniffAddVideo] failed:', { url, sourceType, err });
+      toast({ title: 'فشل إضافة الفيديو', description: String(err), variant: 'destructive', duration: 4000 });
+    }
+  }, [slug, addMutation, queryClient, emitPlaylistUpdate, emitSync, toast]);
+
   // ── Auto-load a video URL shared via the PWA Share Target ─────────────────
   // When the user tapped "شاهد في غرفة" from the home share banner, we stored
   // the video URL in sessionStorage.  Once the DJ is confirmed by the server
@@ -710,6 +725,7 @@ export default function RoomPage() {
             <div className="shrink-0 px-2 py-1.5 md:px-3 md:py-2.5 border-b border-white/10">
               <YoutubeSearch
                 onAdd={handleAddVideo}
+                onSniffAdd={handleSniffAddVideo}
                 isAdding={addMutation.isPending}
                 lang={lang}
                 isDj={isDJ}

@@ -181,7 +181,6 @@ setInterval(() => {
       try { entry.browser.close(); } catch {}
       activeBrowsers.delete(roomSlug);
       activeRoomSessions.delete(roomSlug);
-      activeSessions = Math.max(0, activeSessions - 1);
     }
   }
 }, 30_000);
@@ -193,7 +192,6 @@ export function abortRoomSession(roomSlug: string): void {
     try { entry.browser.close(); } catch {}
     activeBrowsers.delete(roomSlug);
     activeRoomSessions.delete(roomSlug);
-    activeSessions = Math.max(0, activeSessions - 1);
   }
 }
 

@@ -15,6 +15,7 @@ interface YTResult {
 
 interface Props {
   onAdd: (url: string, title: string) => Promise<void> | void;
+  onSniffAdd?: (url: string, title: string) => Promise<void> | void;
   isAdding?: boolean;
   lang?: string;
   isDj?: boolean;
@@ -23,7 +24,7 @@ interface Props {
 
 type Mode = 'search' | 'url' | 'sniff';
 
-export default function YoutubeSearch({ onAdd, isAdding, lang = 'en', isDj, roomSlug }: Props) {
+export default function YoutubeSearch({ onAdd, onSniffAdd, isAdding, lang = 'en', isDj, roomSlug }: Props) {
   const { t } = useI18n();
   const [mode, setMode] = useState<Mode>('search');
   const [query, setQuery]   = useState('');
@@ -210,7 +211,7 @@ export default function YoutubeSearch({ onAdd, isAdding, lang = 'en', isDj, room
       {/* Sniff mode */}
       {mode === 'sniff' && (
         <Suspense fallback={<div className="flex items-center justify-center py-4"><Loader2 className="w-5 h-5 animate-spin text-white/40" /></div>}>
-          <LinkSniffer onSelectVideo={onAdd} roomSlug={roomSlug || ''} />
+          <LinkSniffer onSelectVideo={onSniffAdd || onAdd} roomSlug={roomSlug || ''} />
         </Suspense>
       )}
 
