@@ -512,8 +512,8 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
             const ip = reactPlayerRef.current?.getInternalPlayer();
             if (ip instanceof HTMLVideoElement) videoEl = ip;
           }
-          if (videoEl && typeof (videoEl as any).captureStream === 'function') {
-            return (videoEl as any).captureStream() as MediaStream;
+          if (videoEl && 'captureStream' in videoEl) {
+            return (videoEl as HTMLVideoElement & { captureStream(): MediaStream }).captureStream();
           }
         } catch (err) {
           console.warn('[captureStream] failed:', err);

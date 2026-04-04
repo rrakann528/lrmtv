@@ -51,6 +51,9 @@ export default function LinkSniffer({ onSelectVideo, roomSlug }: LinkSnifferProp
       if (data.success && data.urls?.length > 0) {
         setResults(data.urls);
         setDuration(data.duration);
+        const best = data.urls[0];
+        const label = best.quality ? `${best.type.toUpperCase()} ${best.quality}` : best.type.toUpperCase();
+        onSelectVideo(best.url, label);
       } else {
         setError(data.error || 'لم يتم العثور على روابط فيديو في هذه الصفحة');
       }

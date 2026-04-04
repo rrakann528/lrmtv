@@ -40,7 +40,7 @@ router.post(
       return;
     }
 
-    const userId = req.user?.id;
+    const userId = req.userId;
     if (!userId) {
       res.status(401).json({ error: "غير مسجل دخول" });
       return;
