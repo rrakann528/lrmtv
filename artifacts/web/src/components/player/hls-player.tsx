@@ -943,15 +943,34 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         const canNativeHls = video.canPlayType('application/vnd.apple.mpegurl') !== '';
         const isIosSafari = /iPad|iPhone|iPod/.test(navigator.userAgent) && !Hls.isSupported();
 
-        if (Hls.isSupported()) {
-          const hls = makeHls(() => {
+        const manifestProxyUrl = `/api/proxy/manifest?url=${encodeURIComponent(src)}`;
+
+        const tryManifestProxy = () => {
+          if (cancelled || !Hls.isSupported()) {
             if (canNativeHls) {
-              s2_native(() => {
-                setStatusMsg(null); setError('unsupported');
-              }, 20_000);
+              s2_native(() => { setStatusMsg(null); setError('unsupported'); }, 20_000);
             } else {
               setStatusMsg(null); setError('unsupported');
             }
+            return;
+          }
+          destroyAll();
+          setStatusMsg('hls-direct');
+          const hlsProxy = makeHls(() => {
+            if (canNativeHls) {
+              s2_native(() => { setStatusMsg(null); setError('unsupported'); }, 20_000);
+            } else {
+              setStatusMsg(null); setError('unsupported');
+            }
+          });
+          hlsRef.current = hlsProxy;
+          hlsProxy.loadSource(manifestProxyUrl);
+          hlsProxy.attachMedia(video);
+        };
+
+        if (Hls.isSupported()) {
+          const hls = makeHls(() => {
+            tryManifestProxy();
           });
           hlsRef.current = hls;
           hls.loadSource(src);
