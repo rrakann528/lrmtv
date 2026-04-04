@@ -18,6 +18,31 @@ const ICE_SERVERS: RTCConfiguration = {
   ],
 };
 
+const VIDEO_MAX_BITRATE = 2_500_000; // 2.5 Mbps — enough for 1080p without killing DJ upload
+const AUDIO_MAX_BITRATE = 128_000;   // 128 kbps
+
+async function applyBitrateLimits(pc: RTCPeerConnection) {
+  const senders = pc.getSenders();
+  for (const sender of senders) {
+    if (!sender.track) continue;
+    try {
+      const params = sender.getParameters();
+      if (!params.encodings || params.encodings.length === 0) {
+        params.encodings = [{}];
+      }
+      if (sender.track.kind === 'video') {
+        params.encodings[0].maxBitrate = VIDEO_MAX_BITRATE;
+        params.encodings[0].degradationPreference = 'maintain-framerate';
+      } else if (sender.track.kind === 'audio') {
+        params.encodings[0].maxBitrate = AUDIO_MAX_BITRATE;
+      }
+      await sender.setParameters(params);
+    } catch {
+      // setParameters may fail on some browsers — non-fatal
+    }
+  }
+}
+
 export function useWebRTC(socket: Socket | null, localStream: MediaStream | null, relayStream?: MediaStream | null) {
   const peersRef = useRef<Map<string, PeerConnection>>(new Map());
   const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map());
@@ -100,6 +125,8 @@ export function useWebRTC(socket: Socket | null, localStream: MediaStream | null
           type: 'offer',
           fresh, // tells receiver whether to create a fresh PC or re-negotiate
         });
+        // Apply bitrate limits after offer is sent
+        setTimeout(() => applyBitrateLimits(pc), 500);
       } catch (err) {
         console.error('onnegotiationneeded error', err);
       } finally {
@@ -169,6 +196,7 @@ export function useWebRTC(socket: Socket | null, localStream: MediaStream | null
             signal: pc.localDescription,
             type: 'answer',
           });
+          setTimeout(() => applyBitrateLimits(pc), 500);
         } catch (err) {
           console.error('re-negotiation answer error', err);
         }
@@ -196,6 +224,7 @@ export function useWebRTC(socket: Socket | null, localStream: MediaStream | null
           signal: pc.localDescription,
           type: 'answer',
         });
+        setTimeout(() => applyBitrateLimits(pc), 500);
       } catch (err) {
         console.error('fresh connection answer error', err);
       }
@@ -205,6 +234,7 @@ export function useWebRTC(socket: Socket | null, localStream: MediaStream | null
       if (peer) {
         try {
           await peer.pc.setRemoteDescription(new RTCSessionDescription(signal as RTCSessionDescriptionInit));
+          setTimeout(() => applyBitrateLimits(peer.pc), 500);
         } catch (err) {
           console.error('setRemoteDescription (answer) error', err);
         }
