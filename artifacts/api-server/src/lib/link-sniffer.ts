@@ -10,7 +10,7 @@ puppeteerExtra.use(StealthPlugin());
 const dnsCache = new Map<string, { isPrivate: boolean; ts: number }>();
 const DNS_CACHE_TTL = 30_000;
 
-async function isHostPrivateViadns(hostname: string): Promise<boolean> {
+async function isHostPrivateViaDns(hostname: string): Promise<boolean> {
   if (isPrivateIp(hostname)) return true;
   if (net.isIP(hostname)) return isPrivateIp(hostname);
 
@@ -70,6 +70,10 @@ const PLAY_SELECTORS = [
   'svg[class*="play"]',
   '.btn-watch', '.watch-btn', '[class*="مشاهدة"]',
   '.play', '#play-btn',
+  '.icon-play', '[class*="icon-play"]',
+  '.fa-play', '.fas.fa-play', '.bi-play-fill',
+  '[class*="player"] button', '[id*="player"] button',
+  '.video-js .vjs-play-control',
 ];
 
 const IFRAME_NAV_SELECTORS = [
@@ -82,6 +86,8 @@ const IFRAME_NAV_SELECTORS = [
   'iframe[src*="mixdrop"]', 'iframe[src*="upstream"]',
   'iframe[src*="dood"]', 'iframe[src*="streamtape"]',
   'iframe[src*="filemoon"]', 'iframe[src*="voe"]',
+  'iframe[src*="vidoza"]', 'iframe[src*="supervideo"]',
+  'iframe[src*="streamsb"]', 'iframe[src*="fembed"]',
 ];
 
 function isPrivateIp(hostname: string): boolean {
@@ -152,6 +158,14 @@ export interface SniffResult {
   }>;
   error?: string;
   duration?: number;
+  debug?: {
+    title: string;
+    iframesFound: number;
+    buttonsFound: number;
+    popupsBlocked: number;
+    networkRequests: number;
+    phases: string[];
+  };
 }
 
 function detectType(url: string): "m3u8" | "mp4" | "mpd" | "other" {
@@ -182,7 +196,7 @@ setInterval(() => {
   const now = Date.now();
   for (const [roomSlug, entry] of activeBrowsers) {
     if (now - entry.startedAt > MAX_BROWSER_AGE_MS) {
-      console.warn(`[link-sniffer] orphan cleanup: killing stale browser room=${roomSlug} age=${now - entry.startedAt}ms`);
+      console.warn(`[sniffer] orphan cleanup room=${roomSlug} age=${now - entry.startedAt}ms`);
       try { entry.browser.close(); } catch {}
       activeBrowsers.delete(roomSlug);
       activeRoomSessions.delete(roomSlug);
@@ -193,7 +207,7 @@ setInterval(() => {
 export function abortRoomSession(roomSlug: string): void {
   const entry = activeBrowsers.get(roomSlug);
   if (entry) {
-    console.log(`[link-sniffer] aborting session for room=${roomSlug} on disconnect`);
+    console.log(`[sniffer] aborting session room=${roomSlug}`);
     try { entry.browser.close(); } catch {}
     activeBrowsers.delete(roomSlug);
     activeRoomSessions.delete(roomSlug);
@@ -231,7 +245,7 @@ function randomUA(): string {
 
 async function launchBrowser(): Promise<Browser> {
   const execPath = findChromiumPath();
-  console.log(`[link-sniffer] launching stealth browser: ${execPath}`);
+  console.log(`[sniffer] launching stealth browser: ${execPath}`);
 
   return puppeteerExtra.launch({
     executablePath: execPath,
@@ -257,34 +271,224 @@ async function launchBrowser(): Promise<Browser> {
   }) as unknown as Browser;
 }
 
-function extractVideoUrlsFromText(text: string): string[] {
-  const urls: string[] = [];
-  const directMatches = text.match(
-    /https?:\/\/[^\s"'<>\\]+\.(mp4|m3u8|mpd|mkv|webm|f4v|ts|flv|mov)[^\s"'<>\\]*/gi
-  );
-  if (directMatches) urls.push(...directMatches);
+interface DebugInfo {
+  title: string;
+  iframesFound: number;
+  buttonsFound: number;
+  popupsBlocked: number;
+  networkRequests: number;
+  phases: string[];
+}
 
-  const propMatches = text.match(
-    /(?:src|file|url|source|video_url|stream_url|manifest|playlist|hls_url|dash_url|video_link|mp4_url|stream|playback)\s*[:=]\s*["']?(https?:\/\/[^\s"'<>\\,;]+)/gi
-  );
-  if (propMatches) {
-    propMatches.forEach(m => {
-      const u = m.match(/https?:\/\/[^\s"'<>\\,;]+/);
-      if (u) urls.push(u[0]);
+async function diagnosePage(page: Page): Promise<{
+  title: string;
+  iframeCount: number;
+  iframeSrcs: string[];
+  buttonCount: number;
+  buttonTexts: string[];
+  videoElements: number;
+  hasPopups: boolean;
+  bodyText: string;
+}> {
+  try {
+    return await page.evaluate(() => {
+      const iframes = document.querySelectorAll("iframe");
+      const iframeSrcs: string[] = [];
+      iframes.forEach(f => {
+        const s = f.getAttribute("src") || f.getAttribute("data-src") || "(no src)";
+        iframeSrcs.push(s.substring(0, 100));
+      });
+
+      const buttons = document.querySelectorAll("button, [role='button'], a.btn, .btn, [class*='play'], [class*='watch']");
+      const buttonTexts: string[] = [];
+      buttons.forEach(b => {
+        const txt = (b.textContent || "").trim().substring(0, 50);
+        if (txt) buttonTexts.push(txt);
+      });
+
+      const videos = document.querySelectorAll("video, source, embed, object");
+
+      const overlays = document.querySelectorAll('[class*="popup"], [class*="overlay"], [class*="modal"], [class*="ad-"], [id*="popup"], [id*="overlay"]');
+
+      const body = document.body?.innerText || "";
+      const snippet = body.substring(0, 500).replace(/\s+/g, " ");
+
+      return {
+        title: document.title || "(no title)",
+        iframeCount: iframes.length,
+        iframeSrcs: iframeSrcs.slice(0, 10),
+        buttonCount: buttons.length,
+        buttonTexts: buttonTexts.slice(0, 15),
+        videoElements: videos.length,
+        hasPopups: overlays.length > 0,
+        bodyText: snippet,
+      };
     });
+  } catch {
+    return {
+      title: "(failed to diagnose)",
+      iframeCount: 0, iframeSrcs: [],
+      buttonCount: 0, buttonTexts: [],
+      videoElements: 0, hasPopups: false, bodyText: "",
+    };
   }
+}
 
-  const jsonMatches = text.match(
-    /"(?:src|file|url|source|video|stream|hls|dash|mp4|playlist|manifest)"\s*:\s*"(https?:\/\/[^"\\]+)"/gi
-  );
-  if (jsonMatches) {
-    jsonMatches.forEach(m => {
-      const u = m.match(/https?:\/\/[^"\\]+/);
-      if (u) urls.push(u[0]);
+async function clickPlayButtons(page: Page, log: (msg: string) => void): Promise<number> {
+  const selectors = PLAY_SELECTORS.join(", ");
+  try {
+    const clickedCount = await page.evaluate((sel: string) => {
+      let clicked = 0;
+
+      const elements = document.querySelectorAll(sel);
+      elements.forEach(el => {
+        if (clicked >= 5) return;
+        if (el instanceof HTMLElement) {
+          const rect = el.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            el.click();
+            clicked++;
+          }
+        }
+      });
+
+      if (clicked === 0) {
+        const allClickable = document.querySelectorAll("button, [role='button'], a, div[onclick], span[onclick]");
+        allClickable.forEach(btn => {
+          if (clicked >= 5) return;
+          const text = (btn.textContent || "").toLowerCase();
+          const cls = (btn.getAttribute("class") || "").toLowerCase();
+          const ariaLabel = (btn.getAttribute("aria-label") || "").toLowerCase();
+          const title = (btn.getAttribute("title") || "").toLowerCase();
+
+          const isPlayRelated =
+            text.includes("play") || text.includes("تشغيل") || text.includes("مشاهدة") ||
+            text.includes("watch") || text.includes("شاهد") || text.includes("start") ||
+            text.includes("ابدأ") || text.includes("اضغط") || text.includes("click") ||
+            cls.includes("play") || cls.includes("watch") || cls.includes("start") ||
+            ariaLabel.includes("play") || ariaLabel.includes("تشغيل") ||
+            title.includes("play") || title.includes("تشغيل");
+
+          if (isPlayRelated && btn instanceof HTMLElement) {
+            const rect = btn.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+              btn.click();
+              clicked++;
+            }
+          }
+        });
+      }
+
+      return clicked;
+    }, selectors);
+
+    log(`clicked ${clickedCount} play-related elements`);
+    return clickedCount;
+  } catch {
+    return 0;
+  }
+}
+
+async function dismissPopups(page: Page, log: (msg: string) => void): Promise<number> {
+  try {
+    const dismissed = await page.evaluate(() => {
+      let count = 0;
+      const closeSelectors = [
+        '[class*="close"]', '[id*="close"]',
+        '[class*="dismiss"]', '[class*="skip"]',
+        '[aria-label*="close" i]', '[aria-label*="إغلاق"]',
+        'button.close', '.modal .close', '.popup .close',
+        '[class*="overlay"] [class*="close"]',
+        '.ad-close', '#ad-close', '[class*="ad-close"]',
+      ];
+
+      closeSelectors.forEach(sel => {
+        document.querySelectorAll(sel).forEach(el => {
+          if (count >= 5) return;
+          if (el instanceof HTMLElement) {
+            const rect = el.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+              el.click();
+              count++;
+            }
+          }
+        });
+      });
+
+      document.querySelectorAll('[class*="overlay"], [class*="popup"], [class*="modal"]').forEach(el => {
+        if (el instanceof HTMLElement) {
+          const style = window.getComputedStyle(el);
+          if (style.position === "fixed" || style.position === "absolute") {
+            if (parseFloat(style.zIndex) > 100 || style.zIndex === "auto") {
+              el.style.display = "none";
+              count++;
+            }
+          }
+        }
+      });
+
+      return count;
     });
-  }
 
-  return urls;
+    if (dismissed > 0) log(`dismissed ${dismissed} popups/overlays`);
+    return dismissed;
+  } catch {
+    return 0;
+  }
+}
+
+async function activateIframeSources(page: Page, log: (msg: string) => void): Promise<number> {
+  try {
+    const activated = await page.evaluate(() => {
+      let count = 0;
+      document.querySelectorAll("iframe[data-src], iframe[data-lazy-src], iframe[data-url]").forEach(iframe => {
+        const dataSrc = iframe.getAttribute("data-src") || iframe.getAttribute("data-lazy-src") || iframe.getAttribute("data-url");
+        if (dataSrc && (!iframe.getAttribute("src") || iframe.getAttribute("src") === "about:blank")) {
+          iframe.setAttribute("src", dataSrc);
+          count++;
+        }
+      });
+      return count;
+    });
+    if (activated > 0) log(`activated ${activated} lazy iframes`);
+    return activated;
+  } catch {
+    return 0;
+  }
+}
+
+async function clickServerButtons(page: Page, log: (msg: string) => void): Promise<number> {
+  try {
+    const clicked = await page.evaluate(() => {
+      let count = 0;
+      const serverSelectors = [
+        '[class*="server"]', '[class*="سيرفر"]',
+        '[class*="quality"]', '[data-server]',
+        '[class*="host"]', '[class*="mirror"]',
+        '[class*="tab"]', '[class*="episode"]',
+        'li[data-server]', 'li[data-embed]',
+        'a[data-embed]', 'a[data-server]',
+        '[class*="link-server"]', '[class*="linkserver"]',
+      ];
+      const sel = serverSelectors.join(", ");
+      const elements = document.querySelectorAll(sel);
+      elements.forEach(el => {
+        if (count >= 3) return;
+        if (el instanceof HTMLElement) {
+          const rect = el.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            el.click();
+            count++;
+          }
+        }
+      });
+      return count;
+    });
+    if (clicked > 0) log(`clicked ${clicked} server/quality buttons`);
+    return clicked;
+  } catch {
+    return 0;
+  }
 }
 
 async function extractFromFrame(frame: Frame, baseUrl: string): Promise<string[]> {
@@ -296,7 +500,7 @@ async function extractFromFrame(frame: Frame, baseUrl: string): Promise<string[]
         const attrs = ["src", "data-src", "data-lazy-src", "data-url", "data-video-src", "data-file", "content"];
         attrs.forEach(attr => {
           const val = el.getAttribute(attr);
-          if (val && val.startsWith("http")) urls.push(val);
+          if (val && (val.startsWith("http") || val.startsWith("//"))) urls.push(val);
         });
       });
 
@@ -309,28 +513,44 @@ async function extractFromFrame(frame: Frame, baseUrl: string): Promise<string[]
 
       document.querySelectorAll("script").forEach((script) => {
         const text = script.textContent || "";
+        if (text.length < 10) return;
+
         const directMatches = text.match(
           /https?:\/\/[^\s"'<>\\]+\.(mp4|m3u8|mpd|mkv|webm|f4v|ts|flv|mov)[^\s"'<>\\]*/gi
         );
         if (directMatches) urls.push(...directMatches);
 
         const propMatches = text.match(
-          /(?:src|file|url|source|video_url|stream_url|manifest|playlist|hls_url|dash_url|video_link|mp4_url|stream|playback)\s*[:=]\s*["']?(https?:\/\/[^\s"'<>\\,;]+)/gi
+          /(?:src|file|url|source|video_url|stream_url|manifest|playlist|hls_url|dash_url|video_link|mp4_url|stream|playback|sources)\s*[:=]\s*["']?(https?:\/\/[^\s"'<>\\,;\]]+)/gi
         );
         if (propMatches) {
           propMatches.forEach(m => {
-            const u = m.match(/https?:\/\/[^\s"'<>\\,;]+/);
+            const u = m.match(/https?:\/\/[^\s"'<>\\,;\]]+/);
             if (u) urls.push(u[0]);
           });
         }
 
         const jsonMatches = text.match(
-          /"(?:src|file|url|source|video|stream|hls|dash|mp4|playlist|manifest)"\s*:\s*"(https?:\/\/[^"\\]+)"/gi
+          /"(?:src|file|url|source|video|stream|hls|dash|mp4|playlist|manifest|sources)"\s*:\s*"(https?:\/\/[^"\\]+)"/gi
         );
         if (jsonMatches) {
           jsonMatches.forEach(m => {
             const u = m.match(/https?:\/\/[^"\\]+/);
             if (u) urls.push(u[0]);
+          });
+        }
+
+        const evalMatches = text.match(/atob\s*\(\s*["']([A-Za-z0-9+/=]{20,})["']\s*\)/g);
+        if (evalMatches) {
+          evalMatches.forEach(m => {
+            const b64 = m.match(/["']([A-Za-z0-9+/=]{20,})["']/);
+            if (b64) {
+              try {
+                const decoded = atob(b64[1]);
+                const decodedUrls = decoded.match(/https?:\/\/[^\s"'<>\\]+\.(mp4|m3u8|mpd)[^\s"'<>\\]*/gi);
+                if (decodedUrls) urls.push(...decodedUrls);
+              } catch {}
+            }
           });
         }
       });
@@ -359,33 +579,24 @@ async function extractBlobSources(page: Page): Promise<string[]> {
   try {
     return await page.evaluate(() => {
       const urls: string[] = [];
-      const videos = document.querySelectorAll("video");
-      videos.forEach(v => {
-        if (v.src && v.src.startsWith("blob:")) {
-          const ms = (v as any).ms_ || (v as any).mediaSource_;
-          if (ms) {
-            const sourceBuffers = ms.sourceBuffers;
-            for (let i = 0; i < sourceBuffers.length; i++) {
-              const sb = sourceBuffers[i];
-              if (sb._url) urls.push(sb._url);
-            }
-          }
-
-          if (v.currentSrc && !v.currentSrc.startsWith("blob:")) {
-            urls.push(v.currentSrc);
-          }
-        }
-      });
 
       const perfEntries = performance.getEntriesByType("resource") as PerformanceResourceTiming[];
       perfEntries.forEach(entry => {
-        const name = entry.name.toLowerCase();
+        const name = entry.name;
         if (/\.(m3u8|mpd|mp4|ts|webm)/i.test(name) && !name.startsWith("blob:")) {
-          urls.push(entry.name);
+          urls.push(name);
         }
-        if (entry.initiatorType === "video" || entry.initiatorType === "xmlhttprequest" || entry.initiatorType === "fetch") {
-          if (/\.(m3u8|mpd|mp4|ts)/i.test(name)) {
-            urls.push(entry.name);
+        if ((entry.initiatorType === "video" || entry.initiatorType === "xmlhttprequest" || entry.initiatorType === "fetch") &&
+            /\.(m3u8|mpd|mp4|ts)/i.test(name)) {
+          urls.push(name);
+        }
+      });
+
+      const videos = document.querySelectorAll("video");
+      videos.forEach(v => {
+        if (v.src && v.src.startsWith("blob:")) {
+          if (v.currentSrc && !v.currentSrc.startsWith("blob:")) {
+            urls.push(v.currentSrc);
           }
         }
       });
@@ -397,59 +608,13 @@ async function extractBlobSources(page: Page): Promise<string[]> {
   }
 }
 
-async function clickPlayButtons(page: Page): Promise<void> {
-  const selectors = PLAY_SELECTORS.join(", ");
-  try {
-    await page.evaluate((sel: string) => {
-      const elements = document.querySelectorAll(sel);
-      const clicked = new Set<Element>();
-      elements.forEach(el => {
-        if (clicked.size >= 5) return;
-        if (el instanceof HTMLElement && el.offsetParent !== null) {
-          el.click();
-          clicked.add(el);
-        }
-      });
-
-      if (clicked.size === 0) {
-        const allButtons = document.querySelectorAll("button, [role='button']");
-        allButtons.forEach(btn => {
-          if (clicked.size >= 3) return;
-          const text = (btn.textContent || "").toLowerCase();
-          const ariaLabel = (btn.getAttribute("aria-label") || "").toLowerCase();
-          if (text.includes("play") || text.includes("تشغيل") || text.includes("مشاهدة") ||
-              text.includes("watch") || text.includes("شاهد") ||
-              ariaLabel.includes("play") || ariaLabel.includes("تشغيل")) {
-            if (btn instanceof HTMLElement && btn.offsetParent !== null) {
-              btn.click();
-              clicked.add(btn);
-            }
-          }
-        });
-      }
-    }, selectors);
-  } catch {}
-}
-
-async function activateIframeSources(page: Page): Promise<void> {
-  try {
-    await page.evaluate(() => {
-      document.querySelectorAll("iframe[data-src], iframe[data-lazy-src]").forEach(iframe => {
-        const dataSrc = iframe.getAttribute("data-src") || iframe.getAttribute("data-lazy-src");
-        if (dataSrc && !iframe.getAttribute("src")) {
-          iframe.setAttribute("src", dataSrc);
-        }
-      });
-    });
-  } catch {}
-}
-
 async function deepIframeSearch(
   page: Page,
   foundUrls: Map<string, { url: string; contentType?: string }>,
   checkEarlyHit: () => void,
   targetUrl: string,
-  depth: number = 0,
+  depth: number,
+  log: (msg: string) => void,
 ): Promise<void> {
   if (depth > 2) return;
 
@@ -458,27 +623,41 @@ async function deepIframeSearch(
     frames = page.frames();
   } catch { return; }
 
+  log(`scanning ${frames.length} frames at depth=${depth}`);
+
   for (const frame of frames) {
     if (frame === page.mainFrame() && depth === 0) continue;
     try {
       const frameUrl = frame.url();
       if (!frameUrl || frameUrl === "about:blank" || frameUrl === "about:srcdoc") continue;
 
+      log(`  frame[d${depth}]: ${frameUrl.substring(0, 100)}`);
+
       const urls = await extractFromFrame(frame, frameUrl);
+      let added = 0;
       for (const u of urls) {
         try {
           const abs = new URL(u, frameUrl).href;
           if (isVideoUrl(abs) || /\.(m3u8|mpd|mp4)/i.test(abs)) {
             foundUrls.set(abs, { url: abs });
             checkEarlyHit();
+            added++;
           }
         } catch {}
       }
+      if (added > 0) log(`  frame[d${depth}] found ${added} video URLs`);
 
       try {
         await frame.evaluate(() => {
-          const btns = document.querySelectorAll('button, [class*="play"], [id*="play"], .vjs-big-play-button, .jw-icon-playback');
-          btns.forEach(b => { if (b instanceof HTMLElement && b.offsetParent !== null) b.click(); });
+          const btns = document.querySelectorAll('button, [class*="play"], [id*="play"], .vjs-big-play-button, .jw-icon-playback, .plyr__control--overlaid');
+          let clicked = 0;
+          btns.forEach(b => {
+            if (clicked >= 3) return;
+            if (b instanceof HTMLElement) {
+              const rect = b.getBoundingClientRect();
+              if (rect.width > 0 && rect.height > 0) { b.click(); clicked++; }
+            }
+          });
         });
       } catch {}
     } catch {}
@@ -490,8 +669,8 @@ async function navigateToEmbedIframes(
   browser: Browser,
   foundUrls: Map<string, { url: string; contentType?: string }>,
   checkEarlyHit: () => void,
-  timeoutMs: number,
   deadline: number,
+  log: (msg: string) => void,
 ): Promise<void> {
   let iframeSrcs: string[] = [];
   try {
@@ -501,9 +680,9 @@ async function navigateToEmbedIframes(
       selectors.forEach(sel => {
         document.querySelectorAll(sel).forEach(iframe => {
           const src = iframe.getAttribute("src") || iframe.getAttribute("data-src") || "";
-          if (src && src.startsWith("http") && !seen.has(src)) {
+          if (src && (src.startsWith("http") || src.startsWith("//")) && !seen.has(src)) {
             seen.add(src);
-            srcs.push(src);
+            srcs.push(src.startsWith("//") ? "https:" + src : src);
           }
         });
       });
@@ -520,16 +699,23 @@ async function navigateToEmbedIframes(
     }, IFRAME_NAV_SELECTORS);
   } catch {}
 
+  log(`found ${iframeSrcs.length} embed iframes to navigate: ${iframeSrcs.map(s => s.substring(0, 60)).join(", ")}`);
+
   for (const src of iframeSrcs.slice(0, 5)) {
-    if (Date.now() >= deadline) break;
-    if (foundUrls.size > 0 && Array.from(foundUrls.keys()).some(u => /\.(m3u8|mpd)/i.test(u))) break;
+    if (Date.now() >= deadline) { log("deadline reached, stopping iframe navigation"); break; }
+    if (foundUrls.size > 0 && Array.from(foundUrls.keys()).some(u => /\.(m3u8|mpd)/i.test(u))) {
+      log("high-value URL already found, skipping remaining iframes");
+      break;
+    }
 
     let isPriv = false;
-    try { isPriv = await isHostPrivateViadns(new URL(src).hostname); } catch {}
-    if (isPriv) continue;
+    try { isPriv = await isHostPrivateViaDns(new URL(src).hostname); } catch {}
+    if (isPriv) { log(`skipped private host: ${src.substring(0, 60)}`); continue; }
 
+    log(`navigating to embed: ${src.substring(0, 80)}`);
+    let embedPage: Page | null = null;
     try {
-      const embedPage = await browser.newPage();
+      embedPage = await browser.newPage() as unknown as Page;
       await embedPage.setViewport({ width: 1920, height: 1080 });
       await embedPage.setUserAgent(randomUA());
       await embedPage.setExtraHTTPHeaders({
@@ -548,6 +734,7 @@ async function navigateToEmbedIframes(
           if (isPrivateIp(parsed.hostname)) { request.abort(); return; }
         } catch { request.abort(); return; }
         if (isVideoUrl(reqUrl)) {
+          log(`  embed INTERCEPT: ${reqUrl.substring(0, 100)}`);
           foundUrls.set(reqUrl, { url: reqUrl });
           checkEarlyHit();
         }
@@ -557,6 +744,7 @@ async function navigateToEmbedIframes(
         const respUrl = response.url();
         const ct = response.headers()["content-type"] || "";
         if (isVideoContentType(ct) || isVideoUrl(respUrl)) {
+          log(`  embed INTERCEPT [resp]: ${respUrl.substring(0, 100)}`);
           foundUrls.set(respUrl, { url: respUrl, contentType: ct });
           checkEarlyHit();
         }
@@ -565,19 +753,23 @@ async function navigateToEmbedIframes(
       const remainingMs = Math.max(deadline - Date.now(), 5000);
       await embedPage.goto(src, { waitUntil: "networkidle2", timeout: Math.min(remainingMs, 15000) }).catch(() => {});
 
-      await clickPlayButtons(embedPage);
+      await dismissPopups(embedPage, log);
+      await clickPlayButtons(embedPage, log);
       await new Promise(r => setTimeout(r, 3000));
 
       const embedUrls = await extractFromFrame(embedPage.mainFrame(), src);
+      let added = 0;
       for (const u of embedUrls) {
         try {
           const abs = new URL(u, src).href;
           if (isVideoUrl(abs) || /\.(m3u8|mpd|mp4)/i.test(abs)) {
             foundUrls.set(abs, { url: abs });
             checkEarlyHit();
+            added++;
           }
         } catch {}
       }
+      if (added > 0) log(`  embed page found ${added} video URLs`);
 
       const blobUrls = await extractBlobSources(embedPage);
       for (const u of blobUrls) {
@@ -587,11 +779,80 @@ async function navigateToEmbedIframes(
         }
       }
 
-      await deepIframeSearch(embedPage, foundUrls, checkEarlyHit, src, 1);
-
-      await embedPage.close().catch(() => {});
-    } catch {}
+      await deepIframeSearch(embedPage, foundUrls, checkEarlyHit, src, 1, log);
+    } catch (e: any) {
+      log(`  embed error: ${e.message?.substring(0, 80)}`);
+    } finally {
+      if (embedPage) await embedPage.close().catch(() => {});
+    }
   }
+}
+
+function setupRequestInterception(
+  page: Page,
+  foundUrls: Map<string, { url: string; contentType?: string }>,
+  checkEarlyHit: () => void,
+  debugInfo: DebugInfo,
+  blockedHosts: Set<string>,
+  allowedHosts: Set<string>,
+  log: (msg: string) => void,
+) {
+  let networkActivity = Date.now();
+
+  page.on("request", (request) => {
+    networkActivity = Date.now();
+    debugInfo.networkRequests++;
+    const resourceType = request.resourceType();
+    if (["image", "font", "stylesheet"].includes(resourceType)) { request.abort(); return; }
+
+    if (resourceType === "other" || resourceType === "document") {
+      const reqUrl = request.url();
+      const isPopup = reqUrl.includes("popup") || reqUrl.includes("click") || reqUrl.includes("ad.");
+      if (isPopup && resourceType === "document" && request.isNavigationRequest()) {
+        debugInfo.popupsBlocked++;
+        request.abort();
+        return;
+      }
+    }
+
+    const reqUrl = request.url();
+    try {
+      const parsed = new URL(reqUrl);
+      if (!["http:", "https:"].includes(parsed.protocol)) { request.abort(); return; }
+      const host = parsed.hostname;
+      if (isPrivateIp(host)) { request.abort(); return; }
+      if (blockedHosts.has(host)) { request.abort(); return; }
+
+      if (!allowedHosts.has(host) && !net.isIP(host)) {
+        isHostPrivateViaDns(host).then(isPriv => {
+          if (isPriv) blockedHosts.add(host);
+          else allowedHosts.add(host);
+        }).catch(() => {});
+      }
+    } catch { request.abort(); return; }
+
+    if (isVideoUrl(reqUrl)) {
+      log(`INTERCEPT [req]: ${reqUrl.substring(0, 120)}`);
+      foundUrls.set(reqUrl, { url: reqUrl });
+      checkEarlyHit();
+    }
+
+    request.continue();
+  });
+
+  page.on("response", async (response) => {
+    networkActivity = Date.now();
+    const respUrl = response.url();
+    const ct = response.headers()["content-type"] || "";
+
+    if (isVideoContentType(ct) || isVideoUrl(respUrl)) {
+      log(`INTERCEPT [resp] ct=${ct.substring(0, 30)}: ${respUrl.substring(0, 120)}`);
+      foundUrls.set(respUrl, { url: respUrl, contentType: ct });
+      checkEarlyHit();
+    }
+  });
+
+  return () => networkActivity;
 }
 
 export async function sniffVideoUrls(
@@ -613,10 +874,24 @@ export async function sniffVideoUrls(
   activeRoomSessions.add(roomSlug);
   let browser: Browser | null = null;
 
-  console.log(`[link-sniffer] HUNT START room=${roomSlug} url=${targetUrl} active=${activeSessions}`);
-
   const deadline = startTime + timeoutMs;
   const pastDeadline = () => Date.now() >= deadline - 3000;
+
+  const debugInfo: DebugInfo = {
+    title: "",
+    iframesFound: 0,
+    buttonsFound: 0,
+    popupsBlocked: 0,
+    networkRequests: 0,
+    phases: [],
+  };
+
+  const log = (msg: string) => {
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`[sniffer ${elapsed}s] [${roomSlug}] ${msg}`);
+  };
+
+  log(`=== HUNT START === url=${targetUrl}`);
 
   try {
     browser = await launchBrowser();
@@ -639,7 +914,6 @@ export async function sniffVideoUrls(
 
     const foundUrls = new Map<string, { url: string; contentType?: string }>();
     let earlyHit = false;
-    let networkActivity = Date.now();
     const blockedHosts = new Set<string>();
     const allowedHosts = new Set<string>();
 
@@ -650,153 +924,158 @@ export async function sniffVideoUrls(
       );
       if (hasHighValue) {
         earlyHit = true;
-        console.log(`[link-sniffer] EARLY HIT room=${roomSlug} — high-value URL found`);
+        log("EARLY HIT — high-value URL found!");
       }
     };
 
-    page.on("request", (request) => {
-      networkActivity = Date.now();
-      const resourceType = request.resourceType();
-      if (["image", "font", "stylesheet"].includes(resourceType)) { request.abort(); return; }
+    const getNetworkActivity = setupRequestInterception(page, foundUrls, checkEarlyHit, debugInfo, blockedHosts, allowedHosts, log);
 
-      const reqUrl = request.url();
-      try {
-        const parsed = new URL(reqUrl);
-        if (!["http:", "https:"].includes(parsed.protocol)) { request.abort(); return; }
-        const host = parsed.hostname;
-        if (isPrivateIp(host)) { request.abort(); return; }
-        if (blockedHosts.has(host)) { request.abort(); return; }
-
-        if (!allowedHosts.has(host) && !net.isIP(host)) {
-          isHostPrivateViadns(host).then(isPriv => {
-            if (isPriv) blockedHosts.add(host);
-            else allowedHosts.add(host);
-          }).catch(() => {});
-        }
-      } catch { request.abort(); return; }
-
-      if (isVideoUrl(reqUrl)) {
-        console.log(`[link-sniffer] INTERCEPT [request] ${reqUrl.substring(0, 120)}`);
-        foundUrls.set(reqUrl, { url: reqUrl });
-        checkEarlyHit();
-      }
-
-      request.continue();
+    // ===== PHASE 1: Navigate =====
+    debugInfo.phases.push("navigate");
+    log("PHASE 1: navigating...");
+    await page.goto(targetUrl, { waitUntil: "domcontentloaded", timeout: 25000 }).catch(e => {
+      log(`navigation warning: ${e.message?.substring(0, 80)}`);
     });
 
-    page.on("response", async (response) => {
-      networkActivity = Date.now();
-      const respUrl = response.url();
-      const ct = response.headers()["content-type"] || "";
+    // ===== Diagnose page =====
+    const diag = await diagnosePage(page);
+    debugInfo.title = diag.title;
+    debugInfo.iframesFound = diag.iframeCount;
+    debugInfo.buttonsFound = diag.buttonCount;
+    log(`PAGE: title="${diag.title}" iframes=${diag.iframeCount} buttons=${diag.buttonCount} videos=${diag.videoElements} popups=${diag.hasPopups}`);
+    if (diag.iframeSrcs.length > 0) log(`IFRAMES: ${diag.iframeSrcs.join(" | ")}`);
+    if (diag.buttonTexts.length > 0) log(`BUTTONS: ${diag.buttonTexts.slice(0, 10).join(" | ")}`);
+    if (diag.videoElements === 0 && diag.iframeCount === 0) {
+      log(`BODY PREVIEW: ${diag.bodyText.substring(0, 200)}`);
+    }
 
-      if (isVideoContentType(ct) || isVideoUrl(respUrl)) {
-        console.log(`[link-sniffer] INTERCEPT [response] ct=${ct} ${respUrl.substring(0, 120)}`);
-        foundUrls.set(respUrl, { url: respUrl, contentType: ct });
-        checkEarlyHit();
-      }
-    });
+    // ===== PHASE 2: Dismiss popups + activate lazy iframes =====
+    debugInfo.phases.push("dismiss-popups");
+    const dismissed = await dismissPopups(page, log);
+    debugInfo.popupsBlocked += dismissed;
+    await activateIframeSources(page, log);
 
-    console.log(`[link-sniffer] navigating to ${targetUrl}`);
-    await page.goto(targetUrl, {
-      waitUntil: "domcontentloaded",
-      timeout: 30000,
-    }).catch(() => {});
+    // ===== PHASE 3: Auto-click play buttons =====
+    if (!pastDeadline()) {
+      debugInfo.phases.push("auto-click");
+      log("PHASE 3: auto-clicking play buttons...");
+      await clickPlayButtons(page, log);
+    }
 
-    console.log(`[link-sniffer] waiting for network idle (min 15s)...`);
-    const MIN_WAIT_MS = 15000;
-    const minWaitEnd = Date.now() + MIN_WAIT_MS;
-
-    await activateIframeSources(page);
+    // ===== PHASE 4: Wait for network (min 20s from start) =====
+    debugInfo.phases.push("network-wait");
+    log("PHASE 4: monitoring network traffic (min 20s)...");
+    const MIN_WAIT_MS = 20000;
+    const minWaitEnd = startTime + MIN_WAIT_MS;
 
     await new Promise<void>(resolve => {
       const check = setInterval(() => {
-        const sinceLastNetwork = Date.now() - networkActivity;
+        const sinceLastNetwork = Date.now() - getNetworkActivity();
         const pastMinWait = Date.now() >= minWaitEnd;
 
         if (pastDeadline()) { clearInterval(check); resolve(); return; }
         if (earlyHit && pastMinWait) { clearInterval(check); resolve(); return; }
         if (pastMinWait && sinceLastNetwork > 5000 && foundUrls.size > 0) { clearInterval(check); resolve(); return; }
       }, 1000);
-      setTimeout(() => { clearInterval(check); resolve(); }, MIN_WAIT_MS);
+      const waitRemaining = Math.max(minWaitEnd - Date.now(), 0);
+      setTimeout(() => { clearInterval(check); resolve(); }, waitRemaining + 1000);
     });
 
-    if (!pastDeadline()) {
-      console.log(`[link-sniffer] PHASE: auto-click play buttons`);
-      await clickPlayButtons(page);
-      await new Promise(r => setTimeout(r, 3000));
-    }
+    log(`after wait: found=${foundUrls.size} earlyHit=${earlyHit}`);
 
+    // ===== PHASE 5: DOM extraction =====
     if (!pastDeadline()) {
-      console.log(`[link-sniffer] PHASE: DOM extraction`);
+      debugInfo.phases.push("dom-extract");
+      log("PHASE 5: extracting from DOM...");
       const pageVideoUrls = await extractFromFrame(page.mainFrame(), targetUrl);
+      let domAdded = 0;
       for (const u of pageVideoUrls) {
         try {
           const abs = new URL(u, targetUrl).href;
           if (isVideoUrl(abs) || /\.(m3u8|mpd|mp4)/i.test(abs)) {
             foundUrls.set(abs, { url: abs });
             checkEarlyHit();
+            domAdded++;
           }
         } catch {}
       }
+      log(`DOM extraction: found ${domAdded} new URLs`);
     }
 
+    // ===== PHASE 6: Blob/Performance API =====
     if (!pastDeadline()) {
-      console.log(`[link-sniffer] PHASE: blob detection`);
+      debugInfo.phases.push("blob-detect");
+      log("PHASE 6: checking Performance API + blob sources...");
       const blobUrls = await extractBlobSources(page);
+      let blobAdded = 0;
       for (const u of blobUrls) {
         if (isVideoUrl(u) || /\.(m3u8|mpd|mp4|ts)/i.test(u)) {
           foundUrls.set(u, { url: u });
           checkEarlyHit();
+          blobAdded++;
         }
       }
+      if (blobAdded > 0) log(`blob/perf: found ${blobAdded} URLs`);
     }
 
+    // ===== PHASE 7: Deep iframe search =====
     if (!pastDeadline()) {
-      console.log(`[link-sniffer] PHASE: deep iframe search (${page.frames().length} frames)`);
-      await deepIframeSearch(page, foundUrls, checkEarlyHit, targetUrl, 0);
+      debugInfo.phases.push("deep-iframe");
+      log(`PHASE 7: deep iframe search (${page.frames().length} frames)...`);
+      await deepIframeSearch(page, foundUrls, checkEarlyHit, targetUrl, 0, log);
     }
 
+    // ===== PHASE 8: Navigate to embed iframes =====
     if (!pastDeadline() && (!earlyHit || foundUrls.size === 0)) {
-      console.log(`[link-sniffer] PHASE: navigate to embed iframes`);
-      await navigateToEmbedIframes(page, browser, foundUrls, checkEarlyHit, 20000, deadline);
+      debugInfo.phases.push("embed-navigate");
+      log("PHASE 8: navigating to embed iframes...");
+      await navigateToEmbedIframes(page, browser, foundUrls, checkEarlyHit, deadline, log);
     }
 
+    // ===== PHASE 9: Aggressive retry =====
     if (!pastDeadline() && foundUrls.size === 0) {
-      console.log(`[link-sniffer] PHASE: aggressive retry — click + wait`);
-      await clickPlayButtons(page);
-      await page.evaluate(() => {
-        document.querySelectorAll('[class*="server"], [class*="سيرفر"], [class*="quality"], [data-server]').forEach(el => {
-          if (el instanceof HTMLElement) el.click();
-        });
-      }).catch(() => {});
+      debugInfo.phases.push("aggressive-retry");
+      log("PHASE 9: aggressive retry — clicking servers + re-scan...");
 
-      const waitTime = Math.min(8000, Math.max(deadline - Date.now() - 5000, 2000));
+      await clickServerButtons(page, log);
+      await new Promise(r => setTimeout(r, 3000));
+
+      await clickPlayButtons(page, log);
+      const waitTime = Math.min(5000, Math.max(deadline - Date.now() - 8000, 2000));
       await new Promise(r => setTimeout(r, waitTime));
+
+      const retryDiag = await diagnosePage(page);
+      log(`RETRY page: title="${retryDiag.title}" iframes=${retryDiag.iframeCount} videos=${retryDiag.videoElements}`);
+      if (retryDiag.iframeSrcs.length > 0) log(`RETRY IFRAMES: ${retryDiag.iframeSrcs.join(" | ")}`);
 
       const retryUrls = await extractFromFrame(page.mainFrame(), targetUrl);
       for (const u of retryUrls) {
         try {
           const abs = new URL(u, targetUrl).href;
-          if (isVideoUrl(abs) || /\.(m3u8|mpd|mp4)/i.test(abs)) {
-            foundUrls.set(abs, { url: abs });
-          }
+          if (isVideoUrl(abs) || /\.(m3u8|mpd|mp4)/i.test(abs)) foundUrls.set(abs, { url: abs });
         } catch {}
       }
 
+      await activateIframeSources(page, log);
+
       if (!pastDeadline()) {
-        await deepIframeSearch(page, foundUrls, checkEarlyHit, targetUrl, 0);
+        await deepIframeSearch(page, foundUrls, checkEarlyHit, targetUrl, 0, log);
         const retryBlob = await extractBlobSources(page);
         for (const u of retryBlob) {
-          if (isVideoUrl(u) || /\.(m3u8|mpd|mp4|ts)/i.test(u)) {
-            foundUrls.set(u, { url: u });
-          }
+          if (isVideoUrl(u) || /\.(m3u8|mpd|mp4|ts)/i.test(u)) foundUrls.set(u, { url: u });
         }
+      }
+
+      if (!pastDeadline() && foundUrls.size === 0) {
+        await navigateToEmbedIframes(page, browser, foundUrls, checkEarlyHit, deadline, log);
       }
     }
 
+    // ===== PHASE 10: Final monitor =====
     if (!pastDeadline() && foundUrls.size === 0) {
-      console.log(`[link-sniffer] PHASE: final network monitor`);
-      const finalWait = Math.min(10000, Math.max(deadline - Date.now() - 2000, 2000));
+      debugInfo.phases.push("final-monitor");
+      log("PHASE 10: final network monitor...");
+      const finalWait = Math.min(8000, Math.max(deadline - Date.now() - 2000, 2000));
       await new Promise<void>(resolve => {
         const timeout = setTimeout(resolve, finalWait);
         const check = setInterval(() => {
@@ -816,21 +1095,31 @@ export async function sniffVideoUrls(
       .slice(0, 20);
 
     const duration = Date.now() - startTime;
-    console.log(`[link-sniffer] ${results.length > 0 ? '✅' : '❌'} HUNT DONE room=${roomSlug} found=${results.length} duration=${duration}ms`);
+    log(`=== HUNT ${results.length > 0 ? 'SUCCESS' : 'FAILED'} === found=${results.length} duration=${duration}ms phases=${debugInfo.phases.join(",")} requests=${debugInfo.networkRequests} popups=${debugInfo.popupsBlocked}`);
 
-    return { success: results.length > 0, urls: results, duration };
+    if (results.length === 0) {
+      log(`FAILURE REPORT: title="${debugInfo.title}" iframes=${debugInfo.iframesFound} buttons=${debugInfo.buttonsFound} requests=${debugInfo.networkRequests} popups=${debugInfo.popupsBlocked}`);
+    }
+
+    return {
+      success: results.length > 0,
+      urls: results,
+      duration,
+      debug: debugInfo,
+    };
   } catch (err: any) {
-    console.error(`[link-sniffer] ❌ error room=${roomSlug}: ${err.message}`);
+    log(`=== ERROR === ${err.message}`);
     return {
       success: false, urls: [],
       error: err.message || "فشل استخراج الروابط",
       duration: Date.now() - startTime,
+      debug: debugInfo,
     };
   } finally {
     activeSessions--;
     activeRoomSessions.delete(roomSlug);
     activeBrowsers.delete(roomSlug);
     if (browser) { try { await browser.close(); } catch {} }
-    console.log(`[link-sniffer] 🧹 cleanup room=${roomSlug} active=${activeSessions}`);
+    log(`cleanup done, active=${activeSessions}`);
   }
 }
