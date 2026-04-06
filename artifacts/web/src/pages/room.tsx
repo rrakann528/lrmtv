@@ -5,13 +5,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   MessageSquare, ListVideo, Users, UserPlus,
   Mic, MicOff, Copy, Share2, Shield,
-  LogOut, LogIn, Settings2, Play, Radio,
+  LogOut, LogIn, Settings2, Play,
 } from 'lucide-react';
 
 import { useI18n } from '@/lib/i18n';
 import { useUserSession } from '@/hooks/use-user-session';
 import { useSocket } from '@/hooks/use-socket';
-import { useWebRTC } from '@/hooks/use-webrtc';
 import { useAuth, apiFetch } from '@/hooks/use-auth';
 import { useBackgroundAlive } from '@/hooks/use-background-alive';
 import { useGetRoom, useAddPlaylistItem, getGetRoomPlaylistQueryKey } from '@workspace/api-client-react';
@@ -102,11 +101,6 @@ export default function RoomPage() {
   const [mediaConfirm, setMediaConfirm] = useState(false);
 
   const playerRef = useRef<SmartPlayerHandle>(null);
-  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const [relayStream, setRelayStream] = useState<MediaStream | null>(null);
-  const [isRelaying, setIsRelaying] = useState(false);
-
-  const { remoteStreams, remoteVideoStreams, callAllPeers, hangUp, removeVideoSenders } = useWebRTC(socket, localStream, relayStream);
 
   const isDJ       = you?.isDJ || you?.isAdmin || false;
   const isAdmin    = you?.isAdmin || false;
@@ -328,11 +322,6 @@ export default function RoomPage() {
       prevVideoUrlRef.current = syncState.url;
       setPlayerReady(false);
       readyTimeRef.current = 0;
-      if (isRelaying) {
-        relayStream?.getTracks().forEach(t => t.stop());
-        setRelayStream(null);
-        setIsRelaying(false);
-      }
     }
   }, [syncState.url]);
 
@@ -374,8 +363,7 @@ export default function RoomPage() {
     setMicOn(true);
     toggleMedia({ isMuted: false });
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      setLocalStream(stream);
+      await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
       setMicOn(false);
       toggleMedia({ isMuted: true });
@@ -389,80 +377,12 @@ export default function RoomPage() {
     }
     setMicOn(false);
     toggleMedia({ isMuted: true });
-    if (localStream) {
-      localStream.getAudioTracks().forEach(t => t.stop());
-      setLocalStream(null);
-      hangUp();
-    }
-  }, [micOn, toggleMedia, localStream, hangUp]);
+  }, [micOn, toggleMedia]);
 
   const handleConfirmMedia = useCallback(async () => {
     setMediaConfirm(false);
     await doEnableMic();
   }, [doEnableMic]);
-
-  const handleToggleRelay = useCallback(() => {
-    if (isRelaying) {
-      removeVideoSenders();
-      if (relayStream) {
-        relayStream.getTracks().forEach(t => t.stop());
-        setRelayStream(null);
-      }
-      setIsRelaying(false);
-      socket?.emit('relay-mode', { active: false });
-    } else {
-      const stream = playerRef.current?.captureStream();
-      if (stream && stream.getTracks().length > 0) {
-        setRelayStream(stream);
-        setIsRelaying(true);
-        socket?.emit('relay-mode', { active: true });
-      }
-    }
-  }, [isRelaying, relayStream, socket, removeVideoSenders]);
-
-  useEffect(() => {
-    if (!relayStream || !isRelaying) return;
-    const others = users.filter(u => u.socketId !== you?.socketId).map(u => u.socketId);
-    if (others.length > 0) {
-      const timer = setTimeout(() => callAllPeers(others), 200);
-      return () => clearTimeout(timer);
-    }
-  }, [relayStream, isRelaying, users, you, callAllPeers]);
-
-  useEffect(() => {
-    if (!isDJ || isRelaying) return;
-    const url = syncState.url;
-    const srcType = url ? detectSourceType(url) : null;
-    const isDirectStream = srcType === 'm3u8' || srcType === 'mp4' || srcType === 'other';
-    if (!isDirectStream) return;
-
-    let attempts = 0;
-    const maxAttempts = 15;
-    const tryCapture = () => {
-      if (isRelaying || attempts >= maxAttempts) return;
-      attempts++;
-      const stream = playerRef.current?.captureStream();
-      if (stream && stream.getTracks().length > 0) {
-        setRelayStream(stream);
-        setIsRelaying(true);
-        socket?.emit('relay-mode', { active: true });
-      } else {
-        setTimeout(tryCapture, 1000);
-      }
-    };
-    const timer = setTimeout(tryCapture, 500);
-    return () => clearTimeout(timer);
-  }, [isDJ, isRelaying, socket, syncState.url]);
-
-  useEffect(() => {
-    if (localStream && users.length > 1) {
-      const others = users.filter(u => u.socketId !== you?.socketId).map(u => u.socketId);
-      if (others.length > 0) callAllPeers(others);
-    }
-  }, [localStream, users, you, callAllPeers]);
-
-  useEffect(() => () => { localStream?.getTracks().forEach(t => t.stop()); }, [localStream]);
-  useEffect(() => () => { relayStream?.getTracks().forEach(t => t.stop()); }, [relayStream]);
 
   useEffect(() => {
     if (micDisabled && micOn) { setMicOn(false); toggleMedia({ isMuted: true }); }
@@ -582,20 +502,7 @@ export default function RoomPage() {
             {micOn && !micDisabled && !isGuest ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4 text-red-400" />}
           </button>
 
-          {/* Relay (DJ only) */}
-          {isDJ && syncState.url && (
-            <button
-              onClick={handleToggleRelay}
-              title={isRelaying ? 'إيقاف البث المباشر' : 'بث مباشر للمشاهدين'}
-              className={cn('h-8 px-2 flex items-center gap-1.5 rounded-lg border border-white/10 transition-colors text-xs font-medium',
-                isRelaying
-                  ? 'bg-red-500/20 border-red-500/40 text-red-400 animate-pulse'
-                  : 'bg-white/5 text-white/70 hover:text-white hover:bg-white/10')}
-            >
-              <Radio className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">{isRelaying ? 'بث مباشر' : 'بث'}</span>
-            </button>
-          )}
+
         </div>
 
         <div className="flex items-center gap-2 min-w-0">
@@ -689,35 +596,8 @@ export default function RoomPage() {
               </div>
             )}
 
-            {/* Relay video from DJ (WebRTC) — inside player container */}
-            {!isDJ && remoteVideoStreams.size > 0 && (() => {
-              const entries = Array.from(remoteVideoStreams.entries());
-              const [, videoStream] = entries[0];
-              const hasActiveTracks = videoStream.getVideoTracks().some(t => t.readyState === 'live');
-              if (!hasActiveTracks) return null;
-              return (
-                <div className="absolute inset-0 z-20 bg-black">
-                  <video
-                    autoPlay
-                    playsInline
-                    muted={false}
-                    ref={el => { if (el && el.srcObject !== videoStream) el.srcObject = videoStream; }}
-                    className="w-full h-full object-contain"
-                  />
-                  <div className="absolute top-2 start-2 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-600/80 backdrop-blur text-white text-[11px] font-bold z-10">
-                    <Radio className="w-3 h-3 animate-pulse" />
-                    بث مباشر
-                  </div>
-                </div>
-              );
-            })()}
 
           </div>
-
-          {/* Audio-only remote streams */}
-          {Array.from(remoteStreams.entries()).map(([socketId, stream]) => (
-            <audio key={socketId} autoPlay playsInline ref={el => { if (el) el.srcObject = stream; }} style={{ display: 'none' }} />
-          ))}
         </div>
 
         {/* ── Chat / Playlist / Users panel ───────────────────────── */}

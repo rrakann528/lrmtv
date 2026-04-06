@@ -89,8 +89,8 @@ export default function SubtitleSearch({ isOpen, onClose, onApply, lang = 'en' }
         downloadUrl = json.link;
       }
 
-      const proxy = await fetch(`/api/proxy/subtitle?url=${encodeURIComponent(downloadUrl)}`);
-      if (!proxy.ok) throw new Error('Proxy error');
+      const proxy = await fetch(downloadUrl);
+      if (!proxy.ok) throw new Error('Fetch error');
       const text = await proxy.text();
       const label = item.movie_name || item.file_name.replace(/\.[^.]+$/, '') || 'subtitle';
       onApply(text, label, downloadUrl);
@@ -135,7 +135,7 @@ export default function SubtitleSearch({ isOpen, onClose, onApply, lang = 'en' }
     setUrlLoading(true);
     setUrlError(null);
     try {
-      const r = await fetch(`/api/proxy/subtitle?url=${encodeURIComponent(trimmed)}`);
+      const r = await fetch(trimmed);
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
       const text = await r.text();
       if (!text.trim()) throw new Error(isAr ? 'الملف فارغ' : 'Empty file');

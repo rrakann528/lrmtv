@@ -98,8 +98,7 @@ export const generalLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: "طلبات كثيرة جداً، انتظر قليلاً" },
   skip: (req) =>
-    req.path.startsWith("/auth/me") ||
-    req.path.startsWith("/proxy/"),
+    req.path.startsWith("/auth/me"),
 });
 
 export const extractLimiter = rateLimit({

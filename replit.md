@@ -48,9 +48,7 @@ const token = conns[0].settings.access_token;
 - **API codegen**: Orval (from OpenAPI spec)
 - **Build**: esbuild (CJS bundle)
 - **Video**: SmartPlayer — HLS.js, dash.js, react-player (YouTube/Twitch/Vimeo), HTML5, SponsorBlock auto-skip
-- **Video Proxy (`/api/proxy/stream`)**: بروكسي خفيف يمرر manifests + segments للروابط المحظورة بـ CORS. Manifests تُعاد كتابتها لتمر عبر البروكسي. Segments تُبث بـ pipe مباشر (لا تُحمَّل بالكامل في الذاكرة). يحظر bot UAs. يدعم Range requests. يُعيد توجيه الـ sub-manifests تلقائياً
-- **WebRTC P2P Relay**: DJ يشغّل الفيديو → `captureStream()` → WebRTC P2P للمشاهدين. يُستخدم مع البروكسي (البروكسي يخدم الـ DJ فقط، المشاهدون يستقبلون من الـ DJ مباشرة)
-- **Real-time**: Socket.io (sync, chat, WebRTC video relay)
+- **Real-time**: Socket.io (sync, chat)
 - **State**: Zustand
 - **i18n**: Custom React context — 6 لغات (ar, en, fr, tr, es, id) — مفتاح LS: `lrmtv_lang`
 

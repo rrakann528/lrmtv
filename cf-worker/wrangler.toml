@@ -1,6 +1,0 @@
-name = "lrmtv-proxy"
-main = "worker.js"
-compatibility_date = "2024-09-25"
-
-[vars]
-ENVIRONMENT = "production"

@@ -12,7 +12,6 @@ import subtitlesRouter from "./subtitles";
 import adminRouter from "./admin";
 import groupsRouter from "./groups";
 import reportsRouter from "./reports";
-import manifestProxyRouter from "./manifest-proxy";
 
 const router: IRouter = Router();
 
@@ -29,6 +28,5 @@ router.use(subtitlesRouter);
 router.use(adminRouter);
 router.use(groupsRouter);
 router.use(reportsRouter);
-router.use(manifestProxyRouter);
 
 export default router;

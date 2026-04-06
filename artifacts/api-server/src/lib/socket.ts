@@ -1293,28 +1293,6 @@ export function initSocketServer(httpServer: HttpServer): Server {
       if (roomState.isLive) stopHeartbeat(roomState);
     });
 
-    // ── WebRTC ────────────────────────────────────────────────────────────────
-    socket.on("webrtc-signal", (data: { targetSocketId: string; signal: any; type: string; fresh?: boolean }) => {
-      io.to(data.targetSocketId).emit("webrtc-signal", {
-        fromSocketId: socket.id,
-        signal: data.signal,
-        type: data.type,
-        fresh: data.fresh,
-      });
-    });
-
-    socket.on("relay-mode", (data: { active: boolean }) => {
-      if (!currentRoomSlug) return;
-      const roomState = getRoomState(currentRoomSlug);
-      if (!roomState) return;
-      const user = roomState.users.get(socket.id);
-      if (!user?.isAdmin && !user?.isDJ) return;
-      socket.to(currentRoomSlug).emit("relay-mode", {
-        active: data.active,
-        from: user.displayName || user.username,
-      });
-    });
-
     // ── DJ backgrounding / closing — keep room playing ───────────────────────
     socket.on("dj-backgrounding", () => {
       if (!currentRoomSlug) return;

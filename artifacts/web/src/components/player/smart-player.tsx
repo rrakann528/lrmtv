@@ -454,7 +454,7 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
         setCustomSubtitleCues(parseSubtitles(externalSubtitle.content));
         setCustomSubtitleLabel(externalSubtitle.label ?? '');
       } else if (externalSubtitle.type === 'url' && externalSubtitle.url) {
-        fetch(`/api/proxy/subtitle?url=${encodeURIComponent(externalSubtitle.url)}`)
+        fetch(externalSubtitle.url)
           .then(r => r.text())
           .then(text => {
             setCustomSubtitleCues(parseSubtitles(text));

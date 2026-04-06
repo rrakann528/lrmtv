@@ -308,8 +308,7 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         setActiveSubtitleId(-2);
         if (hlsRef.current) hlsRef.current.subtitleTrack = -1;
       } else if (externalSubtitle.type === 'url' && externalSubtitle.url) {
-        // Fetch through proxy so we have the text
-        fetch(`/api/proxy/subtitle?url=${encodeURIComponent(externalSubtitle.url)}`)
+        fetch(externalSubtitle.url)
           .then(r => r.ok ? r.text() : Promise.reject(r.status))
           .then(text => {
             setCustomSubtitleCues(parseSubtitles(text));
@@ -943,62 +942,13 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         const canNativeHls = video.canPlayType('application/vnd.apple.mpegurl') !== '';
         const isIosSafari = /iPad|iPhone|iPod/.test(navigator.userAgent) && !Hls.isSupported();
 
-        // CF Worker proxy (free, edge network, no Railway bandwidth)
-        const cfWorkerBase = import.meta.env.VITE_CF_PROXY_URL as string | undefined;
-        const cfProxyUrl = cfWorkerBase
-          ? `${cfWorkerBase.replace(/\/$/, '')}/?url=${encodeURIComponent(src)}&mode=full`
-          : null;
-        // Server-side proxy fallback (Railway)
-        const serverProxyUrl = `/api/proxy/stream?url=${encodeURIComponent(src)}`;
-
-        const tryServerProxy = () => {
-          if (cancelled || !Hls.isSupported()) {
-            if (canNativeHls) {
-              s2_native(() => { setStatusMsg(null); setError('unsupported'); }, 20_000);
-            } else {
-              setStatusMsg(null); setError('unsupported');
-            }
-            return;
-          }
-          destroyAll();
-          setStatusMsg('hls-direct');
-          const hlsServer = makeHls(() => {
-            if (canNativeHls) {
-              s2_native(() => { setStatusMsg(null); setError('unsupported'); }, 20_000);
-            } else {
-              setStatusMsg(null); setError('unsupported');
-            }
-          });
-          hlsRef.current = hlsServer;
-          hlsServer.loadSource(serverProxyUrl);
-          hlsServer.attachMedia(video);
-        };
-
-        const tryManifestProxy = () => {
-          if (cancelled || !Hls.isSupported()) {
-            if (canNativeHls) {
-              s2_native(() => { setStatusMsg(null); setError('unsupported'); }, 20_000);
-            } else {
-              setStatusMsg(null); setError('unsupported');
-            }
-            return;
-          }
-          // Prefer CF Worker (free + fast) — fallback to server proxy
-          if (cfProxyUrl) {
-            destroyAll();
-            setStatusMsg('hls-direct');
-            const hlsCf = makeHls(() => tryServerProxy());
-            hlsRef.current = hlsCf;
-            hlsCf.loadSource(cfProxyUrl);
-            hlsCf.attachMedia(video);
-          } else {
-            tryServerProxy();
-          }
-        };
-
         if (Hls.isSupported()) {
           const hls = makeHls(() => {
-            tryManifestProxy();
+            if (canNativeHls) {
+              s2_native(() => { setStatusMsg(null); setError('unsupported'); }, 15_000);
+            } else {
+              setStatusMsg(null); setError('unsupported');
+            }
           });
           hlsRef.current = hls;
           hls.loadSource(src);
