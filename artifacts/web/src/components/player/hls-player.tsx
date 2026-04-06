@@ -942,13 +942,33 @@ export const HlsPlayer = forwardRef<HlsPlayerHandle, HlsPlayerProps>(
         const canNativeHls = video.canPlayType('application/vnd.apple.mpegurl') !== '';
         const isIosSafari = /iPad|iPhone|iPod/.test(navigator.userAgent) && !Hls.isSupported();
 
+        // CF Worker proxy (free Cloudflare edge — no server bandwidth used)
+        const cfWorkerBase = import.meta.env.VITE_CF_PROXY_URL as string | undefined;
+        const cfProxyUrl = cfWorkerBase
+          ? `${cfWorkerBase.replace(/\/$/, '')}/?url=${encodeURIComponent(src)}&mode=full`
+          : null;
+
+        const tryCfProxy = (onFail: () => void) => {
+          if (!cfProxyUrl || !Hls.isSupported()) { onFail(); return; }
+          destroyAll();
+          setStatusMsg('hls-direct');
+          const hlsCf = makeHls(onFail);
+          hlsRef.current = hlsCf;
+          hlsCf.loadSource(cfProxyUrl);
+          hlsCf.attachMedia(video);
+        };
+
+        const tryNativeOrFail = () => {
+          if (canNativeHls) {
+            s2_native(() => { setStatusMsg(null); setError('unsupported'); }, 15_000);
+          } else {
+            setStatusMsg(null); setError('unsupported');
+          }
+        };
+
         if (Hls.isSupported()) {
           const hls = makeHls(() => {
-            if (canNativeHls) {
-              s2_native(() => { setStatusMsg(null); setError('unsupported'); }, 15_000);
-            } else {
-              setStatusMsg(null); setError('unsupported');
-            }
+            tryCfProxy(() => tryNativeOrFail());
           });
           hlsRef.current = hls;
           hls.loadSource(src);
