@@ -699,6 +699,37 @@ export const SmartPlayer = forwardRef<SmartPlayerHandle, SmartPlayerProps>(
       );
     }
 
+    // ── Iframe embed sources (vidsrc.to, 2embed, etc.) ───────────────────────
+    if (videoType === 'embed') {
+      return (
+        <div ref={containerRef} className="absolute inset-0 bg-black">
+          <iframe
+            key={playableUrl}
+            src={playableUrl}
+            className="w-full h-full border-0"
+            allowFullScreen
+            allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+            referrerPolicy="no-referrer"
+          />
+          {/* Fullscreen button overlay */}
+          <button
+            className="absolute bottom-3 end-3 z-10 p-2 rounded-full bg-black/50 hover:bg-black/80 text-white transition"
+            onClick={async () => {
+              const el = containerRef.current;
+              if (!el) return;
+              const { enterFullscreen, exitFullscreen, isFullscreenActive, isSimulatedFullscreen } = await import('@/lib/fullscreen');
+              if (isFullscreenActive() || isSimulatedFullscreen(el)) await exitFullscreen(el);
+              else await enterFullscreen(el);
+            }}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+            </svg>
+          </button>
+        </div>
+      );
+    }
+
     // ── All other sources: ReactPlayer + custom overlay ──────────────────────
     return (
       <div

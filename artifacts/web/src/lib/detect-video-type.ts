@@ -1,4 +1,4 @@
-export type VideoSourceType = 'youtube' | 'vimeo' | 'twitch' | 'dailymotion' | 'rumble' | 'kick' | 'facebook' | 'twitter' | 'odysee' | 'hls' | 'dash' | 'html5';
+export type VideoSourceType = 'youtube' | 'vimeo' | 'twitch' | 'dailymotion' | 'rumble' | 'kick' | 'facebook' | 'twitter' | 'odysee' | 'hls' | 'dash' | 'embed' | 'html5';
 
 export function normalizeUrl(url: string): string {
   const trimmed = url.trim();
@@ -22,6 +22,9 @@ export function detectVideoType(url: string): VideoSourceType {
   if (/(?:facebook\.com\/(?:watch|video|share|reel)|fb\.watch)/.test(lower)) return 'facebook';
   if (/(?:twitter\.com|x\.com)\//.test(lower)) return 'twitter';
   if (/odysee\.com/.test(lower)) return 'odysee';
+
+  // ── Iframe embed sources (vidsrc, 2embed, autoembed, etc.) ─────────────────
+  if (/(?:vidsrc\.to|vidsrc\.me|vidsrc\.xyz|2embed\.cc|autoembed\.cc|autoembed\.to|embedsu\.com|moviesapi\.club|embed\.su)\/embed\//.test(lower)) return 'embed';
 
   // ── HLS streams ────────────────────────────────────────────────────────────
   // Match file extensions and common URL patterns that indicate HLS
