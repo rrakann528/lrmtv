@@ -66,8 +66,8 @@ router.get('/movies/search', async (req, res) => {
         overview: r.overview || '',
         embedUrl:
           r.media_type === 'movie'
-            ? `https://vidsrc.to/embed/movie/${r.id}`
-            : `https://vidsrc.to/embed/tv/${r.id}`,
+            ? `https://vidsrc.xyz/embed/movie?tmdb=${r.id}`
+            : `https://vidsrc.xyz/embed/tv?tmdb=${r.id}`,
       }));
 
     res.json({ items });
