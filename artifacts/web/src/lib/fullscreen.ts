@@ -62,10 +62,11 @@ export async function enterFullscreen(el: HTMLElement): Promise<void> {
     }
   }
 
-  // ── CSS-only simulated fullscreen (PWA only) ───────────────────────────────
-  // In a regular browser we skip this so the browser's native fullscreen
-  // behaviour is preserved even if it has keyboard side-effects.
-  if (!isPWA()) return;
+  // ── CSS-only simulated fullscreen (fallback for all platforms) ────────────
+  // Reaches here only when the native Fullscreen API is unavailable or refused
+  // (e.g. iOS Safari in browser mode). Apply CSS-only fullscreen so the button
+  // still works. PWA already relied on this path; now the browser also uses it
+  // when native is not available.
 
   el.style.position = 'fixed';
   el.style.inset = '0';
